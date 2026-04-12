@@ -71,6 +71,17 @@ enum Commands {
 enum ConfigSubcommand {
     /// Validate the config.yaml schema.
     Validate,
+
+    /// Migrate Python nanobot config to nanobot-rs format.
+    Migrate {
+        /// Path to Python nanobot config directory (e.g., ~/.nanobot).
+        #[arg(long)]
+        from: PathBuf,
+
+        /// Dry run: print resulting YAML to stdout instead of writing to file.
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 #[tokio::main]
@@ -103,6 +114,9 @@ async fn main() -> Result<()> {
         Commands::Config { subcommand } => match subcommand {
             ConfigSubcommand::Validate => {
                 commands::config::validate(&config)?;
+            }
+            ConfigSubcommand::Migrate { from, dry_run } => {
+                commands::config::migrate(&from, dry_run)?;
             }
         },
         Commands::Setup => {

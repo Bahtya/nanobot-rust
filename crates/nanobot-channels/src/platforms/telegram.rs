@@ -152,18 +152,46 @@ pub struct TelegramChannel {
 }
 
 impl TelegramChannel {
+    /// Build a reqwest client that respects system proxy settings.
+    ///
+    /// Checks HTTPS_PROXY, HTTP_PROXY, and ALL_PROXY env vars.
+    /// Logs the proxy configuration for debugging.
+    fn build_client() -> reqwest::Client {
+        let proxy_url = std::env::var("HTTPS_PROXY")
+            .or_else(|_| std::env::var("https_proxy"))
+            .or_else(|_| std::env::var("HTTP_PROXY"))
+            .or_else(|_| std::env::var("http_proxy"))
+            .or_else(|_| std::env::var("ALL_PROXY"))
+            .or_else(|_| std::env::var("all_proxy"))
+            .ok();
+
+        match &proxy_url {
+            Some(url) => {
+                info!("Telegram HTTP client using proxy: {}", url);
+                let proxy = reqwest::Proxy::all(url)
+                    .expect("Failed to create proxy from env var");
+                reqwest::Client::builder()
+                    .proxy(proxy)
+                    .build()
+                    .expect("Failed to build HTTP client with proxy")
+            }
+            None => {
+                info!("Telegram HTTP client: no proxy configured (direct connection)");
+                reqwest::Client::new()
+            }
+        }
+    }
+
     /// Create a new TelegramChannel, reading the bot token from the
     /// `TELEGRAM_BOT_TOKEN` environment variable.
-    /// Uses system proxy settings (HTTP_PROXY/HTTPS_PROXY/NO_PROXY).
+    /// Uses system proxy settings (HTTPS_PROXY/HTTP_PROXY/ALL_PROXY).
     pub fn new() -> Self {
         Self {
             token: std::env::var("TELEGRAM_BOT_TOKEN").ok(),
             connected: false,
             message_handler: None,
             running: Arc::new(AtomicBool::new(false)),
-            client: reqwest::Client::builder()
-                .build()
-                .unwrap_or_else(|_| reqwest::Client::new()),
+            client: Self::build_client(),
             base_url_override: None,
         }
     }

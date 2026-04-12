@@ -139,6 +139,19 @@ pub enum AgentEvent {
         job_name: Option<String>,
         message: String,
     },
+
+    /// Heartbeat health check completed.
+    HeartbeatCheck {
+        healthy: bool,
+        checks_total: usize,
+        checks_failed: usize,
+    },
+
+    /// Heartbeat requests a component restart.
+    RestartRequested {
+        component: String,
+        reason: String,
+    },
 }
 
 #[cfg(test)]

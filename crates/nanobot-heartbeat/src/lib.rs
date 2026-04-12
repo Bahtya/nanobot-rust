@@ -1,18 +1,9 @@
 //! # nanobot-heartbeat
 //!
-//! Heartbeat service — periodic task checking with two-phase LLM evaluation.
+//! Heartbeat service — periodic health checks, auto-restart, and state persistence.
 
 pub mod service;
+pub mod types;
 
 pub use service::HeartbeatService;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_lib_exports() {
-        // Verify the module compiles and re-exports are accessible
-        let _ = std::mem::size_of::<HeartbeatService>();
-    }
-}
+pub use types::*;

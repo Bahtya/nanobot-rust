@@ -104,6 +104,16 @@ impl ChannelManager {
         info!("Channel manager outbound consumer stopped");
     }
 
+    /// Stop all running channels.
+    pub async fn stop_all(&self) {
+        let names: Vec<String> = self.running_channel_names();
+        for name in names {
+            if let Err(e) = self.stop_channel(&name).await {
+                error!("Error stopping channel '{}': {}", name, e);
+            }
+        }
+    }
+
     /// List running channel names.
     pub fn running_channel_names(&self) -> Vec<String> {
         self.running_channels
@@ -141,6 +151,16 @@ mod tests {
         let registry = ChannelRegistry::new();
         let bus = MessageBus::new();
         let manager = ChannelManager::new(registry, bus);
+        assert!(manager.running_channel_names().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_manager_stop_all_empty() {
+        let registry = ChannelRegistry::new();
+        let bus = MessageBus::new();
+        let manager = ChannelManager::new(registry, bus);
+        // stop_all on empty manager should succeed without panic
+        manager.stop_all().await;
         assert!(manager.running_channel_names().is_empty());
     }
 }

@@ -54,6 +54,12 @@ enum Commands {
     /// Start the heartbeat service (periodic task checking).
     Heartbeat,
 
+    /// Cron job management commands.
+    Cron {
+        #[command(subcommand)]
+        subcommand: CronSubcommand,
+    },
+
     /// Configuration management commands.
     Config {
         #[command(subcommand)]
@@ -65,6 +71,18 @@ enum Commands {
 
     /// Show current configuration and status.
     Status,
+}
+
+#[derive(Subcommand)]
+enum CronSubcommand {
+    /// List all cron jobs.
+    List,
+
+    /// Show status of a specific cron job (by name or ID).
+    Status {
+        /// Job name or ID.
+        name: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -111,6 +129,14 @@ async fn main() -> Result<()> {
         Commands::Heartbeat => {
             commands::heartbeat::run(config).await?;
         }
+        Commands::Cron { subcommand } => match subcommand {
+            CronSubcommand::List => {
+                commands::cron::list(&config)?;
+            }
+            CronSubcommand::Status { name } => {
+                commands::cron::status(&config, &name)?;
+            }
+        },
         Commands::Config { subcommand } => match subcommand {
             ConfigSubcommand::Validate => {
                 commands::config::validate(&config)?;

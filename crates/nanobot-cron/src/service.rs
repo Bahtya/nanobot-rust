@@ -3,6 +3,7 @@
 //! Handles tick-based scheduling, job persistence, execution dispatch,
 //! and bus integration. Mirrors the Python `cron/service.py` CronService.
 
+use crate::state_store::{CronStateStore, FileStateStore};
 use crate::types::*;
 use anyhow::{Context, Result};
 use chrono::Local;
@@ -24,6 +25,7 @@ use uuid::Uuid;
 pub struct CronService {
     store_path: PathBuf,
     store: parking_lot::Mutex<CronStore>,
+    state_store: Box<dyn CronStateStore>,
     bus: Option<Arc<MessageBus>>,
     running: Arc<RwLock<bool>>,
 }
@@ -44,12 +46,19 @@ impl CronService {
             CronStore::default()
         };
 
-        Ok(Self {
+        let state_store_path = cron_dir.join("cron_job_states.json");
+        let state_store = FileStateStore::new(state_store_path)?;
+
+        let svc = Self {
             store_path,
             store: parking_lot::Mutex::new(store),
+            state_store: Box::new(state_store),
             bus: None,
             running: Arc::new(RwLock::new(false)),
-        })
+        };
+
+        svc.recover_states();
+        Ok(svc)
     }
 
     /// Create a CronService wired to a MessageBus for event dispatch.
@@ -57,6 +66,89 @@ impl CronService {
         let mut svc = Self::new(cron_dir)?;
         svc.bus = Some(Arc::new(bus));
         Ok(svc)
+    }
+
+    /// Create a CronService with a custom state store (for testing).
+    pub fn with_state_store(
+        cron_dir: PathBuf,
+        state_store: Box<dyn CronStateStore>,
+    ) -> Result<Self> {
+        if !cron_dir.exists() {
+            std::fs::create_dir_all(&cron_dir)?;
+        }
+
+        let store_path = cron_dir.join("cron_state.json");
+        let store = if store_path.exists() {
+            let content = std::fs::read_to_string(&store_path)
+                .with_context(|| format!("Failed to read {}", store_path.display()))?;
+            serde_json::from_str(&content).unwrap_or_default()
+        } else {
+            CronStore::default()
+        };
+
+        let svc = Self {
+            store_path,
+            store: parking_lot::Mutex::new(store),
+            state_store,
+            bus: None,
+            running: Arc::new(RwLock::new(false)),
+        };
+
+        svc.recover_states();
+        Ok(svc)
+    }
+
+    /// Recover job states from the state store on startup.
+    ///
+    /// For each job in the CronStore, checks if a previous state exists
+    /// and performs catch-up if the job was due while the service was down.
+    fn recover_states(&self) {
+        let mut store = self.store.lock();
+        let states = match self.state_store.list_states() {
+            Ok(s) => s,
+            Err(e) => {
+                warn!("Failed to load job states for recovery: {}", e);
+                return;
+            }
+        };
+
+        let now = Local::now();
+        let mut caught_up = 0;
+
+        for job in &mut store.jobs {
+            if let Some(prev_state) = states.get(&job.id) {
+                // Restore run count and error state
+                if let Some(name) = &prev_state.job_name {
+                    if job.name.is_none() {
+                        job.name = Some(name.clone());
+                    }
+                }
+
+                // Catch-up: if the job was active and its next_run is in the past,
+                // it missed one or more executions.
+                if job.state == JobState::Active {
+                    if let Some(next_run) = job.next_run {
+                        if next_run <= now {
+                            // Count missed executions (rough estimate)
+                            caught_up += 1;
+                            info!(
+                                "Catch-up: job '{}' was due at {}, rescheduling",
+                                job.id,
+                                next_run.format("%Y-%m-%d %H:%M:%S")
+                            );
+                            // Reschedule to next future occurrence
+                            job.next_run = compute_next_run(&job.schedule);
+                        }
+                    }
+                }
+            }
+        }
+
+        drop(store);
+        if caught_up > 0 {
+            info!("Recovered {} job(s) that were due during downtime", caught_up);
+            let _ = self.persist();
+        }
     }
 
     /// Add a new cron job.
@@ -73,8 +165,8 @@ impl CronService {
         let next_run = compute_next_run(&schedule);
 
         let job = CronJob {
-            id,
-            name,
+            id: id.clone(),
+            name: name.clone(),
             schedule,
             payload,
             state: JobState::Active,
@@ -86,6 +178,7 @@ impl CronService {
 
         self.store.lock().jobs.push(job.clone());
         self.persist()?;
+        self.save_job_state(&job);
         info!("Added cron job: {}", job.id);
         Ok(job)
     }
@@ -125,6 +218,7 @@ impl CronService {
         let updated = job.clone();
         drop(store);
         self.persist()?;
+        self.save_job_state(&updated);
         info!("Updated cron job: {}", job_id);
         Ok(Some(updated))
     }
@@ -139,6 +233,7 @@ impl CronService {
 
         if removed {
             self.persist()?;
+            let _ = self.state_store.delete_state(job_id);
             info!("Removed cron job: {}", job_id);
         }
         Ok(removed)
@@ -158,6 +253,10 @@ impl CronService {
 
         if found {
             self.persist()?;
+            // Save updated state
+            if let Some(job) = self.get_job(job_id) {
+                self.save_job_state(&job);
+            }
             info!("Paused cron job: {}", job_id);
         }
         Ok(found)
@@ -178,6 +277,9 @@ impl CronService {
 
         if found {
             self.persist()?;
+            if let Some(job) = self.get_job(job_id) {
+                self.save_job_state(&job);
+            }
             info!("Resumed cron job: {}", job_id);
         }
         Ok(found)
@@ -254,19 +356,36 @@ impl CronService {
         }
 
         let _ = self.persist();
+
+        // Save state for each fired job
+        for job in &due {
+            if let Some(current) = self.get_job(&job.id) {
+                self.save_job_state(&current);
+            }
+        }
+
         due
     }
 
     /// Mark a job as completed with a result.
     pub fn mark_completed(&self, job_id: &str, result: Option<String>) {
+        let is_error = result.as_ref().is_some_and(|r| r.starts_with("error:") || r.starts_with("Error"));
         let mut store = self.store.lock();
         if let Some(job) = store.jobs.iter_mut().find(|j| j.id == job_id) {
             if let Some(last_run) = job.history.last_mut() {
-                last_run.result = result;
+                last_run.result = result.clone();
+                if is_error {
+                    last_run.success = false;
+                }
             }
         }
         drop(store);
         let _ = self.persist();
+
+        // Update state store
+        if let Some(current) = self.get_job(job_id) {
+            self.save_job_state(&current);
+        }
     }
 
     /// Run the cron scheduler as a background task.
@@ -313,6 +432,53 @@ impl CronService {
     /// Check if the scheduler is running.
     pub async fn is_running(&self) -> bool {
         *self.running.read().await
+    }
+
+    /// Get the runtime state for a single job.
+    pub fn get_job_state(&self, job_id: &str) -> Option<CronJobState> {
+        self.state_store.load_state(job_id).ok().flatten()
+    }
+
+    /// Get runtime states for all jobs.
+    pub fn list_job_states(&self) -> Vec<(CronJob, CronJobState)> {
+        let jobs = self.list_jobs();
+        let states = self.state_store.list_states().unwrap_or_default();
+        jobs.into_iter()
+            .map(|job| {
+                let state = states.get(&job.id).cloned().unwrap_or_else(|| {
+                    // Synthesize state from the job if no stored state exists
+                    CronJobState {
+                        job_name: job.name.clone(),
+                        last_run: job.last_run.map(|dt| dt.with_timezone(&chrono::Utc)),
+                        next_run: job.next_run.map(|dt| dt.with_timezone(&chrono::Utc)),
+                        is_active: job.state == JobState::Active,
+                        run_count: job.history.len() as u64,
+                        last_error: None,
+                    }
+                });
+                (job, state)
+            })
+            .collect()
+    }
+
+    /// Convert a CronJob into its CronJobState snapshot.
+    fn job_to_state(&self, job: &CronJob) -> CronJobState {
+        CronJobState {
+            job_name: job.name.clone(),
+            last_run: job.last_run.map(|dt| dt.with_timezone(&chrono::Utc)),
+            next_run: job.next_run.map(|dt| dt.with_timezone(&chrono::Utc)),
+            is_active: job.state == JobState::Active,
+            run_count: job.history.len() as u64,
+            last_error: job.history.iter().rev().find(|r| !r.success).and_then(|r| r.result.clone()),
+        }
+    }
+
+    /// Save the runtime state for a job to the state store.
+    fn save_job_state(&self, job: &CronJob) {
+        let state = self.job_to_state(job);
+        if let Err(e) = self.state_store.save_state(&job.id, &state) {
+            warn!("Failed to save state for job {}: {}", job.id, e);
+        }
     }
 
     /// Persist the store to disk.
@@ -1000,5 +1166,197 @@ mod tests {
         for job in &jobs {
             assert_eq!(job.state, JobState::Done);
         }
+    }
+
+    // === State Store Integration ===
+
+    #[test]
+    fn test_add_job_saves_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let svc = make_service(dir.path());
+        let job = svc
+            .add_job(make_every_schedule(), make_payload(), Some("stateful".to_string()))
+            .unwrap();
+
+        let state = svc.get_job_state(&job.id).unwrap();
+        assert_eq!(state.job_name.as_deref(), Some("stateful"));
+        assert!(state.is_active);
+        assert!(state.next_run.is_some());
+        assert_eq!(state.run_count, 0);
+    }
+
+    #[test]
+    fn test_tick_updates_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let svc = make_service(dir.path());
+        let job = svc
+            .add_job(make_at_schedule(true), make_payload(), None)
+            .unwrap();
+
+        svc.tick();
+
+        let state = svc.get_job_state(&job.id).unwrap();
+        assert!(!state.is_active); // Done
+        assert!(state.last_run.is_some());
+        assert_eq!(state.run_count, 1);
+    }
+
+    #[test]
+    fn test_pause_updates_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let svc = make_service(dir.path());
+        let job = svc
+            .add_job(make_every_schedule(), make_payload(), None)
+            .unwrap();
+
+        svc.pause_job(&job.id).unwrap();
+
+        let state = svc.get_job_state(&job.id).unwrap();
+        assert!(!state.is_active);
+    }
+
+    #[test]
+    fn test_resume_updates_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let svc = make_service(dir.path());
+        let job = svc
+            .add_job(make_every_schedule(), make_payload(), None)
+            .unwrap();
+
+        svc.pause_job(&job.id).unwrap();
+        svc.resume_job(&job.id).unwrap();
+
+        let state = svc.get_job_state(&job.id).unwrap();
+        assert!(state.is_active);
+        assert!(state.next_run.is_some());
+    }
+
+    #[test]
+    fn test_remove_job_deletes_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let svc = make_service(dir.path());
+        let job = svc
+            .add_job(make_every_schedule(), make_payload(), None)
+            .unwrap();
+
+        // State should exist
+        assert!(svc.get_job_state(&job.id).is_some());
+
+        svc.remove_job(&job.id).unwrap();
+
+        // State should be gone
+        assert!(svc.get_job_state(&job.id).is_none());
+    }
+
+    #[test]
+    fn test_mark_completed_with_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let svc = make_service(dir.path());
+        let job = svc
+            .add_job(make_at_schedule(true), make_payload(), None)
+            .unwrap();
+
+        svc.tick();
+        svc.mark_completed(&job.id, Some("error: timeout".to_string()));
+
+        let state = svc.get_job_state(&job.id).unwrap();
+        assert!(state.last_error.is_some());
+        assert!(state.last_error.unwrap().contains("timeout"));
+    }
+
+    #[test]
+    fn test_list_job_states() {
+        let dir = tempfile::tempdir().unwrap();
+        let svc = make_service(dir.path());
+        svc.add_job(make_every_schedule(), make_payload(), Some("a".to_string()))
+            .unwrap();
+        svc.add_job(make_every_schedule(), make_payload(), Some("b".to_string()))
+            .unwrap();
+
+        let states = svc.list_job_states();
+        assert_eq!(states.len(), 2);
+        let names: Vec<_> = states.iter().map(|(j, _)| j.name.clone()).collect();
+        assert!(names.contains(&Some("a".to_string())));
+        assert!(names.contains(&Some("b".to_string())));
+    }
+
+    #[test]
+    fn test_state_survives_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let job_id = {
+            let svc = make_service(dir.path());
+            let job = svc
+                .add_job(make_every_schedule(), make_payload(), Some("survive".to_string()))
+                .unwrap();
+
+            // Simulate some runs
+            {
+                let mut store = svc.store.lock();
+                store.jobs[0].next_run = Some(Local::now() - TimeDelta::seconds(10));
+            }
+            svc.tick();
+
+            job.id
+        };
+
+        // Create a new service — should recover state
+        let svc2 = make_service(dir.path());
+        let state = svc2.get_job_state(&job_id).unwrap();
+        assert_eq!(state.job_name.as_deref(), Some("survive"));
+        assert!(state.run_count >= 1);
+    }
+
+    #[test]
+    fn test_catch_up_missed_jobs() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Create a job with a next_run in the past
+        let job_id = {
+            let svc = make_service(dir.path());
+            let job = svc
+                .add_job(make_every_schedule(), make_payload(), Some("late".to_string()))
+                .unwrap();
+
+            // Manually set next_run to the past and persist
+            {
+                let mut store = svc.store.lock();
+                store.jobs[0].next_run = Some(Local::now() - TimeDelta::hours(2));
+            }
+            svc.persist().unwrap();
+
+            // Also save the state as if it had a past next_run
+            let state = CronJobState {
+                job_name: Some("late".to_string()),
+                last_run: Some(chrono::Utc::now() - chrono::Duration::hours(3)),
+                next_run: Some(chrono::Utc::now() - chrono::Duration::hours(2)),
+                is_active: true,
+                run_count: 5,
+                last_error: None,
+            };
+            svc.state_store.save_state(&job.id, &state).unwrap();
+
+            job.id
+        };
+
+        // Create a new service — should catch up
+        let svc2 = make_service(dir.path());
+        let job = svc2.get_job(&job_id).unwrap();
+        // Should have rescheduled to a future time
+        assert!(job.next_run.unwrap() > Local::now());
+        assert_eq!(job.state, JobState::Active);
+    }
+
+    #[test]
+    fn test_with_state_store_custom() {
+        let dir = tempfile::tempdir().unwrap();
+        let mem_store = Box::new(crate::state_store::MemoryStateStore::new());
+        let svc = CronService::with_state_store(dir.path().to_path_buf(), mem_store).unwrap();
+
+        let job = svc
+            .add_job(make_every_schedule(), make_payload(), Some("custom".to_string()))
+            .unwrap();
+
+        let state = svc.get_job_state(&job.id).unwrap();
+        assert_eq!(state.job_name.as_deref(), Some("custom"));
     }
 }

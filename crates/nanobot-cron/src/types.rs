@@ -1,6 +1,6 @@
-//! Cron data types — CronSchedule, CronJob, CronPayload, etc.
+//! Cron data types — CronSchedule, CronJob, CronPayload, CronJobState, etc.
 
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, Utc};
 use serde::{Deserialize, Serialize};
 
 /// The kind of schedule.
@@ -131,6 +131,26 @@ pub struct CronStore {
     pub jobs: Vec<CronJob>,
 }
 
+/// Runtime state snapshot for a single cron job.
+///
+/// Tracks execution metadata independent of the job definition,
+/// enabling recovery across restarts and catch-up for missed schedules.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CronJobState {
+    /// Human-readable job name (denormalized for quick inspection).
+    pub job_name: Option<String>,
+    /// When the job last ran (UTC).
+    pub last_run: Option<DateTime<Utc>>,
+    /// When the job is next scheduled to run (UTC).
+    pub next_run: Option<DateTime<Utc>>,
+    /// Whether the job is currently active.
+    pub is_active: bool,
+    /// Total number of successful executions.
+    pub run_count: u64,
+    /// Last error message (if any).
+    pub last_error: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -248,5 +268,55 @@ mod tests {
         assert!(record.success);
         assert_eq!(record.result.as_deref(), Some("ok"));
         assert_eq!(record.timestamp, now);
+    }
+
+    // === CronJobState ===
+
+    #[test]
+    fn test_cron_job_state_construction() {
+        let state = CronJobState {
+            job_name: Some("hourly".to_string()),
+            last_run: Some(Utc::now()),
+            next_run: Some(Utc::now() + chrono::Duration::hours(1)),
+            is_active: true,
+            run_count: 5,
+            last_error: None,
+        };
+        assert_eq!(state.job_name.as_deref(), Some("hourly"));
+        assert!(state.is_active);
+        assert_eq!(state.run_count, 5);
+        assert!(state.last_error.is_none());
+    }
+
+    #[test]
+    fn test_cron_job_state_with_error() {
+        let state = CronJobState {
+            job_name: None,
+            last_run: Some(Utc::now()),
+            next_run: None,
+            is_active: false,
+            run_count: 0,
+            last_error: Some("timeout".to_string()),
+        };
+        assert_eq!(state.last_error.as_deref(), Some("timeout"));
+        assert!(!state.is_active);
+    }
+
+    #[test]
+    fn test_cron_job_state_serde_roundtrip() {
+        let state = CronJobState {
+            job_name: Some("test".to_string()),
+            last_run: Some(Utc::now()),
+            next_run: Some(Utc::now() + chrono::Duration::hours(1)),
+            is_active: true,
+            run_count: 42,
+            last_error: None,
+        };
+        let json = serde_json::to_string(&state).unwrap();
+        let back: CronJobState = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.job_name, state.job_name);
+        assert_eq!(back.is_active, state.is_active);
+        assert_eq!(back.run_count, 42);
+        assert_eq!(back.last_error, None);
     }
 }

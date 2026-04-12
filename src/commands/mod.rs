@@ -1,6 +1,7 @@
 //! CLI command implementations.
 
 pub mod agent;
+pub mod config;
 pub mod gateway;
 pub mod heartbeat;
 pub mod serve;

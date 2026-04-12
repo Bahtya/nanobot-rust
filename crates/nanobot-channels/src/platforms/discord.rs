@@ -988,4 +988,126 @@ mod tests {
         DiscordChannel::dispatch_message(&tx, &msg).await;
         // Should not send — empty content
     }
+
+    // -----------------------------------------------------------------------
+    // Tests for intents, opcodes, and serialisation
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_intents_text_bot_value() {
+        // GuildMessages (512) | DirectMessages (4096) | MessageContent (32768)
+        assert_eq!(intents::TEXT_BOT, 512 + 4096 + 32768);
+    }
+
+    #[test]
+    fn test_opcode_constants() {
+        assert_eq!(opcodes::DISPATCH, 0);
+        assert_eq!(opcodes::HEARTBEAT, 1);
+        assert_eq!(opcodes::IDENTIFY, 2);
+        assert_eq!(opcodes::INVALID_SESSION, 9);
+        assert_eq!(opcodes::HELLO, 10);
+        assert_eq!(opcodes::HEARTBEAT_ACK, 11);
+        assert_eq!(opcodes::RECONNECT, 7);
+        assert_eq!(opcodes::RESUME, 6);
+    }
+
+    #[test]
+    fn test_edit_message_body_serialisation() {
+        let body = EditMessageBody {
+            content: "updated text".to_string(),
+            embed: None,
+        };
+        let json = serde_json::to_value(&body).unwrap();
+        assert_eq!(json["content"], "updated text");
+        assert!(json.get("embed").is_none());
+    }
+
+    #[test]
+    fn test_edit_message_body_with_embed_serialisation() {
+        let body = EditMessageBody {
+            content: String::new(),
+            embed: Some(DiscordEmbed {
+                image: DiscordEmbedImage {
+                    url: "https://example.com/new_img.png".to_string(),
+                },
+                description: Some("updated caption".to_string()),
+            }),
+        };
+        let json = serde_json::to_value(&body).unwrap();
+        assert_eq!(json["content"], "");
+        assert_eq!(json["embed"]["image"]["url"], "https://example.com/new_img.png");
+        assert_eq!(json["embed"]["description"], "updated caption");
+    }
+
+    #[test]
+    fn test_gateway_payload_deserialisation() {
+        let json = r#"{"op":10,"d":{"heartbeat_interval":41250}}"#;
+        let payload: GatewayPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.op, opcodes::HELLO);
+        let hello: HelloData = serde_json::from_value(payload.d).unwrap();
+        assert_eq!(hello.heartbeat_interval, 41250);
+    }
+
+    #[test]
+    fn test_gateway_payload_dispatch() {
+        let json = r#"{
+            "op":0,
+            "s":42,
+            "t":"MESSAGE_CREATE",
+            "d":{"id":"999","content":"hi","channel_id":"111","author":{"id":"222","username":"alice"}}
+        }"#;
+        let payload: GatewayPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.op, opcodes::DISPATCH);
+        assert_eq!(payload.s, Some(42));
+        assert_eq!(payload.t.as_deref(), Some("MESSAGE_CREATE"));
+        let msg: GatewayMessage = serde_json::from_value(payload.d).unwrap();
+        assert_eq!(msg.id, "999");
+        assert_eq!(msg.content, "hi");
+    }
+
+    #[test]
+    fn test_gateway_payload_invalid_session() {
+        let json = r#"{"op":9,"d":true}"#;
+        let payload: GatewayPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.op, opcodes::INVALID_SESSION);
+    }
+
+    #[test]
+    fn test_gateway_payload_reconnect() {
+        let json = r#"{"op":7,"d":null}"#;
+        let payload: GatewayPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.op, opcodes::RECONNECT);
+    }
+
+    #[test]
+    fn test_discord_message_response_parse() {
+        let json = r#"{"id":"1234567890"}"#;
+        let resp: DiscordMessageResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.id, "1234567890");
+    }
+
+    #[test]
+    fn test_discord_user_parse() {
+        let json = r#"{"id":"111","username":"testbot"}"#;
+        let user: DiscordUser = serde_json::from_str(json).unwrap();
+        assert_eq!(user.id, "111");
+        assert_eq!(user.username, "testbot");
+    }
+
+    #[test]
+    fn test_make_error_result_forbidden() {
+        let result = DiscordChannel::make_error_result(StatusCode::FORBIDDEN, "Missing Access");
+        assert!(!result.success);
+        assert!(!result.retryable);
+        let err = result.error.unwrap();
+        assert!(err.contains("403"));
+        assert!(err.contains("Missing Access"));
+    }
+
+    #[test]
+    fn test_make_error_result_service_unavailable() {
+        let result = DiscordChannel::make_error_result(StatusCode::SERVICE_UNAVAILABLE, "overloaded");
+        assert!(!result.success);
+        assert!(result.retryable);
+    }
 }

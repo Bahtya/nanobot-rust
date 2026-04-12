@@ -1,0 +1,21 @@
+[package]
+name = "nanobot-cron"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nanobot-core = { path = "../nanobot-core" }
+nanobot-config = { path = "../nanobot-config" }
+nanobot-bus = { path = "../nanobot-bus" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+cron = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+parking_lot = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

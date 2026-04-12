@@ -1,0 +1,12 @@
+[package]
+name = "nanobot-bus"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nanobot-core = { path = "../nanobot-core" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }

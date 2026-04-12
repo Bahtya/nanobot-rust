@@ -1,0 +1,104 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/nanobot-core",
+    "crates/nanobot-config",
+    "crates/nanobot-bus",
+    "crates/nanobot-session",
+    "crates/nanobot-security",
+    "crates/nanobot-providers",
+    "crates/nanobot-tools",
+    "crates/nanobot-agent",
+    "crates/nanobot-cron",
+    "crates/nanobot-heartbeat",
+    "crates/nanobot-channels",
+    "crates/nanobot-api",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.75"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+async-trait = "0.1"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# HTTP
+reqwest = { version = "0.12", features = ["json", "stream", "socks"] }
+axum = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+cron = "0.15"
+
+# Concurrency
+parking_lot = "0.12"
+dashmap = "6"
+
+# Misc
+uuid = { version = "1", features = ["v4"] }
+regex = "1"
+glob = "0.3"
+tempfile = "3"
+rand = "0.9"
+sha2 = "0.10"
+base64 = "0.22"
+url = "2"
+ipnet = "2"
+dirs = "5"
+
+# ─── Main binary package ────────────────────────────────────
+
+[package]
+name = "nanobot-rust"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "nanobot"
+path = "src/main.rs"
+
+[dependencies]
+nanobot-core = { path = "crates/nanobot-core" }
+nanobot-config = { path = "crates/nanobot-config" }
+nanobot-bus = { path = "crates/nanobot-bus" }
+nanobot-session = { path = "crates/nanobot-session" }
+nanobot-security = { path = "crates/nanobot-security" }
+nanobot-providers = { path = "crates/nanobot-providers" }
+nanobot-tools = { path = "crates/nanobot-tools" }
+nanobot-agent = { path = "crates/nanobot-agent" }
+nanobot-cron = { path = "crates/nanobot-cron" }
+nanobot-heartbeat = { path = "crates/nanobot-heartbeat" }
+nanobot-channels = { path = "crates/nanobot-channels" }
+nanobot-api = { path = "crates/nanobot-api" }
+tokio = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+chrono = { workspace = true }

@@ -1,0 +1,19 @@
+[package]
+name = "nanobot-session"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nanobot-core = { path = "../nanobot-core" }
+nanobot-config = { path = "../nanobot-config" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+parking_lot = { workspace = true }
+dashmap = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

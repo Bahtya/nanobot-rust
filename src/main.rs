@@ -13,7 +13,7 @@ mod commands;
 
 /// Nanobot — multi-platform AI agent framework.
 #[derive(Parser)]
-#[command(name = "nanobot")]
+#[command(name = "nanobot-rs")]
 #[command(version = nanobot_core::VERSION)]
 #[command(about = "A multi-platform AI agent framework")]
 struct Cli {

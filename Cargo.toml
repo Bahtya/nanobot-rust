@@ -77,7 +77,7 @@ version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "nanobot"
+name = "nanobot-rs"
 path = "src/main.rs"
 
 [dependencies]

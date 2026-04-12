@@ -117,3 +117,40 @@ async fn test_telegram_channel_name_and_platform() {
     assert_eq!(channel.platform(), Platform::Telegram);
     assert!(!channel.is_connected());
 }
+
+#[tokio::test]
+async fn test_telegram_edit_message_text_with_mock() {
+    let mock_response =
+        r#"{"ok":true,"result":{"message_id":42,"chat":{"id":123},"text":"edited!"}}"#;
+    let (port, _handle) = start_mock_telegram_server(mock_response).await;
+
+    let channel = TelegramChannel::with_token_and_url(
+        "test-token".to_string(),
+        format!("http://127.0.0.1:{}", port),
+    );
+
+    let result = channel
+        .edit_message_text("123", "42", "edited!", None)
+        .await
+        .unwrap();
+    assert!(result.success);
+    assert_eq!(result.message_id.as_deref(), Some("42"));
+}
+
+#[tokio::test]
+async fn test_telegram_edit_message_reply_markup_with_mock() {
+    let mock_response =
+        r#"{"ok":true,"result":{"message_id":42,"chat":{"id":123},"text":"old text"}}"#;
+    let (port, _handle) = start_mock_telegram_server(mock_response).await;
+
+    let channel = TelegramChannel::with_token_and_url(
+        "test-token".to_string(),
+        format!("http://127.0.0.1:{}", port),
+    );
+
+    let result = channel
+        .edit_message_reply_markup("123", "42", None)
+        .await
+        .unwrap();
+    assert!(result.success);
+}

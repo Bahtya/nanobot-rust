@@ -307,7 +307,7 @@ async fn list_models(State(state): State<AppState>) -> impl IntoResponse {
             id: model.clone(),
             object: "model".to_string(),
             created: 0,
-            owned_by: "nanobot".to_string(),
+            owned_by: "nanobot-rs".to_string(),
         }],
     })
 }

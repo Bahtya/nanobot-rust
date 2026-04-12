@@ -310,8 +310,8 @@ impl DiscordChannel {
                 "intents": 512, // GuildMessages + MessageContent = 1 << 9 | 1 << 15 = 512 + 32768 = 33280
                 "properties": {
                     "os": "linux",
-                    "browser": "nanobot-rust",
-                    "device": "nanobot-rust"
+                    "browser": "nanobot-rs",
+                    "device": "nanobot-rs"
                 }
             }
         });

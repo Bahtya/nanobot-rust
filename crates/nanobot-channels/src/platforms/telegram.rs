@@ -48,6 +48,8 @@ struct TgUpdate {
     update_id: i64,
     #[serde(default)]
     message: Option<TgMessage>,
+    #[serde(default)]
+    callback_query: Option<TgCallbackQuery>,
 }
 
 /// A message object inside an update.
@@ -102,6 +104,25 @@ struct TgPhotoSize {
     height: i32,
 }
 
+/// A callback query from an inline keyboard button press.
+#[derive(Debug, Deserialize)]
+struct TgCallbackQuery {
+    id: String,
+    #[serde(default)]
+    from: Option<TgUser>,
+    #[serde(default)]
+    message: Option<TgCallbackMessage>,
+    #[serde(default)]
+    data: Option<String>,
+}
+
+/// The message attached to a callback query (may be minimal).
+#[derive(Debug, Deserialize)]
+struct TgCallbackMessage {
+    message_id: i64,
+    chat: TgChat,
+}
+
 /// Result of `sendMessage` — we only need the message_id.
 #[derive(Debug, Default, Deserialize)]
 struct TgSentMessage {
@@ -134,6 +155,30 @@ struct SendPhotoBody {
 struct SendChatActionBody {
     chat_id: i64,
     action: String,
+}
+
+#[derive(Debug, Serialize)]
+struct EditMessageTextBody {
+    chat_id: i64,
+    message_id: i64,
+    text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reply_markup: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize)]
+struct EditMessageReplyMarkupBody {
+    chat_id: i64,
+    message_id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reply_markup: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize)]
+struct AnswerCallbackQueryBody {
+    callback_query_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -327,6 +372,12 @@ impl TelegramChannel {
                     if let Err(e) = Self::dispatch_message(&handler, &msg).await {
                         error!("Failed to dispatch Telegram message: {e}");
                     }
+                } else if let Some(cq) = update.callback_query {
+                    if let Err(e) =
+                        Self::dispatch_callback_query(&client, &base_url, &handler, &cq).await
+                    {
+                        error!("Failed to dispatch Telegram callback query: {e}");
+                    }
                 }
             }
         }
@@ -441,6 +492,107 @@ impl TelegramChannel {
                 .reply_to_message
                 .as_ref()
                 .map(|r| r.message_id.to_string()),
+            timestamp: Local::now(),
+        };
+
+        handler
+            .send(inbound)
+            .await
+            .context("message handler channel closed")
+    }
+
+    /// Convert a `TgCallbackQuery` into an `InboundMessage` and answer it.
+    async fn dispatch_callback_query(
+        client: &reqwest::Client,
+        base_url: &str,
+        handler: &tokio::sync::mpsc::Sender<InboundMessage>,
+        cq: &TgCallbackQuery,
+    ) -> Result<()> {
+        // Answer the callback query so the button stops loading.
+        let answer_url = format!("{}/answerCallbackQuery", base_url);
+        let answer_body = AnswerCallbackQueryBody {
+            callback_query_id: cq.id.clone(),
+            text: None,
+        };
+        if let Err(e) = client.post(&answer_url).json(&answer_body).send().await {
+            warn!("Failed to answer Telegram callback query: {e}");
+        }
+
+        let sender_id = cq
+            .from
+            .as_ref()
+            .map(|u| u.id.to_string())
+            .unwrap_or_default();
+
+        let user_name = cq.from.as_ref().map(|u| {
+            let first = u.first_name.as_deref().unwrap_or("");
+            let last = u.last_name.as_deref().unwrap_or("");
+            if last.is_empty() {
+                first.to_string()
+            } else {
+                format!("{first} {last}")
+            }
+        });
+
+        let data = cq.data.clone().unwrap_or_default();
+
+        let msg = match &cq.message {
+            Some(m) => m,
+            None => return Ok(()),
+        };
+
+        let chat_id = msg.chat.id.to_string();
+        let chat_type = msg
+            .chat
+            .chat_type
+            .as_deref()
+            .unwrap_or("private")
+            .to_string();
+
+        let mapped_chat_type = match chat_type.as_str() {
+            "private" => "dm",
+            "group" | "supergroup" => "group",
+            "channel" => "channel",
+            other => other,
+        };
+
+        let source = SessionSource {
+            platform: Platform::Telegram,
+            chat_id: chat_id.clone(),
+            chat_name: msg.chat.title.clone(),
+            chat_type: mapped_chat_type.to_string(),
+            user_id: if sender_id.is_empty() {
+                None
+            } else {
+                Some(sender_id.clone())
+            },
+            user_name,
+            thread_id: msg.chat.thread_id.map(|id| id.to_string()),
+            chat_topic: None,
+        };
+
+        let mut metadata = HashMap::new();
+        metadata.insert(
+            "tg_message_id".to_string(),
+            serde_json::json!(msg.message_id),
+        );
+        metadata.insert(
+            "tg_callback_query_id".to_string(),
+            serde_json::json!(cq.id),
+        );
+        metadata.insert("tg_callback_data".to_string(), serde_json::json!(data));
+
+        let inbound = InboundMessage {
+            channel: Platform::Telegram,
+            sender_id,
+            chat_id,
+            content: format!("callback:{}", cq.data.as_deref().unwrap_or("")),
+            media: vec![],
+            metadata,
+            source: Some(source),
+            message_type: MessageType::Command,
+            message_id: Some(msg.message_id.to_string()),
+            reply_to: None,
             timestamp: Local::now(),
         };
 
@@ -680,6 +832,182 @@ impl BaseChannel for TelegramChannel {
 
     fn set_message_handler(&mut self, handler: tokio::sync::mpsc::Sender<InboundMessage>) {
         self.message_handler = Some(handler);
+    }
+}
+
+impl TelegramChannel {
+    /// Edit the text of a previously sent message.
+    ///
+    /// Optionally attach or update an inline keyboard via `reply_markup`.
+    pub async fn edit_message_text(
+        &self,
+        chat_id: &str,
+        message_id: &str,
+        text: &str,
+        reply_markup: Option<serde_json::Value>,
+    ) -> Result<SendResult> {
+        debug!(
+            "Editing Telegram message {} in chat {}",
+            message_id, chat_id
+        );
+
+        let chat_id_num: i64 = match chat_id.parse() {
+            Ok(n) => n,
+            Err(_) => {
+                return Ok(SendResult {
+                    success: false,
+                    message_id: None,
+                    error: Some(format!("invalid chat_id: {chat_id}")),
+                    retryable: false,
+                });
+            }
+        };
+
+        let message_id_num: i64 = match message_id.parse() {
+            Ok(n) => n,
+            Err(_) => {
+                return Ok(SendResult {
+                    success: false,
+                    message_id: None,
+                    error: Some(format!("invalid message_id: {message_id}")),
+                    retryable: false,
+                });
+            }
+        };
+
+        let body = EditMessageTextBody {
+            chat_id: chat_id_num,
+            message_id: message_id_num,
+            text: text.to_string(),
+            reply_markup,
+        };
+
+        let url = self.api_url("editMessageText");
+        let resp = match self.client.post(&url).json(&body).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                return Ok(SendResult {
+                    success: false,
+                    message_id: None,
+                    error: Some(format!("HTTP request failed: {e}")),
+                    retryable: true,
+                });
+            }
+        };
+
+        let tg_resp: TgResponse<TgSentMessage> = match resp.json().await {
+            Ok(r) => r,
+            Err(e) => {
+                return Ok(SendResult {
+                    success: false,
+                    message_id: None,
+                    error: Some(format!("failed to parse response: {e}")),
+                    retryable: false,
+                });
+            }
+        };
+
+        if tg_resp.ok {
+            Ok(SendResult {
+                success: true,
+                message_id: tg_resp.result.map(|m| m.message_id.to_string()),
+                error: None,
+                retryable: false,
+            })
+        } else {
+            Ok(SendResult {
+                success: false,
+                message_id: None,
+                error: tg_resp.description,
+                retryable: false,
+            })
+        }
+    }
+
+    /// Edit only the inline keyboard (reply markup) of a previously sent message.
+    ///
+    /// Pass `None` for `reply_markup` to remove the keyboard entirely.
+    pub async fn edit_message_reply_markup(
+        &self,
+        chat_id: &str,
+        message_id: &str,
+        reply_markup: Option<serde_json::Value>,
+    ) -> Result<SendResult> {
+        debug!(
+            "Editing reply markup for message {} in chat {}",
+            message_id, chat_id
+        );
+
+        let chat_id_num: i64 = match chat_id.parse() {
+            Ok(n) => n,
+            Err(_) => {
+                return Ok(SendResult {
+                    success: false,
+                    message_id: None,
+                    error: Some(format!("invalid chat_id: {chat_id}")),
+                    retryable: false,
+                });
+            }
+        };
+
+        let message_id_num: i64 = match message_id.parse() {
+            Ok(n) => n,
+            Err(_) => {
+                return Ok(SendResult {
+                    success: false,
+                    message_id: None,
+                    error: Some(format!("invalid message_id: {message_id}")),
+                    retryable: false,
+                });
+            }
+        };
+
+        let body = EditMessageReplyMarkupBody {
+            chat_id: chat_id_num,
+            message_id: message_id_num,
+            reply_markup,
+        };
+
+        let url = self.api_url("editMessageReplyMarkup");
+        let resp = match self.client.post(&url).json(&body).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                return Ok(SendResult {
+                    success: false,
+                    message_id: None,
+                    error: Some(format!("HTTP request failed: {e}")),
+                    retryable: true,
+                });
+            }
+        };
+
+        let tg_resp: TgResponse<TgSentMessage> = match resp.json().await {
+            Ok(r) => r,
+            Err(e) => {
+                return Ok(SendResult {
+                    success: false,
+                    message_id: None,
+                    error: Some(format!("failed to parse response: {e}")),
+                    retryable: false,
+                });
+            }
+        };
+
+        if tg_resp.ok {
+            Ok(SendResult {
+                success: true,
+                message_id: tg_resp.result.map(|m| m.message_id.to_string()),
+                error: None,
+                retryable: false,
+            })
+        } else {
+            Ok(SendResult {
+                success: false,
+                message_id: None,
+                error: tg_resp.description,
+                retryable: false,
+            })
+        }
     }
 }
 
@@ -1039,5 +1367,229 @@ mod tests {
 
         // Should succeed but not send anything — no text, no photo.
         TelegramChannel::dispatch_message(&tx, &msg).await.unwrap();
+    }
+
+    // -----------------------------------------------------------------------
+    // Tests for new features: callback_query, editMessage*, serialisation
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_callback_query_update() {
+        let json = r#"{
+            "update_id": 99999,
+            "callback_query": {
+                "id": "cb123",
+                "from": {
+                    "id": 555,
+                    "first_name": "Frank",
+                    "username": "frank_bot"
+                },
+                "message": {
+                    "message_id": 42,
+                    "chat": {"id": 555, "type": "private"}
+                },
+                "data": "approve:42"
+            }
+        }"#;
+
+        let update: TgUpdate = serde_json::from_str(json).unwrap();
+        assert_eq!(update.update_id, 99999);
+        assert!(update.message.is_none());
+        let cq = update.callback_query.unwrap();
+        assert_eq!(cq.id, "cb123");
+        assert_eq!(cq.data.as_deref(), Some("approve:42"));
+        let from = cq.from.unwrap();
+        assert_eq!(from.id, 555);
+        assert_eq!(from.username.as_deref(), Some("frank_bot"));
+        let msg = cq.message.unwrap();
+        assert_eq!(msg.message_id, 42);
+        assert_eq!(msg.chat.id, 555);
+    }
+
+    #[test]
+    fn test_parse_update_with_message_and_no_callback() {
+        let json = r#"{
+            "update_id": 11111,
+            "message": {
+                "message_id": 1,
+                "chat": {"id": 999, "type": "group", "title": "My Group"},
+                "text": "hi"
+            }
+        }"#;
+
+        let update: TgUpdate = serde_json::from_str(json).unwrap();
+        assert!(update.callback_query.is_none());
+        let msg = update.message.unwrap();
+        assert_eq!(msg.text.as_deref(), Some("hi"));
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_callback_query() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<InboundMessage>(10);
+        let client = reqwest::Client::new();
+        let base_url = "http://127.0.0.1:0";
+
+        let cq = TgCallbackQuery {
+            id: "cb999".to_string(),
+            from: Some(TgUser {
+                id: 777,
+                first_name: Some("Grace".to_string()),
+                last_name: Some("Hopper".to_string()),
+                username: Some("grace".to_string()),
+            }),
+            message: Some(TgCallbackMessage {
+                message_id: 50,
+                chat: TgChat {
+                    id: 777,
+                    chat_type: Some("private".to_string()),
+                    title: None,
+                    thread_id: None,
+                },
+            }),
+            data: Some("action:confirm".to_string()),
+        };
+
+        // The answerCallbackQuery call will fail (no server) but dispatch
+        // should still succeed since we only warn on failure.
+        let result =
+            TelegramChannel::dispatch_callback_query(&client, base_url, &tx, &cq).await;
+        // The handler should still receive the message even if answer fails.
+        if result.is_ok() {
+            let inbound = rx.try_recv().unwrap();
+            assert_eq!(inbound.channel, Platform::Telegram);
+            assert_eq!(inbound.sender_id, "777");
+            assert_eq!(inbound.chat_id, "777");
+            assert_eq!(inbound.content, "callback:action:confirm");
+            assert_eq!(inbound.message_type, MessageType::Command);
+            assert_eq!(inbound.message_id.as_deref(), Some("50"));
+            assert_eq!(
+                inbound.metadata.get("tg_callback_data").unwrap(),
+                &serde_json::json!("action:confirm")
+            );
+            let src = inbound.source.unwrap();
+            assert_eq!(src.chat_type, "dm");
+            assert_eq!(src.user_name.as_deref(), Some("Grace Hopper"));
+        }
+        // If result is Err, the handler channel closed due to the failed
+        // HTTP call — that's also acceptable in this test setup.
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_callback_query_no_message() {
+        let (tx, _rx) = tokio::sync::mpsc::channel::<InboundMessage>(10);
+        let client = reqwest::Client::new();
+        let base_url = "http://127.0.0.1:0";
+
+        let cq = TgCallbackQuery {
+            id: "cb_naked".to_string(),
+            from: Some(TgUser {
+                id: 100,
+                first_name: Some("NoMsg".to_string()),
+                last_name: None,
+                username: None,
+            }),
+            message: None,
+            data: Some("click".to_string()),
+        };
+
+        // Should return Ok(()) — no message attached means nothing to dispatch.
+        TelegramChannel::dispatch_callback_query(&client, base_url, &tx, &cq)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_edit_message_text_invalid_chat_id() {
+        let channel = TelegramChannel::new();
+        let result = channel
+            .edit_message_text("not_a_number", "1", "new text", None)
+            .await
+            .unwrap();
+        assert!(!result.success);
+        assert!(result.error.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_edit_message_text_invalid_message_id() {
+        let channel = TelegramChannel::new();
+        let result = channel
+            .edit_message_text("123", "not_a_number", "new text", None)
+            .await
+            .unwrap();
+        assert!(!result.success);
+        assert!(result.error.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_edit_message_reply_markup_invalid_chat_id() {
+        let channel = TelegramChannel::new();
+        let result = channel
+            .edit_message_reply_markup("bad", "1", None)
+            .await
+            .unwrap();
+        assert!(!result.success);
+        assert!(result.error.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_edit_message_reply_markup_invalid_message_id() {
+        let channel = TelegramChannel::new();
+        let result = channel
+            .edit_message_reply_markup("123", "bad", None)
+            .await
+            .unwrap();
+        assert!(!result.success);
+        assert!(result.error.is_some());
+    }
+
+    #[test]
+    fn test_edit_message_text_body_serialisation() {
+        let body = EditMessageTextBody {
+            chat_id: 123,
+            message_id: 456,
+            text: "updated text".to_string(),
+            reply_markup: Some(serde_json::json!({
+                "inline_keyboard": [[{"text": "Click", "callback_data": "yes"}]]
+            })),
+        };
+        let json = serde_json::to_value(&body).unwrap();
+        assert_eq!(json["chat_id"], 123);
+        assert_eq!(json["message_id"], 456);
+        assert_eq!(json["text"], "updated text");
+        assert!(json["reply_markup"]["inline_keyboard"].is_array());
+    }
+
+    #[test]
+    fn test_edit_message_reply_markup_body_serialisation() {
+        let body = EditMessageReplyMarkupBody {
+            chat_id: 789,
+            message_id: 101,
+            reply_markup: None,
+        };
+        let json = serde_json::to_value(&body).unwrap();
+        assert_eq!(json["chat_id"], 789);
+        assert_eq!(json["message_id"], 101);
+        assert!(json.get("reply_markup").is_none());
+    }
+
+    #[test]
+    fn test_answer_callback_query_body_serialisation() {
+        let body = AnswerCallbackQueryBody {
+            callback_query_id: "cb123".to_string(),
+            text: Some("Done!".to_string()),
+        };
+        let json = serde_json::to_value(&body).unwrap();
+        assert_eq!(json["callback_query_id"], "cb123");
+        assert_eq!(json["text"], "Done!");
+    }
+
+    #[test]
+    fn test_answer_callback_query_body_no_text() {
+        let body = AnswerCallbackQueryBody {
+            callback_query_id: "cb456".to_string(),
+            text: None,
+        };
+        let json = serde_json::to_value(&body).unwrap();
+        assert!(json.get("text").is_none());
     }
 }

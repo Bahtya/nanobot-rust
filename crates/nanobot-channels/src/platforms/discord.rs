@@ -137,15 +137,40 @@ pub struct DiscordChannel {
 }
 
 impl DiscordChannel {
+    /// Build a reqwest client that respects system proxy settings.
+    fn build_client() -> reqwest::Client {
+        let proxy_url = std::env::var("HTTPS_PROXY")
+            .or_else(|_| std::env::var("https_proxy"))
+            .or_else(|_| std::env::var("HTTP_PROXY"))
+            .or_else(|_| std::env::var("http_proxy"))
+            .or_else(|_| std::env::var("ALL_PROXY"))
+            .or_else(|_| std::env::var("all_proxy"))
+            .ok();
+
+        match &proxy_url {
+            Some(url) => {
+                info!("Discord HTTP client using proxy: {}", url);
+                let proxy = reqwest::Proxy::all(url)
+                    .expect("Failed to create proxy from env var");
+                reqwest::Client::builder()
+                    .proxy(proxy)
+                    .build()
+                    .expect("Failed to build HTTP client with proxy")
+            }
+            None => {
+                info!("Discord HTTP client: no proxy configured (direct connection)");
+                reqwest::Client::new()
+            }
+        }
+    }
+
     /// Create a new `DiscordChannel`.
     pub fn new() -> Self {
         Self {
             token: std::env::var("DISCORD_BOT_TOKEN").ok(),
             connected: false,
             message_handler: None,
-            client: reqwest::Client::builder()
-                .build()
-                .unwrap_or_else(|_| reqwest::Client::new()),
+            client: Self::build_client(),
             base_url_override: None,
             running: Arc::new(AtomicBool::new(false)),
         }

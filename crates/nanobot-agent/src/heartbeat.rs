@@ -199,7 +199,21 @@ impl HealthCheck for ChannelHealthCheck {
                 ),
                 timestamp: chrono::Local::now(),
             }
+        } else if disconnected.len() < self.channel_names.len() {
+            // Partial disconnection — some channels still up
+            HealthCheckResult {
+                component: "channel".to_string(),
+                status: CheckStatus::Degraded,
+                message: format!(
+                    "{}/{} connected, disconnected: {}",
+                    connected.len(),
+                    self.channel_names.len(),
+                    disconnected.join(", ")
+                ),
+                timestamp: chrono::Local::now(),
+            }
         } else {
+            // All channels disconnected
             HealthCheckResult {
                 component: "channel".to_string(),
                 status: CheckStatus::Unhealthy,
@@ -243,6 +257,52 @@ impl HealthCheck for BusHealthCheck {
             component: "bus".to_string(),
             status: CheckStatus::Healthy,
             message: format!("bus operational ({} subscribers)", receiver_count),
+            timestamp: chrono::Local::now(),
+        }
+    }
+}
+
+// ─── ToolRegistryHealthCheck ─────────────────────────────────────
+
+/// Health check for the tool registry.
+///
+/// Reports the number of registered tools. Reports `Degraded` if no
+/// tools are available (the agent can still converse but cannot
+/// take actions). Reports `Skipped` if the registry was never
+/// initialised.
+pub struct ToolRegistryHealthCheck {
+    registry: nanobot_tools::ToolRegistry,
+}
+
+impl ToolRegistryHealthCheck {
+    /// Create a new tool registry health check.
+    pub fn new(registry: nanobot_tools::ToolRegistry) -> Self {
+        Self { registry }
+    }
+}
+
+#[async_trait]
+impl HealthCheck for ToolRegistryHealthCheck {
+    fn component_name(&self) -> &str {
+        "tool_registry"
+    }
+
+    async fn report_health(&self) -> HealthCheckResult {
+        let tools = self.registry.tool_names();
+
+        if tools.is_empty() {
+            return HealthCheckResult {
+                component: "tool_registry".to_string(),
+                status: CheckStatus::Degraded,
+                message: "No tools registered — agent cannot execute actions".to_string(),
+                timestamp: chrono::Local::now(),
+            };
+        }
+
+        HealthCheckResult {
+            component: "tool_registry".to_string(),
+            status: CheckStatus::Healthy,
+            message: format!("{} tools registered", tools.len()),
             timestamp: chrono::Local::now(),
         }
     }
@@ -441,8 +501,9 @@ mod tests {
         );
         let result = check.report_health().await;
 
-        assert_eq!(result.status, CheckStatus::Unhealthy);
+        assert_eq!(result.status, CheckStatus::Degraded);
         assert!(result.message.contains("discord"));
+        assert!(result.message.contains("1/2 connected"));
     }
 
     #[tokio::test]
@@ -522,6 +583,55 @@ mod tests {
         let bus = nanobot_bus::MessageBus::new();
         let check = BusHealthCheck::new(bus);
         assert_eq!(check.component_name(), "bus");
+    }
+
+    // === ToolRegistryHealthCheck ===
+
+    #[tokio::test]
+    async fn test_tool_registry_empty_degraded() {
+        let registry = nanobot_tools::ToolRegistry::new();
+        let check = ToolRegistryHealthCheck::new(registry);
+        let result = check.report_health().await;
+
+        assert_eq!(result.component, "tool_registry");
+        assert_eq!(result.status, CheckStatus::Degraded);
+        assert!(result.message.contains("No tools registered"));
+    }
+
+    #[tokio::test]
+    async fn test_tool_registry_with_tools_healthy() {
+        let registry = nanobot_tools::ToolRegistry::new();
+
+        use async_trait::async_trait;
+        use nanobot_tools::Tool;
+        use nanobot_tools::ToolError;
+
+        struct DummyTool;
+        #[async_trait]
+        impl Tool for DummyTool {
+            fn name(&self) -> &str { "test_tool" }
+            fn description(&self) -> &str { "A test tool" }
+            fn parameters_schema(&self) -> serde_json::Value {
+                serde_json::json!({"type": "object"})
+            }
+            async fn execute(&self, _args: serde_json::Value) -> Result<String, ToolError> {
+                Ok("ok".to_string())
+            }
+        }
+        registry.register(DummyTool);
+
+        let check = ToolRegistryHealthCheck::new(registry);
+        let result = check.report_health().await;
+
+        assert_eq!(result.status, CheckStatus::Healthy);
+        assert!(result.message.contains("1 tools registered"));
+    }
+
+    #[tokio::test]
+    async fn test_tool_registry_name() {
+        let registry = nanobot_tools::ToolRegistry::new();
+        let check = ToolRegistryHealthCheck::new(registry);
+        assert_eq!(check.component_name(), "tool_registry");
     }
 
     // === AgentLoopHealthCheck ===
@@ -607,6 +717,7 @@ mod tests {
         );
         let channel_check = ChannelHealthCheck::empty();
         let bus_check = BusHealthCheck::new(bus);
+        let tool_check = ToolRegistryHealthCheck::new(nanobot_tools::ToolRegistry::new());
         let agent_check = AgentLoopHealthCheck::new(
             Arc::new(parking_lot::RwLock::new(None)),
             60,
@@ -617,6 +728,7 @@ mod tests {
             &session_check,
             &channel_check,
             &bus_check,
+            &tool_check,
             &agent_check,
         ];
 
@@ -625,7 +737,7 @@ mod tests {
             results.push(check.report_health().await);
         }
 
-        assert_eq!(results.len(), 5);
+        assert_eq!(results.len(), 6);
 
         // Provider: skipped (no providers)
         assert_eq!(results[0].status, CheckStatus::Skipped);
@@ -635,13 +747,15 @@ mod tests {
         assert_eq!(results[2].status, CheckStatus::Skipped);
         // Bus: healthy
         assert_eq!(results[3].status, CheckStatus::Healthy);
+        // Tool registry: degraded (no tools)
+        assert_eq!(results[4].status, CheckStatus::Degraded);
         // Agent: skipped (no activity yet)
-        assert_eq!(results[4].status, CheckStatus::Skipped);
+        assert_eq!(results[5].status, CheckStatus::Skipped);
 
         // All should have unique component names
         let names: std::collections::HashSet<&str> =
             results.iter().map(|r| r.component.as_str()).collect();
-        assert_eq!(names.len(), 5);
+        assert_eq!(names.len(), 6);
     }
 
     // === Integration with HeartbeatService ===

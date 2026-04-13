@@ -34,7 +34,8 @@ use tracing::{debug, info};
 /// During context compaction, the compacted information is split into
 /// these categories and stored as individual notes rather than a single
 /// blob of text.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum NoteFormat {
     /// High-level conversation summary.
     Summary,
@@ -75,6 +76,19 @@ impl NoteFormat {
             NoteFormat::Decisions,
             NoteFormat::OpenQuestions,
         ]
+    }
+
+    /// Look up a [`NoteFormat`] by its tag string.
+    ///
+    /// Returns `None` if the tag doesn't match any variant.
+    pub fn from_tag(tag: &str) -> Option<NoteFormat> {
+        match tag {
+            "summary" => Some(NoteFormat::Summary),
+            "action_items" => Some(NoteFormat::ActionItems),
+            "decisions" => Some(NoteFormat::Decisions),
+            "open_questions" => Some(NoteFormat::OpenQuestions),
+            _ => None,
+        }
     }
 }
 
@@ -301,8 +315,22 @@ impl NotesManager {
 /// - **Decisions**: statements of choice or commitment
 /// - **OpenQuestions**: questions that were asked but never answered
 ///
+/// Stale compaction notes from a prior compaction cycle are removed first
+/// so they don't accumulate across multiple compactions.
+///
 /// Returns the number of notes created.
 pub fn extract_compaction_notes(session: &mut Session, old_messages: &[nanobot_session::SessionEntry]) -> usize {
+    // Remove any stale compaction notes from prior compaction cycles.
+    let compaction_titles = [
+        "_compaction_summary",
+        "_compaction_actions",
+        "_compaction_decisions",
+        "_compaction_questions",
+    ];
+    for title in &compaction_titles {
+        session.delete_note(title);
+    }
+
     let mut count = 0;
 
     // 1) Summary — from user messages' first lines
@@ -462,6 +490,37 @@ mod tests {
         assert!(NoteFormat::all().contains(&NoteFormat::ActionItems));
         assert!(NoteFormat::all().contains(&NoteFormat::Decisions));
         assert!(NoteFormat::all().contains(&NoteFormat::OpenQuestions));
+    }
+
+    #[test]
+    fn test_note_format_from_tag() {
+        assert_eq!(NoteFormat::from_tag("summary"), Some(NoteFormat::Summary));
+        assert_eq!(NoteFormat::from_tag("action_items"), Some(NoteFormat::ActionItems));
+        assert_eq!(NoteFormat::from_tag("decisions"), Some(NoteFormat::Decisions));
+        assert_eq!(NoteFormat::from_tag("open_questions"), Some(NoteFormat::OpenQuestions));
+        assert_eq!(NoteFormat::from_tag("unknown"), None);
+        assert_eq!(NoteFormat::from_tag(""), None);
+    }
+
+    #[test]
+    fn test_note_format_from_tag_roundtrip() {
+        for fmt in NoteFormat::all() {
+            let tag = fmt.tag();
+            assert_eq!(NoteFormat::from_tag(tag), Some(*fmt));
+        }
+    }
+
+    #[test]
+    fn test_note_format_serde() {
+        let json = serde_json::to_string(&NoteFormat::Summary).unwrap();
+        assert_eq!(json, "\"summary\"");
+        let back: NoteFormat = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, NoteFormat::Summary);
+
+        let json = serde_json::to_string(&NoteFormat::ActionItems).unwrap();
+        assert_eq!(json, "\"action_items\"");
+        let back: NoteFormat = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, NoteFormat::ActionItems);
     }
 
     // -------------------------------------------------------------------

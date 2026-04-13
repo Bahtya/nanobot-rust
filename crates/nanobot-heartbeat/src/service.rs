@@ -144,10 +144,16 @@ impl HeartbeatService {
 
             match self.run_checks().await {
                 Ok(snapshot) => {
-                    if snapshot.healthy {
+                    if snapshot.healthy && !snapshot.degraded {
                         debug!(
                             "Heartbeat: all {} checks healthy",
                             snapshot.checks.len()
+                        );
+                    } else if snapshot.healthy && snapshot.degraded {
+                        warn!(
+                            "Heartbeat: {} degraded: {}",
+                            snapshot.degraded_count(),
+                            snapshot.summary(),
                         );
                     } else {
                         warn!(
@@ -275,7 +281,7 @@ impl HeartbeatService {
                             state.component_failures.push(state_entry);
                         }
                     }
-                    CheckStatus::Healthy | CheckStatus::Skipped => {
+                    CheckStatus::Healthy | CheckStatus::Degraded | CheckStatus::Skipped => {
                         if let Some(f) = state
                             .component_failures
                             .iter_mut()

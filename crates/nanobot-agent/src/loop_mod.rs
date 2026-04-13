@@ -10,7 +10,7 @@ use crate::compaction::{compact_session, CompactionConfig};
 use crate::context::ContextBuilder;
 use crate::heartbeat::{
     AgentLoopHealthCheck, BusHealthCheck, ChannelHealthCheck, ProviderHealthCheck,
-    SessionStoreHealthCheck,
+    SessionStoreHealthCheck, ToolRegistryHealthCheck,
 };
 use crate::hook::CompositeHook;
 use crate::notes::NotesManager;
@@ -399,6 +399,9 @@ impl AgentLoop {
         svc.register_check(Arc::new(BusHealthCheck::new(
             (*self.bus).clone(),
         )));
+        svc.register_check(Arc::new(ToolRegistryHealthCheck::new(
+            (*self.tool_registry).clone(),
+        )));
         svc.register_check(Arc::new(AgentLoopHealthCheck::new(
             self.agent_activity.clone(),
             self.config.heartbeat.interval_secs.max(120),
@@ -642,12 +645,16 @@ mod tests {
             al.configured_channel_names(),
             al.connected_channels.clone(),
         )));
+        svc.register_check(Arc::new(ToolRegistryHealthCheck::new(
+            (*al.tool_registry).clone(),
+        )));
 
         let checks = svc.registered_checks();
         assert!(checks.contains(&"provider".to_string()));
         assert!(checks.contains(&"session_store".to_string()));
         assert!(checks.contains(&"channel".to_string()));
-        assert_eq!(checks.len(), 3);
+        assert!(checks.contains(&"tool_registry".to_string()));
+        assert_eq!(checks.len(), 4);
     }
 
     #[tokio::test]

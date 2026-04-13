@@ -339,6 +339,7 @@ impl HealthCheck for AgentLoopHealthCheck {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[allow(unused_imports)]
     use nanobot_heartbeat::types::HealthCheck as _;
 
     // === ProviderHealthCheck ===
@@ -652,7 +653,7 @@ mod tests {
         let svc =
             nanobot_heartbeat::HeartbeatService::with_data_dir(config, dir.path().to_path_buf());
 
-        let bus = nanobot_bus::MessageBus::new();
+        let _bus = nanobot_bus::MessageBus::new();
         let session_check = SessionStoreHealthCheck::new(
             nanobot_session::SessionManager::new(dir.path().to_path_buf()).unwrap(),
         );

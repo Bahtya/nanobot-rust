@@ -20,7 +20,7 @@ pub use heartbeat::{
     SessionStoreHealthCheck,
 };
 pub use hook::{AgentHook, CompositeHook};
-pub use loop_mod::AgentLoop;
+pub use loop_mod::{AgentLoop, HeartbeatHandle};
 pub use memory::MemoryStore;
 pub use notes::NotesManager;
 pub use runner::AgentRunner;

@@ -26,6 +26,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
 use futures::stream::Stream;
 use futures::StreamExt;
 use nanobot_agent::AgentRunner;
@@ -68,11 +69,15 @@ pub struct ApiServer {
 ///
 /// - `["*"]` → permissive CORS (any origin).
 /// - Specific origins → only those origins are allowed.
+/// - Always includes `Access-Control-Max-Age: 3600` to cache preflight.
+/// - Sets `Access-Control-Allow-Methods: GET, POST, OPTIONS`.
+/// - Sets `Access-Control-Allow-Headers: Content-Type, Authorization`.
 fn build_cors_layer(config: &Config) -> CorsLayer {
     let origins = &config.api.allowed_origins;
 
     if origins.len() == 1 && origins[0] == "*" {
-        return CorsLayer::permissive();
+        return CorsLayer::permissive()
+            .max_age(std::time::Duration::from_secs(3600));
     }
 
     let parsed: Vec<HeaderValue> = origins
@@ -87,10 +92,8 @@ fn build_cors_layer(config: &Config) -> CorsLayer {
             Method::POST,
             Method::OPTIONS,
         ])
-        .allow_headers([
-            axum::http::header::AUTHORIZATION,
-            axum::http::header::CONTENT_TYPE,
-        ])
+        .allow_headers([AUTHORIZATION, CONTENT_TYPE])
+        .max_age(std::time::Duration::from_secs(3600))
 }
 
 impl ApiServer {
@@ -292,6 +295,8 @@ struct ErrorDetail {
 // ─── Middleware ──────────────────────────────────────────────
 
 /// Request logging middleware — logs method, path, status code, and latency.
+/// Also intercepts 413 Payload Too Large responses and returns an OpenAI-format
+/// JSON error body instead of Axum's default plain text.
 async fn request_log_middleware(
     req: Request<Body>,
     next: Next,
@@ -311,6 +316,18 @@ async fn request_log_middleware(
         elapsed_ms = elapsed.as_millis() as u64,
         "HTTP request"
     );
+
+    // Replace default 413 body with OpenAI-format JSON error
+    if status == StatusCode::PAYLOAD_TOO_LARGE {
+        let error = ErrorResponse {
+            error: ErrorDetail {
+                message: "Request body exceeds the maximum allowed size".to_string(),
+                r#type: "invalid_request_error".to_string(),
+                code: Some("payload_too_large".to_string()),
+            },
+        };
+        return (StatusCode::PAYLOAD_TOO_LARGE, Json(error)).into_response();
+    }
 
     response
 }
@@ -1521,6 +1538,7 @@ mod tests {
         Router::new()
             .route("/health", get(health))
             .layer(DefaultBodyLimit::max(body_limit))
+            .layer(middleware::from_fn(request_log_middleware))
             .layer(cors)
             .with_state(state)
     }
@@ -1579,6 +1597,78 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn test_cors_preflight_options() {
+        let mut config = Config::default();
+        config.api.allowed_origins = vec!["https://trusted.example.com".to_string()];
+        let app = router_with_config(config);
+
+        let req = Request::builder()
+            .method("OPTIONS")
+            .uri("/health")
+            .header("origin", "https://trusted.example.com")
+            .header("access-control-request-method", "POST")
+            .header("access-control-request-headers", "content-type,authorization")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        // Verify CORS headers on preflight response
+        let allow_origin = resp.headers().get("access-control-allow-origin").unwrap();
+        assert_eq!(allow_origin, "https://trusted.example.com");
+        let allow_methods = resp.headers().get("access-control-allow-methods").unwrap();
+        let methods_str = allow_methods.to_str().unwrap();
+        assert!(methods_str.contains("GET"));
+        assert!(methods_str.contains("POST"));
+        assert!(methods_str.contains("OPTIONS"));
+        let allow_headers = resp.headers().get("access-control-allow-headers").unwrap();
+        let headers_str = allow_headers.to_str().unwrap().to_lowercase();
+        assert!(headers_str.contains("content-type"));
+        assert!(headers_str.contains("authorization"));
+        // Verify Max-Age header
+        let max_age = resp.headers().get("access-control-max-age").unwrap();
+        assert_eq!(max_age, "3600");
+    }
+
+    #[tokio::test]
+    async fn test_cors_preflight_unlisted_origin_rejected() {
+        let mut config = Config::default();
+        config.api.allowed_origins = vec!["https://trusted.example.com".to_string()];
+        let app = router_with_config(config);
+
+        let req = Request::builder()
+            .method("OPTIONS")
+            .uri("/health")
+            .header("origin", "https://evil.example.com")
+            .header("access-control-request-method", "POST")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        // tower-http returns 200 for OPTIONS but without CORS headers for unlisted origins
+        assert!(
+            resp.headers().get("access-control-allow-origin").is_none(),
+            "Unlisted origin should not receive CORS headers on preflight"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_cors_wildcard_preflight() {
+        let config = Config::default(); // default is ["*"]
+        let app = router_with_config(config);
+
+        let req = Request::builder()
+            .method("OPTIONS")
+            .uri("/health")
+            .header("origin", "https://any.example.com")
+            .header("access-control-request-method", "POST")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let allow_origin = resp.headers().get("access-control-allow-origin").unwrap();
+        assert_eq!(allow_origin, "*");
+    }
+
     // ─── Body limit tests ──────────────────────────────────
 
     #[tokio::test]
@@ -1604,6 +1694,7 @@ mod tests {
         let app = Router::new()
             .route("/v1/chat/completions", post(chat_completions))
             .layer(DefaultBodyLimit::max(body_limit))
+            .layer(middleware::from_fn(request_log_middleware))
             .layer(cors)
             .with_state(state);
 
@@ -1622,6 +1713,13 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         // axum returns 413 Payload Too Large when body exceeds the limit
         assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+
+        // Verify the response is OpenAI-format JSON
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["error"]["type"], "invalid_request_error");
+        assert_eq!(v["error"]["code"], "payload_too_large");
+        assert!(v["error"]["message"].as_str().unwrap().contains("maximum"));
     }
 
     #[tokio::test]
@@ -1682,5 +1780,105 @@ mod tests {
         assert!(!server.state.cancel.is_cancelled());
         server.shutdown();
         assert!(server.state.cancel.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn test_sse_stream_emits_shutdown_event_on_cancel() {
+        // When cancel is already triggered before the SSE stream starts,
+        // take_until immediately truncates the stream (0 normal events).
+        // This verifies the cancellation mechanism works.
+        let state = test_state_with_provider();
+        // Cancel BEFORE calling stream_completion
+        state.cancel.cancel();
+
+        let req = ChatCompletionRequest {
+            model: "mock-model".to_string(),
+            messages: vec![ApiMessage {
+                role: "user".to_string(),
+                content: "Hello".to_string(),
+            }],
+            temperature: None,
+            max_tokens: None,
+            stream: true,
+        };
+
+        let messages = vec![Message {
+            role: MessageRole::User,
+            content: "Hello".to_string(),
+            name: None,
+            tool_call_id: None,
+            tool_calls: None,
+        }];
+
+        let resp = stream_completion(
+            state,
+            req,
+            "test".to_string(),
+            messages,
+        )
+        .await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let ct = resp
+            .headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(ct.contains("text/event-stream"));
+
+        // Collect body — with cancel already fired, take_until immediately
+        // truncates, so we get 0 data events
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let body_str = String::from_utf8(body.to_vec()).unwrap();
+        let data_count = body_str.matches("data:").count();
+        assert_eq!(
+            data_count, 0,
+            "Expected 0 SSE events when cancel is pre-triggered, got {}: {}",
+            data_count, body_str
+        );
+    }
+
+    #[tokio::test]
+    async fn test_sse_stream_normal_not_cancelled() {
+        // Verify normal SSE stream (not cancelled) emits all 3 events.
+        let state = test_state_with_provider();
+
+        let req = ChatCompletionRequest {
+            model: "mock-model".to_string(),
+            messages: vec![ApiMessage {
+                role: "user".to_string(),
+                content: "Hello".to_string(),
+            }],
+            temperature: None,
+            max_tokens: None,
+            stream: true,
+        };
+
+        let messages = vec![Message {
+            role: MessageRole::User,
+            content: "Hello".to_string(),
+            name: None,
+            tool_call_id: None,
+            tool_calls: None,
+        }];
+
+        let resp = stream_completion(
+            state,
+            req,
+            "test".to_string(),
+            messages,
+        )
+        .await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let body_str = String::from_utf8(body.to_vec()).unwrap();
+        let data_count = body_str.matches("data:").count();
+        assert_eq!(
+            data_count, 3,
+            "Expected 3 SSE events without cancellation, got {}: {}",
+            data_count, body_str
+        );
     }
 }

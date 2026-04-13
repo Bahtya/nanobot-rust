@@ -86,6 +86,35 @@ cargo run --bin nanobot-rs -- --help # Run the binary
 7. **Cron execution** — make the cron service actually schedule and run jobs
 8. **Config migration from Python nanobot** — optional import tool for existing users
 
+## Key Principles (from Garry Tan — "Thin Harness, Fat Skills")
+
+### CLAUDE.md itself should be thin
+- This file is a pointer, not an encyclopedia
+- Keep under 200 lines — details go in dedicated docs
+- The model's attention degrades with too much upfront context
+
+### Skill files = permanent upgrades
+- Every repeated task must become a skill file (markdown procedure)
+- Skills take parameters like method calls — same process, different inputs
+- If you have to do something twice, codify it
+
+### Resolvers = just-in-time context loading
+- Don't stuff everything into context upfront
+- Load the right doc when the right task appears
+- Description fields in skills ARE resolvers
+
+### Latent vs. Deterministic boundary
+- Push intelligence UP into skills (judgment, synthesis)
+- Push execution DOWN into deterministic code (tests, parsers, SQL)
+- NEVER put combinatorial/algorithmic work in latent space
+- Tests must be fully deterministic — no LLM output in assertions
+
+### Every feature must be tested before commit
+- Write the test first or alongside the implementation
+- cargo test --workspace MUST pass before every commit
+- cargo clippy --workspace MUST be clean
+- Commit and push after each complete feature
+
 ## Pitfalls
 - DO NOT use `~/.nanobot` — always use `~/.nanobot-rs` (or `NANOBOT_RS_HOME` env)
 - DO NOT name the binary `nanobot` — it's `nanobot-rs`

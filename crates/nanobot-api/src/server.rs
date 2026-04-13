@@ -228,6 +228,87 @@ fn check_auth(headers: &HeaderMap, expected_key: &Option<String>) -> Result<(), 
     }
 }
 
+// ─── Validation helpers ──────────────────────────────────────
+
+/// Build a validation error response.
+fn validation_error(message: impl Into<String>, code: Option<String>) -> axum::response::Response {
+    let error = ErrorResponse {
+        error: ErrorDetail {
+            message: message.into(),
+            r#type: "invalid_request_error".to_string(),
+            code,
+        },
+    };
+    (StatusCode::BAD_REQUEST, Json(error)).into_response()
+}
+
+/// Validate a chat completion request. Returns Ok(()) or an error response.
+#[allow(clippy::result_large_err)]
+fn validate_request(req: &ChatCompletionRequest) -> Result<(), axum::response::Response> {
+    // Model must be non-empty
+    if req.model.trim().is_empty() {
+        return Err(validation_error(
+            "Model must be a non-empty string",
+            None,
+        ));
+    }
+
+    // Messages must not be empty
+    if req.messages.is_empty() {
+        return Err(validation_error(
+            "Messages must be a non-empty array",
+            None,
+        ));
+    }
+
+    // Validate each message has a recognized role and non-empty content
+    let valid_roles = ["system", "user", "assistant", "tool"];
+    for (i, msg) in req.messages.iter().enumerate() {
+        if !valid_roles.contains(&msg.role.as_str()) {
+            return Err(validation_error(
+                format!("Message at index {} has invalid role: '{}'. Must be one of: system, user, assistant, tool", i, msg.role),
+                None,
+            ));
+        }
+        if msg.content.trim().is_empty() {
+            return Err(validation_error(
+                format!("Message at index {} has empty content", i),
+                None,
+            ));
+        }
+    }
+
+    // At least one user message is required
+    if !req.messages.iter().any(|m| m.role == "user") {
+        return Err(validation_error(
+            "No user message found in request. At least one message with role 'user' is required.",
+            None,
+        ));
+    }
+
+    // Validate temperature range
+    if let Some(temp) = req.temperature {
+        if !(0.0..=2.0).contains(&temp) {
+            return Err(validation_error(
+                format!("Temperature must be between 0 and 2, got {}", temp),
+                None,
+            ));
+        }
+    }
+
+    // Validate max_tokens
+    if let Some(max_tokens) = req.max_tokens {
+        if max_tokens == 0 {
+            return Err(validation_error(
+                "max_tokens must be greater than 0",
+                None,
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 // ─── Handlers ──────────────────────────────────────────────
 
 async fn chat_completions(
@@ -242,36 +323,9 @@ async fn chat_completions(
 
     debug!("Chat completion request for model: {} (stream: {})", req.model, req.stream);
 
-    // Validate model is non-empty
-    if req.model.is_empty() {
-        let error = ErrorResponse {
-            error: ErrorDetail {
-                message: "Model must be a non-empty string".to_string(),
-                r#type: "invalid_request_error".to_string(),
-                code: None,
-            },
-        };
-        return (StatusCode::BAD_REQUEST, Json(error)).into_response();
-    }
-
-    // Extract the last user message
-    let user_content = req
-        .messages
-        .iter()
-        .rev()
-        .find(|m| m.role == "user")
-        .map(|m| m.content.clone())
-        .unwrap_or_default();
-
-    if user_content.is_empty() {
-        let error = ErrorResponse {
-            error: ErrorDetail {
-                message: "No user message found in request".to_string(),
-                r#type: "invalid_request_error".to_string(),
-                code: None,
-            },
-        };
-        return (StatusCode::BAD_REQUEST, Json(error)).into_response();
+    // Validate request
+    if let Err(resp) = validate_request(&req) {
+        return resp;
     }
 
     // Check provider availability early
@@ -302,6 +356,7 @@ async fn chat_completions(
         .map(|m| Message {
             role: match m.role.as_str() {
                 "assistant" => MessageRole::Assistant,
+                "tool" => MessageRole::Tool,
                 _ => MessageRole::User,
             },
             content: m.content.clone(),
@@ -358,16 +413,16 @@ async fn non_stream_completion(
         Err(e) => {
             warn!("Agent error: {}", e);
             let msg = e.to_string();
-            let status = if msg.contains("429") {
-                StatusCode::TOO_MANY_REQUESTS
+            let (status, code) = if msg.contains("429") {
+                (StatusCode::TOO_MANY_REQUESTS, Some("rate_limit_exceeded".to_string()))
             } else {
-                StatusCode::INTERNAL_SERVER_ERROR
+                (StatusCode::INTERNAL_SERVER_ERROR, None)
             };
             let error = ErrorResponse {
                 error: ErrorDetail {
                     message: format!("Agent processing error: {}", msg),
                     r#type: "server_error".to_string(),
-                    code: None,
+                    code,
                 },
             };
             (status, Json(error)).into_response()
@@ -376,6 +431,11 @@ async fn non_stream_completion(
 }
 
 /// Handle streaming completion via SSE.
+///
+/// Emits proper OpenAI-format SSE chunks:
+/// 1. Role announcement chunk (`delta: {role: "assistant"}`)
+/// 2. Content chunk (`delta: {content: "..."}`)
+/// 3. Final chunk with finish_reason and usage
 async fn stream_completion(
     state: AppState,
     req: ChatCompletionRequest,
@@ -392,52 +452,49 @@ async fn stream_completion(
         state.tool_registry.clone(),
     );
 
-    // Run the agent and then stream the result as a single SSE event.
-    // For true token-by-token streaming, the runner would need to yield incremental
-    // results; this provides the OpenAI SSE wire format with the full response.
     let stream_result = runner.run(system_prompt, messages).await;
 
     let stream: Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>> =
         match stream_result {
             Ok(result) => {
-                let usage = result.usage;
                 let content = result.content;
+                let usage = result.usage;
                 let id = completion_id;
+                let mdl = model;
+                let cr = created;
 
-                Box::pin(futures::stream::once(async move {
-                    // First chunk: role announcement
-                    let _chunk1 = serde_json::json!({
+                Box::pin(futures::stream::iter(vec![
+                    // Chunk 1: role announcement
+                    Ok(Event::default().data(serde_json::json!({
                         "id": id,
                         "object": "chat.completion.chunk",
-                        "created": created,
-                        "model": model,
+                        "created": cr,
+                        "model": mdl,
                         "choices": [{
                             "index": 0,
                             "delta": {"role": "assistant"},
                             "finish_reason": null
                         }]
-                    });
-
-                    // Content chunk
-                    let chunk2 = serde_json::json!({
+                    }).to_string())),
+                    // Chunk 2: content
+                    Ok(Event::default().data(serde_json::json!({
                         "id": id,
                         "object": "chat.completion.chunk",
-                        "created": created,
-                        "model": model,
+                        "created": cr,
+                        "model": mdl,
                         "choices": [{
                             "index": 0,
                             "delta": {"content": content},
                             "finish_reason": null
                         }],
                         "usage": null
-                    });
-
-                    // Final chunk with usage
-                    let _chunk3 = serde_json::json!({
+                    }).to_string())),
+                    // Chunk 3: stop with usage
+                    Ok(Event::default().data(serde_json::json!({
                         "id": id,
                         "object": "chat.completion.chunk",
-                        "created": created,
-                        "model": model,
+                        "created": cr,
+                        "model": mdl,
                         "choices": [{
                             "index": 0,
                             "delta": {},
@@ -448,11 +505,8 @@ async fn stream_completion(
                             "completion_tokens": usage.completion_tokens.unwrap_or(0),
                             "total_tokens": usage.total_tokens.unwrap_or(0)
                         }
-                    });
-
-                    // We'll return the content as a single event (simplifies the stream)
-                    Ok(Event::default().data(chunk2.to_string()))
-                }))
+                    }).to_string())),
+                ]))
             }
             Err(e) => {
                 let msg = e.to_string();
@@ -518,8 +572,8 @@ mod tests {
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use http_body_util::BodyExt;
-    use nanobot_providers::base::{BoxStream, CompletionChunk, CompletionRequest, CompletionResponse, LlmProvider};
     use nanobot_core::Usage;
+    use nanobot_providers::base::{BoxStream, CompletionChunk, CompletionRequest, CompletionResponse, LlmProvider};
     use tower::ServiceExt;
 
     /// Mock provider for testing.
@@ -700,6 +754,126 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_chat_completions_empty_messages() {
+        let app = test_router();
+        let req_body = serde_json::json!({
+            "model": "test-model",
+            "messages": []
+        });
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(v["error"]["message"].as_str().unwrap().contains("non-empty array"));
+    }
+
+    #[tokio::test]
+    async fn test_chat_completions_invalid_temperature() {
+        let app = router_with_provider();
+        let req_body = serde_json::json!({
+            "model": "mock-model",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "temperature": 5.0
+        });
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(v["error"]["message"].as_str().unwrap().contains("Temperature"));
+    }
+
+    #[tokio::test]
+    async fn test_chat_completions_negative_temperature() {
+        let app = router_with_provider();
+        let req_body = serde_json::json!({
+            "model": "mock-model",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "temperature": -1.0
+        });
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_chat_completions_zero_max_tokens() {
+        let app = router_with_provider();
+        let req_body = serde_json::json!({
+            "model": "mock-model",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 0
+        });
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(v["error"]["message"].as_str().unwrap().contains("max_tokens"));
+    }
+
+    #[tokio::test]
+    async fn test_chat_completions_invalid_role() {
+        let app = test_router();
+        let req_body = serde_json::json!({
+            "model": "test-model",
+            "messages": [{"role": "invalid_role", "content": "Hi"}]
+        });
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(v["error"]["message"].as_str().unwrap().contains("invalid role"));
+    }
+
+    #[tokio::test]
+    async fn test_chat_completions_empty_content() {
+        let app = test_router();
+        let req_body = serde_json::json!({
+            "model": "test-model",
+            "messages": [{"role": "user", "content": "  "}]
+        });
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(v["error"]["message"].as_str().unwrap().contains("empty content"));
+    }
+
+    #[tokio::test]
     async fn test_chat_completions_model_not_found() {
         // Use a registry with a provider but NO default set, and a model name
         // that doesn't match any keyword — so get_provider returns None.
@@ -743,26 +917,6 @@ mod tests {
         assert_eq!(v["error"]["code"].as_str(), Some("model_not_found"));
     }
 
-    // ─── Chat completions: no provider (500) ────────────
-
-    #[tokio::test]
-    async fn test_chat_completions_no_provider() {
-        let app = test_router();
-        let req_body = serde_json::json!({
-            "model": "test-model",
-            "messages": [{"role": "user", "content": "Hello"}]
-        });
-        let req = Request::builder()
-            .method("POST")
-            .uri("/v1/chat/completions")
-            .header("content-type", "application/json")
-            .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-            .unwrap();
-        let resp = app.oneshot(req).await.unwrap();
-        // No provider registered → model not found (404) since registry is empty
-        assert!(resp.status() == StatusCode::NOT_FOUND || resp.status() == StatusCode::INTERNAL_SERVER_ERROR);
-    }
-
     // ─── Chat completions: success with mock provider ───
 
     #[tokio::test]
@@ -796,6 +950,8 @@ mod tests {
         assert_eq!(v["usage"]["completion_tokens"], 3);
         assert_eq!(v["usage"]["total_tokens"], 8);
         assert!(v["id"].as_str().unwrap().starts_with("chatcmpl-"));
+        // Verify created is a reasonable timestamp
+        assert!(v["created"].as_u64().unwrap() > 1_700_000_000);
     }
 
     // ─── Chat completions: streaming ─────────────────────
@@ -819,6 +975,80 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let ct = resp.headers().get("content-type").unwrap().to_str().unwrap();
         assert!(ct.contains("text/event-stream"), "Expected SSE content type, got: {}", ct);
+    }
+
+    #[tokio::test]
+    async fn test_chat_completions_streaming_body_contains_three_chunks() {
+        let app = router_with_provider();
+        let req_body = serde_json::json!({
+            "model": "mock-model",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "stream": true
+        });
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let body_str = String::from_utf8(body.to_vec()).unwrap();
+
+        // Should contain 3 data events: role, content, stop
+        let data_count = body_str.matches("data:").count();
+        assert_eq!(data_count, 3, "Expected 3 SSE data events, got {}: {}", data_count, body_str);
+
+        // First chunk should have role announcement
+        assert!(body_str.contains("\"role\":\"assistant\"") || body_str.contains("\"role\": \"assistant\""),
+            "First chunk should contain role announcement");
+
+        // Should contain the mock response content
+        assert!(body_str.contains("Mock response"), "Should contain content in SSE body");
+
+        // Should contain finish_reason stop
+        assert!(body_str.contains("\"finish_reason\":\"stop\"") || body_str.contains("\"finish_reason\": \"stop\""),
+            "Final chunk should contain finish_reason: stop");
+
+        // Should contain usage info
+        assert!(body_str.contains("\"prompt_tokens\""), "Final chunk should contain usage info");
+    }
+
+    #[tokio::test]
+    async fn test_chat_completions_streaming_chunks_have_consistent_id() {
+        let app = router_with_provider();
+        let req_body = serde_json::json!({
+            "model": "mock-model",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "stream": true
+        });
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let body_str = String::from_utf8(body.to_vec()).unwrap();
+
+        // Extract all IDs from SSE data lines
+        let ids: Vec<String> = body_str
+            .lines()
+            .filter(|l| l.starts_with("data:"))
+            .filter_map(|l| {
+                let json_str = l.trim_start_matches("data:").trim();
+                let v: serde_json::Value = serde_json::from_str(json_str).ok()?;
+                v.get("id")?.as_str().map(|s| s.to_string())
+            })
+            .collect();
+
+        assert!(ids.len() >= 2, "Should have at least 2 chunks with IDs");
+        // All IDs should be identical
+        let first_id = &ids[0];
+        assert!(ids.iter().all(|id| id == first_id), "All SSE chunks should have the same ID");
+        assert!(first_id.starts_with("chatcmpl-"), "ID should start with chatcmpl-");
     }
 
     // ─── Auth: 401 tests ─────────────────────────────────
@@ -953,10 +1183,10 @@ mod tests {
 
     #[test]
     fn test_chat_completion_request_minimal() {
-        let json = r#"{"model": "test", "messages": []}"#;
+        let json = r#"{"model": "test", "messages": [{"role": "user", "content": "hi"}]}"#;
         let req: ChatCompletionRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.model, "test");
-        assert!(req.messages.is_empty());
+        assert_eq!(req.messages.len(), 1);
         assert!(req.temperature.is_none());
         assert!(req.max_tokens.is_none());
         assert!(!req.stream);
@@ -972,5 +1202,86 @@ mod tests {
         let back: ApiMessage = serde_json::from_str(&json).unwrap();
         assert_eq!(back.role, "user");
         assert_eq!(back.content, "Hello world");
+    }
+
+    // ─── Boundary temperature tests ─────────────────────
+
+    #[tokio::test]
+    async fn test_chat_completions_temperature_zero_ok() {
+        let app = router_with_provider();
+        let req_body = serde_json::json!({
+            "model": "mock-model",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "temperature": 0.0
+        });
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_chat_completions_temperature_two_ok() {
+        let app = router_with_provider();
+        let req_body = serde_json::json!({
+            "model": "mock-model",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "temperature": 2.0
+        });
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    // ─── Tool role message ─────────────────────────────
+
+    #[tokio::test]
+    async fn test_chat_completions_tool_role_accepted() {
+        let app = router_with_provider();
+        let req_body = serde_json::json!({
+            "model": "mock-model",
+            "messages": [
+                {"role": "user", "content": "What is 2+2?"},
+                {"role": "assistant", "content": "Let me calculate."},
+                {"role": "tool", "content": "4"}
+            ]
+        });
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    // ─── No provider configured ──────────────────────────
+
+    #[tokio::test]
+    async fn test_chat_completions_no_provider() {
+        let app = test_router();
+        let req_body = serde_json::json!({
+            "model": "test-model",
+            "messages": [{"role": "user", "content": "Hello"}]
+        });
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        // No provider registered → model not found (404)
+        assert!(resp.status() == StatusCode::NOT_FOUND || resp.status() == StatusCode::INTERNAL_SERVER_ERROR);
     }
 }

@@ -4,6 +4,7 @@
 
 pub mod compaction;
 pub mod context;
+pub mod context_budget;
 pub mod heartbeat;
 pub mod hook;
 pub mod loop_mod;
@@ -15,6 +16,9 @@ pub mod subagent;
 
 pub use compaction::{compact_session, CompactionConfig, CompactionResult, CompactionStrategy};
 pub use context::ContextBuilder;
+pub use context_budget::{
+    prune_messages, BudgetAllocation, ContextBudget, ContextBudgetConfig, PruneResult,
+};
 pub use heartbeat::{
     AgentLoopHealthCheck, BusHealthCheck, ChannelHealthCheck, ConfigStoreHealthCheck,
     ProviderHealthCheck, SessionStoreHealthCheck,

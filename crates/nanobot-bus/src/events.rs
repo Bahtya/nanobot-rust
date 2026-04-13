@@ -182,6 +182,18 @@ pub enum AgentEvent {
         /// Number of checks that are degraded.
         degraded_count: usize,
     },
+
+    /// Context window exceeded budget and messages were pruned.
+    ContextOverflow {
+        /// Session that overflowed.
+        session_key: String,
+        /// Estimated token count before pruning.
+        tokens_before: usize,
+        /// Estimated token count after pruning.
+        tokens_after: usize,
+        /// Number of messages removed.
+        messages_removed: usize,
+    },
 }
 
 #[cfg(test)]

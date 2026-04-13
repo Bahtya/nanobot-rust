@@ -144,10 +144,16 @@ impl HeartbeatService {
 
             match self.run_checks().await {
                 Ok(snapshot) => {
-                    if snapshot.healthy {
+                    if snapshot.healthy && !snapshot.degraded {
                         debug!(
                             "Heartbeat: all {} checks healthy",
                             snapshot.checks.len()
+                        );
+                    } else if snapshot.healthy && snapshot.degraded {
+                        warn!(
+                            "Heartbeat: {} degraded: {}",
+                            snapshot.degraded_count(),
+                            snapshot.summary(),
                         );
                     } else {
                         warn!(
@@ -185,12 +191,66 @@ impl HeartbeatService {
 
         let snapshot = HealthSnapshot::from_checks(checks);
 
+        // Detect state transitions and emit HealthStatusChanged event
+        let previous_snapshot = {
+            let state = self.state.lock();
+            state.last_snapshot.clone()
+        };
+        let previous_status = previous_snapshot.as_ref().map(Self::aggregate_status);
+        let current_status = Self::aggregate_status(&snapshot);
+
         // Update persistent state and track failures
         {
             let mut state = self.state.lock();
             state.total_checks += 1;
             state.total_failures += snapshot.failed_count();
             state.last_snapshot = Some(snapshot.clone());
+        }
+
+        // Emit state change notification if status transitioned
+        if let Some(ref prev) = previous_status {
+            if prev != &current_status {
+                info!(
+                    "Health status changed: {} → {}",
+                    prev, current_status
+                );
+                if let Some(bus) = &self.bus {
+                    bus.emit_event(AgentEvent::HealthStatusChanged {
+                        from: prev.clone(),
+                        to: current_status.clone(),
+                        failed_count: snapshot.failed_count(),
+                        degraded_count: snapshot.degraded_count(),
+                    });
+                }
+            }
+        }
+
+        // Detect per-component status transitions and emit events
+        // Only compare when we have a previous snapshot (skip on first check)
+        if let Some(ref prev_snap) = previous_snapshot {
+            for check in &snapshot.checks {
+                let prev_status = prev_snap
+                    .checks
+                    .iter()
+                    .find(|c| c.component == check.component)
+                    .map(|c| format!("{:?}", c.status))
+                    .unwrap_or_else(|| "unknown".to_string());
+                let curr_status = format!("{:?}", check.status);
+                if prev_status != curr_status {
+                    debug!(
+                        "Component '{}' status changed: {} → {}",
+                        check.component, prev_status, curr_status
+                    );
+                    if let Some(bus) = &self.bus {
+                        bus.emit_event(AgentEvent::ComponentStatusChanged {
+                            component: check.component.clone(),
+                            from: prev_status,
+                            to: curr_status,
+                            message: check.message.clone(),
+                        });
+                    }
+                }
+            }
         }
 
         // Process failures and trigger restarts if needed
@@ -207,6 +267,17 @@ impl HeartbeatService {
 
         let _ = self.persist_state();
         Ok(snapshot)
+    }
+
+    /// Compute an aggregate status string from a snapshot.
+    fn aggregate_status(snapshot: &HealthSnapshot) -> String {
+        if !snapshot.healthy {
+            "unhealthy".to_string()
+        } else if snapshot.degraded {
+            "degraded".to_string()
+        } else {
+            "healthy".to_string()
+        }
     }
 
     /// Process check results, track consecutive failures, and trigger restarts.
@@ -275,7 +346,7 @@ impl HeartbeatService {
                             state.component_failures.push(state_entry);
                         }
                     }
-                    CheckStatus::Healthy | CheckStatus::Skipped => {
+                    CheckStatus::Healthy | CheckStatus::Degraded | CheckStatus::Skipped => {
                         if let Some(f) = state
                             .component_failures
                             .iter_mut()
@@ -345,6 +416,33 @@ impl HeartbeatService {
             .iter()
             .find(|f| f.component == name)
             .cloned()
+    }
+
+    /// Get the latest health snapshot, if one has been taken.
+    pub fn last_snapshot(&self) -> Option<HealthSnapshot> {
+        self.state.lock().last_snapshot.clone()
+    }
+
+    /// Generate a comprehensive health report.
+    ///
+    /// Runs all registered health checks and produces a [`FullHealthReport`]
+    /// that aggregates per-component status with failure history. Useful for
+    /// HTTP endpoints and diagnostic tooling.
+    ///
+    /// Returns an error if the check cycle itself fails (should be rare).
+    pub async fn generate_full_report(&self) -> Result<FullHealthReport> {
+        let snapshot = self.run_checks().await?;
+        let state = self.state.lock().clone();
+        Ok(FullHealthReport::from_snapshot(&snapshot, &state))
+    }
+
+    /// Generate a report from the last cached snapshot without re-running checks.
+    ///
+    /// Returns `None` if no checks have been run yet.
+    pub fn cached_full_report(&self) -> Option<FullHealthReport> {
+        let state = self.state.lock();
+        let snapshot = state.last_snapshot.as_ref()?;
+        Some(FullHealthReport::from_snapshot(snapshot, &state))
     }
 
     /// Persist state to disk.
@@ -952,5 +1050,305 @@ mod tests {
         let svc = HeartbeatService::with_data_dir(config, dir.path().to_path_buf())
             .with_failures_before_restart(0);
         assert_eq!(svc.failures_before_restart, 1);
+    }
+
+    // === Health status change notifications ===
+
+    #[tokio::test]
+    async fn test_health_status_changed_healthy_to_unhealthy() {
+        let dir = tempfile::tempdir().unwrap();
+        let bus = MessageBus::new();
+        let mut events_rx = bus.subscribe_events();
+        let mut svc = make_service(dir.path());
+        svc.set_bus(bus);
+
+        let check = Arc::new(ToggleCheck::new("comp", true));
+        svc.register_check(check.clone());
+
+        // First check — healthy (no previous, no change event)
+        svc.run_checks().await.unwrap();
+
+        // Now fail
+        check.set_healthy(false);
+        svc.run_checks().await.unwrap();
+
+        // Should receive: 2 HeartbeatCheck + 1 HealthStatusChanged = 3 events
+        let mut got_change = false;
+        for _ in 0..5 {
+            let event = tokio::time::timeout(Duration::from_secs(1), events_rx.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            if let AgentEvent::HealthStatusChanged { from, to, .. } = &event {
+                assert_eq!(from, "healthy");
+                assert_eq!(to, "unhealthy");
+                got_change = true;
+                break;
+            }
+        }
+        assert!(got_change, "Expected HealthStatusChanged event");
+    }
+
+    #[tokio::test]
+    async fn test_health_status_changed_unhealthy_to_healthy() {
+        let dir = tempfile::tempdir().unwrap();
+        let bus = MessageBus::new();
+        let mut events_rx = bus.subscribe_events();
+        let mut svc = make_service(dir.path());
+        svc.set_bus(bus);
+
+        let check = Arc::new(ToggleCheck::new("comp", false));
+        svc.register_check(check.clone());
+
+        // Start unhealthy
+        svc.run_checks().await.unwrap();
+
+        // Now recover
+        check.set_healthy(true);
+        svc.run_checks().await.unwrap();
+
+        let mut got_change = false;
+        for _ in 0..5 {
+            let event = tokio::time::timeout(Duration::from_secs(1), events_rx.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            if let AgentEvent::HealthStatusChanged { from, to, .. } = &event {
+                assert_eq!(from, "unhealthy");
+                assert_eq!(to, "healthy");
+                got_change = true;
+                break;
+            }
+        }
+        assert!(got_change, "Expected HealthStatusChanged event on recovery");
+    }
+
+    #[tokio::test]
+    async fn test_no_change_event_on_first_check() {
+        let dir = tempfile::tempdir().unwrap();
+        let bus = MessageBus::new();
+        let mut events_rx = bus.subscribe_events();
+        let mut svc = make_service(dir.path());
+        svc.set_bus(bus);
+
+        svc.register_check(Arc::new(MockCheck {
+            name: "comp".to_string(),
+            healthy: true,
+        }));
+
+        svc.run_checks().await.unwrap();
+
+        // Should only get HeartbeatCheck, no HealthStatusChanged
+        let event = tokio::time::timeout(Duration::from_secs(1), events_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(event, AgentEvent::HeartbeatCheck { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_no_change_event_when_status_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let bus = MessageBus::new();
+        let mut events_rx = bus.subscribe_events();
+        let mut svc = make_service(dir.path());
+        svc.set_bus(bus);
+
+        svc.register_check(Arc::new(MockCheck {
+            name: "comp".to_string(),
+            healthy: true,
+        }));
+
+        // Two checks, both healthy
+        svc.run_checks().await.unwrap();
+        svc.run_checks().await.unwrap();
+
+        // Should only get HeartbeatCheck events, no HealthStatusChanged
+        let mut change_count = 0;
+        for _ in 0..10 {
+            match tokio::time::timeout(Duration::from_millis(100), events_rx.recv()).await {
+                Ok(Ok(AgentEvent::HealthStatusChanged { .. })) => change_count += 1,
+                _ => break,
+            }
+        }
+        assert_eq!(change_count, 0, "Should not emit change when status unchanged");
+    }
+
+    // === ComponentStatusChanged events ===
+
+    #[tokio::test]
+    async fn test_component_status_changed_on_transition() {
+        let dir = tempfile::tempdir().unwrap();
+        let bus = MessageBus::new();
+        let mut events_rx = bus.subscribe_events();
+        let mut svc = make_service(dir.path());
+        svc.set_bus(bus);
+
+        let check = Arc::new(ToggleCheck::new("comp", true));
+        svc.register_check(check.clone());
+
+        // First check — healthy (no previous, so no ComponentStatusChanged)
+        svc.run_checks().await.unwrap();
+
+        // Fail the component
+        check.set_healthy(false);
+        svc.run_checks().await.unwrap();
+
+        // Should receive ComponentStatusChanged event
+        let mut got_component_change = false;
+        for _ in 0..10 {
+            let event = tokio::time::timeout(Duration::from_millis(100), events_rx.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            if let AgentEvent::ComponentStatusChanged { component, from, to, .. } = &event {
+                if component == "comp" && from == "Healthy" && to == "Unhealthy" {
+                    got_component_change = true;
+                    break;
+                }
+            }
+        }
+        assert!(got_component_change, "Expected ComponentStatusChanged event");
+    }
+
+    #[tokio::test]
+    async fn test_component_status_no_change_when_stable() {
+        let dir = tempfile::tempdir().unwrap();
+        let bus = MessageBus::new();
+        let mut events_rx = bus.subscribe_events();
+        let mut svc = make_service(dir.path());
+        svc.set_bus(bus);
+
+        svc.register_check(Arc::new(MockCheck {
+            name: "comp".to_string(),
+            healthy: true,
+        }));
+
+        svc.run_checks().await.unwrap();
+        svc.run_checks().await.unwrap();
+
+        let mut component_changes = 0;
+        for _ in 0..10 {
+            match tokio::time::timeout(Duration::from_millis(100), events_rx.recv()).await {
+                Ok(Ok(AgentEvent::ComponentStatusChanged { .. })) => component_changes += 1,
+                _ => break,
+            }
+        }
+        assert_eq!(component_changes, 0, "Should not emit ComponentStatusChanged when stable");
+    }
+
+    #[tokio::test]
+    async fn test_component_recovery_event() {
+        let dir = tempfile::tempdir().unwrap();
+        let bus = MessageBus::new();
+        let mut events_rx = bus.subscribe_events();
+        let mut svc = make_service(dir.path());
+        svc.set_bus(bus);
+
+        let check = Arc::new(ToggleCheck::new("comp", false));
+        svc.register_check(check.clone());
+
+        // Start unhealthy
+        svc.run_checks().await.unwrap();
+
+        // Recover
+        check.set_healthy(true);
+        svc.run_checks().await.unwrap();
+
+        let mut got_recovery = false;
+        for _ in 0..10 {
+            let event = tokio::time::timeout(Duration::from_millis(100), events_rx.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            if let AgentEvent::ComponentStatusChanged { component, from, to, .. } = &event {
+                if component == "comp" && from == "Unhealthy" && to == "Healthy" {
+                    got_recovery = true;
+                    break;
+                }
+            }
+        }
+        assert!(got_recovery, "Expected ComponentStatusChanged recovery event");
+    }
+
+    // === Full health report ===
+
+    #[tokio::test]
+    async fn test_generate_full_report_healthy() {
+        let dir = tempfile::tempdir().unwrap();
+        let svc = make_service(dir.path());
+        svc.register_check(Arc::new(MockCheck {
+            name: "comp_a".to_string(),
+            healthy: true,
+        }));
+        svc.register_check(Arc::new(MockCheck {
+            name: "comp_b".to_string(),
+            healthy: true,
+        }));
+
+        let report = svc.generate_full_report().await.unwrap();
+        assert_eq!(report.overall_status, "healthy");
+        assert_eq!(report.total_components, 2);
+        assert_eq!(report.healthy_count, 2);
+        assert_eq!(report.failed_count, 0);
+        assert_eq!(report.components.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_generate_full_report_unhealthy() {
+        let dir = tempfile::tempdir().unwrap();
+        let svc = make_service(dir.path());
+        svc.register_check(Arc::new(MockCheck {
+            name: "healthy_comp".to_string(),
+            healthy: true,
+        }));
+        svc.register_check(Arc::new(MockCheck {
+            name: "broken_comp".to_string(),
+            healthy: false,
+        }));
+
+        let report = svc.generate_full_report().await.unwrap();
+        assert_eq!(report.overall_status, "unhealthy");
+        assert_eq!(report.healthy_count, 1);
+        assert_eq!(report.failed_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_cached_full_report_none_initially() {
+        let dir = tempfile::tempdir().unwrap();
+        let svc = make_service(dir.path());
+        assert!(svc.cached_full_report().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_cached_full_report_after_checks() {
+        let dir = tempfile::tempdir().unwrap();
+        let svc = make_service(dir.path());
+        svc.register_check(Arc::new(MockCheck {
+            name: "comp".to_string(),
+            healthy: true,
+        }));
+
+        svc.run_checks().await.unwrap();
+        let report = svc.cached_full_report();
+        assert!(report.is_some());
+        assert_eq!(report.unwrap().overall_status, "healthy");
+    }
+
+    #[tokio::test]
+    async fn test_full_report_tracks_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let svc = make_service(dir.path());
+        svc.register_check(Arc::new(MockCheck {
+            name: "comp".to_string(),
+            healthy: true,
+        }));
+
+        // Run checks twice
+        svc.run_checks().await.unwrap();
+        svc.run_checks().await.unwrap();
+
+        let report = svc.generate_full_report().await.unwrap();
+        assert_eq!(report.total_checks_run, 3); // 2 from run_checks + 1 from generate_full_report
     }
 }

@@ -118,6 +118,14 @@ pub struct CronJob {
     /// Whether this is a system job (not user-deletable).
     #[serde(default)]
     pub is_system: bool,
+
+    /// Priority for execution ordering (higher = more important).
+    ///
+    /// When multiple jobs are due in the same tick, they are sorted
+    /// by priority descending so higher-priority jobs fire first.
+    /// Default: 0.
+    #[serde(default)]
+    pub priority: u32,
 }
 
 fn default_job_state() -> JobState {
@@ -243,18 +251,57 @@ mod tests {
             last_run: None,
             history: Vec::new(),
             is_system: false,
+            priority: 0,
         };
         assert_eq!(job.id, "test-id");
         assert_eq!(job.name.as_deref(), Some("test job"));
         assert_eq!(job.state, JobState::Active);
         assert!(!job.is_system);
         assert!(job.history.is_empty());
+        assert_eq!(job.priority, 0);
     }
 
     #[test]
     fn test_cron_store_default() {
         let store = CronStore::default();
         assert!(store.jobs.is_empty());
+    }
+
+    #[test]
+    fn test_cron_job_priority_default() {
+        let json = r#"{"id":"p","schedule":{"kind":"at"},"payload":{"message":"x"}}"#;
+        let job: CronJob = serde_json::from_str(json).unwrap();
+        assert_eq!(job.priority, 0);
+    }
+
+    #[test]
+    fn test_cron_job_priority_serde() {
+        let job = CronJob {
+            id: "hi-pri".to_string(),
+            name: None,
+            schedule: CronSchedule {
+                kind: ScheduleKind::Every,
+                at_ms: None,
+                every_ms: Some(1000),
+                expr: None,
+                tz: None,
+            },
+            payload: CronPayload {
+                message: "urgent".to_string(),
+                channel: None,
+                chat_id: None,
+                deliver: false,
+            },
+            state: JobState::Active,
+            next_run: None,
+            last_run: None,
+            history: Vec::new(),
+            is_system: false,
+            priority: 100,
+        };
+        let json = serde_json::to_string(&job).unwrap();
+        let back: CronJob = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.priority, 100);
     }
 
     #[test]

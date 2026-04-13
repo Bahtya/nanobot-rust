@@ -43,6 +43,7 @@ pub fn check(_config: &Config) -> Result<()> {
             for check in &snapshot.checks {
                 let status = match check.status {
                     nanobot_heartbeat::CheckStatus::Healthy => "healthy",
+                    nanobot_heartbeat::CheckStatus::Degraded => "DEGRADED",
                     nanobot_heartbeat::CheckStatus::Unhealthy => "UNHEALTHY",
                     nanobot_heartbeat::CheckStatus::Skipped => "skipped",
                 };

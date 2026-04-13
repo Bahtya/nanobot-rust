@@ -4,6 +4,7 @@
 
 pub mod compaction;
 pub mod context;
+pub mod context_budget;
 pub mod heartbeat;
 pub mod hook;
 pub mod loop_mod;
@@ -15,19 +16,25 @@ pub mod subagent;
 
 pub use compaction::{compact_session, CompactionConfig, CompactionResult, CompactionStrategy};
 pub use context::ContextBuilder;
+pub use context_budget::{
+    prune_messages, BudgetAllocation, ContextBudget, ContextBudgetConfig, PruneResult,
+};
 pub use heartbeat::{
-    AgentLoopHealthCheck, BusHealthCheck, ChannelHealthCheck, ProviderHealthCheck,
+    AgentLoopHealthCheck, BusHealthCheck, ChannelHealthCheck, ConfigStoreHealthCheck,
+    DeepConfigStoreHealthCheck, LivenessCheck, ProviderHealthCheck, ReadinessCheck,
     SessionStoreHealthCheck,
 };
 pub use hook::{AgentHook, CompositeHook};
 pub use loop_mod::{AgentLoop, HeartbeatHandle};
 pub use memory::MemoryStore;
-pub use notes::{extract_compaction_notes, NoteFormat, NotesManager};
+pub use notes::{
+    extract_compaction_notes, NoteCompactionConfig, NoteFormat, NotesManager, NotesStore,
+};
 pub use runner::AgentRunner;
 pub use skills::SkillsLoader;
 pub use subagent::{
-    ParallelSpawnConfig, SpawnSummary, SubAgentHandle, SubAgentManager, SubAgentResult,
-    SubAgentTask, TaskStatus,
+    ParallelSpawnConfig, SpawnSummary, SubAgentHandle, SubAgentManager, SubAgentManagerConfig,
+    SubAgentMessage, SubAgentResult, SubAgentTask, TaskStatus,
 };
 
 /// Result from a streaming LLM completion (internal type).

@@ -158,6 +158,20 @@ impl CronService {
         payload: CronPayload,
         name: Option<String>,
     ) -> Result<CronJob> {
+        self.add_job_with_priority(schedule, payload, name, 0)
+    }
+
+    /// Add a new cron job with an explicit priority.
+    ///
+    /// Higher priority jobs are executed first when multiple jobs are
+    /// due in the same tick. Priority 0 is the default (lowest).
+    pub fn add_job_with_priority(
+        &self,
+        schedule: CronSchedule,
+        payload: CronPayload,
+        name: Option<String>,
+        priority: u32,
+    ) -> Result<CronJob> {
         // Validate schedule
         validate_schedule(&schedule)?;
 
@@ -174,6 +188,7 @@ impl CronService {
             last_run: None,
             history: Vec::new(),
             is_system: false,
+            priority,
         };
 
         self.store.lock().jobs.push(job.clone());
@@ -183,7 +198,7 @@ impl CronService {
         Ok(job)
     }
 
-    /// Update an existing cron job's schedule and/or payload.
+    /// Update an existing cron job's schedule, payload, and/or priority.
     ///
     /// Returns the updated job, or None if not found.
     pub fn update_job(
@@ -192,6 +207,7 @@ impl CronService {
         schedule: Option<CronSchedule>,
         payload: Option<CronPayload>,
         name: Option<String>,
+        priority: Option<u32>,
     ) -> Result<Option<CronJob>> {
         // Validate new schedule if provided
         if let Some(ref s) = schedule {
@@ -213,6 +229,9 @@ impl CronService {
         }
         if let Some(n) = name {
             job.name = if n.is_empty() { None } else { Some(n) };
+        }
+        if let Some(p) = priority {
+            job.priority = p;
         }
 
         let updated = job.clone();
@@ -343,6 +362,11 @@ impl CronService {
         }
 
         drop(store);
+
+        // Sort due jobs by priority (highest first) before emitting events.
+        // This ensures higher-priority jobs are processed first when multiple
+        // jobs are due in the same tick.
+        due.sort_by(|a, b| b.priority.cmp(&a.priority));
 
         // Emit events via bus
         if let Some(bus) = &self.bus {
@@ -703,7 +727,7 @@ mod tests {
             tz: None,
         };
         let updated = svc
-            .update_job(&job.id, Some(new_schedule), None, None)
+            .update_job(&job.id, Some(new_schedule), None, None, None)
             .unwrap()
             .unwrap();
         assert_eq!(updated.schedule.every_ms, Some(120_000));
@@ -719,7 +743,7 @@ mod tests {
 
         let new_payload = make_payload_with("updated message");
         let updated = svc
-            .update_job(&job.id, None, Some(new_payload), None)
+            .update_job(&job.id, None, Some(new_payload), None, None)
             .unwrap()
             .unwrap();
         assert_eq!(updated.payload.message, "updated message");
@@ -730,7 +754,7 @@ mod tests {
     fn test_update_nonexistent() {
         let dir = tempfile::tempdir().unwrap();
         let svc = make_service(dir.path());
-        let result = svc.update_job("nope", None, None, None).unwrap();
+        let result = svc.update_job("nope", None, None, None, None).unwrap();
         assert!(result.is_none());
     }
 
@@ -934,7 +958,7 @@ mod tests {
         let job = svc
             .add_job(make_every_schedule(), make_payload(), Some("orig".to_string()))
             .unwrap();
-        svc.update_job(&job.id, None, Some(make_payload_with("new")), None)
+        svc.update_job(&job.id, None, Some(make_payload_with("new")), None, None)
             .unwrap();
 
         // Reload
@@ -1132,6 +1156,7 @@ mod tests {
                 last_run: None,
                 history: Vec::new(),
                 is_system: true,
+                priority: 0,
             });
             id
         };
@@ -1358,5 +1383,123 @@ mod tests {
 
         let state = svc.get_job_state(&job.id).unwrap();
         assert_eq!(state.job_name.as_deref(), Some("custom"));
+    }
+
+    // === Priority tests ===
+
+    #[test]
+    fn test_add_job_with_priority() {
+        let dir = tempfile::tempdir().unwrap();
+        let svc = make_service(dir.path());
+
+        let job = svc
+            .add_job_with_priority(
+                make_every_schedule(),
+                make_payload(),
+                Some("high-pri".to_string()),
+                100,
+            )
+            .unwrap();
+
+        assert_eq!(job.priority, 100);
+
+        // Verify persisted
+        let loaded = svc.get_job(&job.id).unwrap();
+        assert_eq!(loaded.priority, 100);
+    }
+
+    #[test]
+    fn test_add_job_default_priority() {
+        let dir = tempfile::tempdir().unwrap();
+        let svc = make_service(dir.path());
+
+        let job = svc
+            .add_job(make_every_schedule(), make_payload(), None)
+            .unwrap();
+
+        assert_eq!(job.priority, 0);
+    }
+
+    #[test]
+    fn test_update_job_priority() {
+        let dir = tempfile::tempdir().unwrap();
+        let svc = make_service(dir.path());
+
+        let job = svc
+            .add_job(make_every_schedule(), make_payload(), None)
+            .unwrap();
+        assert_eq!(job.priority, 0);
+
+        let updated = svc
+            .update_job(&job.id, None, None, None, Some(50))
+            .unwrap()
+            .unwrap();
+        assert_eq!(updated.priority, 50);
+
+        // Verify persisted
+        let loaded = svc.get_job(&job.id).unwrap();
+        assert_eq!(loaded.priority, 50);
+    }
+
+    #[test]
+    fn test_tick_sorts_by_priority() {
+        let dir = tempfile::tempdir().unwrap();
+        let svc = make_service(dir.path());
+
+        // Create 3 jobs due now (past "at" schedule)
+        let past_ts = (Local::now() - chrono::Duration::seconds(10))
+            .timestamp_millis();
+
+        let mut job_ids = Vec::new();
+        for (i, pri) in [0u32, 200, 50].iter().enumerate() {
+            let schedule = CronSchedule {
+                kind: ScheduleKind::At,
+                at_ms: Some(past_ts),
+                every_ms: None,
+                expr: None,
+                tz: None,
+            };
+            let payload = CronPayload {
+                message: format!("job-{}", i),
+                channel: None,
+                chat_id: None,
+                deliver: false,
+            };
+            let job = svc
+                .add_job_with_priority(schedule, payload, None, *pri)
+                .unwrap();
+            job_ids.push(job.id);
+        }
+
+        let due = svc.tick();
+
+        // Should be sorted by priority descending: 200, 50, 0
+        assert_eq!(due.len(), 3);
+        assert_eq!(due[0].priority, 200);
+        assert_eq!(due[1].priority, 50);
+        assert_eq!(due[2].priority, 0);
+    }
+
+    #[test]
+    fn test_priority_persists_across_restart() {
+        let dir = tempfile::tempdir().unwrap();
+
+        {
+            let svc = make_service(dir.path());
+            svc.add_job_with_priority(
+                make_every_schedule(),
+                make_payload(),
+                Some("urgent".to_string()),
+                999,
+            )
+            .unwrap();
+        }
+
+        // Reload
+        let svc2 = make_service(dir.path());
+        let jobs = svc2.list_jobs();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].priority, 999);
+        assert_eq!(jobs[0].name.as_deref(), Some("urgent"));
     }
 }

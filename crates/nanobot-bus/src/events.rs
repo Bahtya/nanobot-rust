@@ -170,6 +170,42 @@ pub enum AgentEvent {
     GatewayReidentify {
         platform: String,
     },
+
+    /// Health status changed (transition between healthy/degraded/unhealthy).
+    HealthStatusChanged {
+        /// Previous aggregate status.
+        from: String,
+        /// New aggregate status.
+        to: String,
+        /// Number of checks that are unhealthy.
+        failed_count: usize,
+        /// Number of checks that are degraded.
+        degraded_count: usize,
+    },
+
+    /// Context window exceeded budget and messages were pruned.
+    ContextOverflow {
+        /// Session that overflowed.
+        session_key: String,
+        /// Estimated token count before pruning.
+        tokens_before: usize,
+        /// Estimated token count after pruning.
+        tokens_after: usize,
+        /// Number of messages removed.
+        messages_removed: usize,
+    },
+
+    /// A single component's health status changed.
+    ComponentStatusChanged {
+        /// Component name (e.g. "provider", "bus").
+        component: String,
+        /// Previous status string.
+        from: String,
+        /// New status string.
+        to: String,
+        /// Human-readable detail message.
+        message: String,
+    },
 }
 
 #[cfg(test)]

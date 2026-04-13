@@ -107,6 +107,25 @@ pub trait SubAgentSpawner: Send + Sync {
 
     /// List all tracked tasks as `(id, name, status)` tuples.
     async fn list(&self) -> Vec<(String, String, SpawnStatus)>;
+
+    /// Spawn a sub-agent task with an explicit per-task timeout.
+    ///
+    /// If `timeout_secs` is `Some(secs)`, the sub-agent will be killed
+    /// after that many seconds. `None` falls back to the manager default.
+    ///
+    /// The default implementation delegates to [`spawn`](Self::spawn),
+    /// ignoring the timeout parameter. Implementors that support timeouts
+    /// should override this method.
+    async fn spawn_with_timeout(
+        &self,
+        name: &str,
+        prompt: &str,
+        context: Option<String>,
+        timeout_secs: Option<u64>,
+    ) -> anyhow::Result<String> {
+        let _ = timeout_secs;
+        self.spawn(name, prompt, context).await
+    }
 }
 
 #[cfg(test)]
@@ -159,5 +178,32 @@ mod tests {
             SpawnStatus::Completed("ok".into()),
             SpawnStatus::Completed("ok".into())
         );
+    }
+
+    /// Verify the default `spawn_with_timeout` delegates to `spawn`.
+    #[tokio::test]
+    async fn test_spawn_with_timeout_default_delegates() {
+        struct StubSpawner;
+        #[async_trait]
+        impl SubAgentSpawner for StubSpawner {
+            async fn spawn(
+                &self,
+                name: &str,
+                prompt: &str,
+                _context: Option<String>,
+            ) -> anyhow::Result<String> {
+                Ok(format!("{}:{}", name, prompt))
+            }
+            async fn status(&self, _task_id: &str) -> Option<SpawnStatus> { None }
+            async fn cancel(&self, _task_id: &str) -> bool { false }
+            async fn list(&self) -> Vec<(String, String, SpawnStatus)> { vec![] }
+        }
+
+        let spawner = StubSpawner;
+        let id = spawner
+            .spawn_with_timeout("test", "hello", None, Some(30))
+            .await
+            .unwrap();
+        assert_eq!(id, "test:hello");
     }
 }

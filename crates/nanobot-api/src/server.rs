@@ -33,6 +33,7 @@ use nanobot_agent::AgentRunner;
 use nanobot_bus::MessageBus;
 use nanobot_config::Config;
 use nanobot_core::{Message, MessageRole};
+use nanobot_heartbeat::types::{CheckStatus, HealthSnapshot};
 use nanobot_providers::ProviderRegistry;
 use nanobot_session::SessionManager;
 use nanobot_tools::ToolRegistry;
@@ -57,6 +58,8 @@ pub struct AppState {
     pub api_key: Option<String>,
     /// Cancellation token for graceful shutdown — cancelled on SIGINT/SIGTERM.
     pub cancel: CancellationToken,
+    /// Latest health snapshot from the heartbeat service, updated externally.
+    pub health_snapshot: Arc<parking_lot::RwLock<Option<HealthSnapshot>>>,
 }
 
 /// The API server.
@@ -112,6 +115,7 @@ impl ApiServer {
             tool_registry: Arc::new(ToolRegistry::new()),
             api_key: None,
             cancel: CancellationToken::new(),
+            health_snapshot: Arc::new(parking_lot::RwLock::new(None)),
         };
         Self { state, port }
     }
@@ -133,6 +137,7 @@ impl ApiServer {
             tool_registry: Arc::new(tool_registry),
             api_key: None,
             cancel: CancellationToken::new(),
+            health_snapshot: Arc::new(parking_lot::RwLock::new(None)),
         };
         Self { state, port }
     }
@@ -150,7 +155,8 @@ impl ApiServer {
 
         let public_routes = Router::new()
             .route("/v1/models", get(list_models))
-            .route("/health", get(health));
+            .route("/health", get(health))
+            .route("/ready", get(ready));
 
         let protected_routes = Router::new()
             .route("/v1/chat/completions", post(chat_completions))
@@ -200,6 +206,16 @@ impl ApiServer {
     /// Trigger graceful shutdown programmatically.
     pub fn shutdown(&self) {
         self.state.cancel.cancel();
+    }
+
+    /// Update the shared health snapshot (called by the heartbeat service).
+    pub fn set_health_snapshot(&self, snapshot: HealthSnapshot) {
+        *self.state.health_snapshot.write() = Some(snapshot);
+    }
+
+    /// Get a reference to the shared health snapshot lock for external wiring.
+    pub fn health_snapshot_lock(&self) -> Arc<parking_lot::RwLock<Option<HealthSnapshot>>> {
+        self.state.health_snapshot.clone()
     }
 }
 
@@ -773,11 +789,79 @@ async fn list_models(State(state): State<AppState>) -> impl IntoResponse {
     })
 }
 
-async fn health() -> impl IntoResponse {
-    Json(serde_json::json!({
-        "status": "ok",
-        "version": nanobot_core::VERSION,
-    }))
+async fn health(State(state): State<AppState>) -> impl IntoResponse {
+    let snapshot = state.health_snapshot.read();
+
+    match snapshot.clone() {
+        Some(snap) => {
+            let status = if snap.healthy {
+                if snap.degraded { "degraded" } else { "healthy" }
+            } else {
+                "unhealthy"
+            };
+
+            let checks_json: Vec<serde_json::Value> = snap
+                .checks
+                .iter()
+                .map(|c| {
+                    serde_json::json!({
+                        "component": c.component,
+                        "status": match c.status {
+                            CheckStatus::Healthy => "healthy",
+                            CheckStatus::Degraded => "degraded",
+                            CheckStatus::Unhealthy => "unhealthy",
+                            CheckStatus::Skipped => "skipped",
+                        },
+                        "message": c.message,
+                    })
+                })
+                .collect();
+
+            Json(serde_json::json!({
+                "status": status,
+                "version": nanobot_core::VERSION,
+                "healthy": snap.healthy,
+                "degraded": snap.degraded,
+                "checks": checks_json,
+                "summary": snap.summary(),
+                "timestamp": snap.timestamp.to_rfc3339(),
+            }))
+        }
+        None => Json(serde_json::json!({
+            "status": "starting",
+            "version": nanobot_core::VERSION,
+            "healthy": true,
+            "checks": [],
+            "message": "No health checks run yet",
+        })),
+    }
+}
+
+/// Readiness probe — returns 200 if healthy, 503 if not.
+///
+/// Suitable for Kubernetes readiness probes.
+async fn ready(State(state): State<AppState>) -> impl IntoResponse {
+    let snapshot = state.health_snapshot.read();
+
+    match snapshot.clone() {
+        Some(snap) if snap.healthy => {
+            (StatusCode::OK, Json(serde_json::json!({ "ready": true })))
+        }
+        Some(snap) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "ready": false,
+                "reason": snap.summary(),
+            })),
+        ),
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "ready": false,
+                "reason": "No health checks run yet",
+            })),
+        ),
+    }
 }
 
 // ─── Tests ─────────────────────────────────────────────────
@@ -836,6 +920,7 @@ mod tests {
             tool_registry: Arc::new(ToolRegistry::new()),
             api_key: None,
             cancel: CancellationToken::new(),
+            health_snapshot: Arc::new(parking_lot::RwLock::new(None)),
         }
     }
 
@@ -856,6 +941,7 @@ mod tests {
             tool_registry: Arc::new(ToolRegistry::new()),
             api_key: None,
             cancel: CancellationToken::new(),
+            health_snapshot: Arc::new(parking_lot::RwLock::new(None)),
         }
     }
 
@@ -870,6 +956,7 @@ mod tests {
             .route("/v1/chat/completions", post(chat_completions))
             .route("/v1/models", get(list_models))
             .route("/health", get(health))
+            .route("/ready", get(ready))
             .with_state(test_state())
     }
 
@@ -878,6 +965,7 @@ mod tests {
             .route("/v1/chat/completions", post(chat_completions))
             .route("/v1/models", get(list_models))
             .route("/health", get(health))
+            .route("/ready", get(ready))
             .with_state(test_state_with_provider())
     }
 
@@ -885,7 +973,8 @@ mod tests {
         let state = test_state_with_auth();
         let public_routes = Router::new()
             .route("/v1/models", get(list_models))
-            .route("/health", get(health));
+            .route("/health", get(health))
+            .route("/ready", get(ready));
 
         let protected_routes = Router::new()
             .route("/v1/chat/completions", post(chat_completions))
@@ -903,15 +992,146 @@ mod tests {
     // ─── Health ─────────────────────────────────────────
 
     #[tokio::test]
-    async fn test_health_endpoint() {
+    async fn test_health_endpoint_no_snapshot() {
         let app = test_router();
         let req = Request::builder().uri("/health").body(Body::empty()).unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let body = resp.into_body().collect().await.unwrap().to_bytes();
         let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(v["status"], "ok");
+        assert_eq!(v["status"], "starting");
         assert_eq!(v["version"], nanobot_core::VERSION);
+        assert_eq!(v["healthy"], true);
+    }
+
+    #[tokio::test]
+    async fn test_health_endpoint_with_healthy_snapshot() {
+        let state = test_state();
+        let snap = HealthSnapshot::from_checks(vec![nanobot_heartbeat::types::HealthCheckResult {
+            component: "test".to_string(),
+            status: CheckStatus::Healthy,
+            message: "ok".to_string(),
+            timestamp: chrono::Local::now(),
+        }]);
+        *state.health_snapshot.write() = Some(snap);
+
+        let app = Router::new()
+            .route("/health", get(health))
+            .with_state(state);
+
+        let req = Request::builder().uri("/health").body(Body::empty()).unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["status"], "healthy");
+        assert_eq!(v["healthy"], true);
+        assert!(v["checks"].is_array());
+    }
+
+    #[tokio::test]
+    async fn test_health_endpoint_with_degraded_snapshot() {
+        let state = test_state();
+        let snap = HealthSnapshot::from_checks(vec![nanobot_heartbeat::types::HealthCheckResult {
+            component: "channel".to_string(),
+            status: CheckStatus::Degraded,
+            message: "1/2 connected".to_string(),
+            timestamp: chrono::Local::now(),
+        }]);
+        *state.health_snapshot.write() = Some(snap);
+
+        let app = Router::new()
+            .route("/health", get(health))
+            .with_state(state);
+
+        let req = Request::builder().uri("/health").body(Body::empty()).unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["status"], "degraded");
+        assert_eq!(v["healthy"], true);
+        assert_eq!(v["degraded"], true);
+    }
+
+    #[tokio::test]
+    async fn test_health_endpoint_with_unhealthy_snapshot() {
+        let state = test_state();
+        let snap = HealthSnapshot::from_checks(vec![nanobot_heartbeat::types::HealthCheckResult {
+            component: "provider".to_string(),
+            status: CheckStatus::Unhealthy,
+            message: "down".to_string(),
+            timestamp: chrono::Local::now(),
+        }]);
+        *state.health_snapshot.write() = Some(snap);
+
+        let app = Router::new()
+            .route("/health", get(health))
+            .with_state(state);
+
+        let req = Request::builder().uri("/health").body(Body::empty()).unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["status"], "unhealthy");
+        assert_eq!(v["healthy"], false);
+    }
+
+    #[tokio::test]
+    async fn test_ready_endpoint_no_snapshot() {
+        let app = test_router();
+        let req = Request::builder().uri("/ready").body(Body::empty()).unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["ready"], false);
+    }
+
+    #[tokio::test]
+    async fn test_ready_endpoint_healthy() {
+        let state = test_state();
+        let snap = HealthSnapshot::from_checks(vec![nanobot_heartbeat::types::HealthCheckResult {
+            component: "test".to_string(),
+            status: CheckStatus::Healthy,
+            message: "ok".to_string(),
+            timestamp: chrono::Local::now(),
+        }]);
+        *state.health_snapshot.write() = Some(snap);
+
+        let app = Router::new()
+            .route("/ready", get(ready))
+            .with_state(state);
+
+        let req = Request::builder().uri("/ready").body(Body::empty()).unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["ready"], true);
+    }
+
+    #[tokio::test]
+    async fn test_ready_endpoint_unhealthy() {
+        let state = test_state();
+        let snap = HealthSnapshot::from_checks(vec![nanobot_heartbeat::types::HealthCheckResult {
+            component: "db".to_string(),
+            status: CheckStatus::Unhealthy,
+            message: "down".to_string(),
+            timestamp: chrono::Local::now(),
+        }]);
+        *state.health_snapshot.write() = Some(snap);
+
+        let app = Router::new()
+            .route("/ready", get(ready))
+            .with_state(state);
+
+        let req = Request::builder().uri("/ready").body(Body::empty()).unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["ready"], false);
+        assert!(v["reason"].is_string());
     }
 
     // ─── Models ─────────────────────────────────────────
@@ -1122,6 +1342,7 @@ mod tests {
             tool_registry: Arc::new(ToolRegistry::new()),
             api_key: None,
             cancel: CancellationToken::new(),
+            health_snapshot: Arc::new(parking_lot::RwLock::new(None)),
         };
         let app = Router::new()
             .route("/v1/chat/completions", post(chat_completions))
@@ -1530,6 +1751,7 @@ mod tests {
             tool_registry: Arc::new(ToolRegistry::new()),
             api_key: None,
             cancel: CancellationToken::new(),
+            health_snapshot: Arc::new(parking_lot::RwLock::new(None)),
         };
 
         let cors = build_cors_layer(&state.config);
@@ -1686,6 +1908,7 @@ mod tests {
             tool_registry: Arc::new(ToolRegistry::new()),
             api_key: None,
             cancel: CancellationToken::new(),
+            health_snapshot: Arc::new(parking_lot::RwLock::new(None)),
         };
 
         let cors = build_cors_layer(&state.config);
@@ -1737,6 +1960,7 @@ mod tests {
             tool_registry: Arc::new(ToolRegistry::new()),
             api_key: None,
             cancel: CancellationToken::new(),
+            health_snapshot: Arc::new(parking_lot::RwLock::new(None)),
         };
 
         let cors = build_cors_layer(&state.config);

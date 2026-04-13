@@ -11,6 +11,7 @@ nanobot-session = { path = "../nanobot-session" }
 nanobot-agent = { path = "../nanobot-agent" }
 nanobot-providers = { path = "../nanobot-providers" }
 nanobot-tools = { path = "../nanobot-tools" }
+nanobot-heartbeat = { path = "../nanobot-heartbeat" }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 async-trait = { workspace = true }
@@ -24,6 +25,7 @@ tower-http = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
 futures = { workspace = true }
+parking_lot = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

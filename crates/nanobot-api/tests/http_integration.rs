@@ -88,7 +88,7 @@ async fn test_health_check() {
 
     let body = resp.into_body().collect().await.unwrap().to_bytes();
     let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(v["status"], "ok");
+    assert_eq!(v["status"], "starting"); // No health snapshot set yet
     assert_eq!(v["version"], nanobot_core::VERSION);
 }
 

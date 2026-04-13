@@ -122,20 +122,35 @@ impl Default for ParallelSpawnConfig {
     }
 }
 
-/// Status of a tracked sub-agent task (for background monitoring).
+/// Status of a tracked sub-agent task.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskStatus {
+    /// Task registered but not yet executing.
+    Pending,
+    /// Task is currently executing.
     Running,
+    /// Task completed successfully with the given output.
     Completed(String),
+    /// Task failed with the given error message.
     Failed(String),
+    /// Task was explicitly cancelled.
+    Cancelled,
+}
+
+impl TaskStatus {
+    /// Returns `true` if the task has reached a terminal state.
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, TaskStatus::Completed(_) | TaskStatus::Failed(_) | TaskStatus::Cancelled)
+    }
 }
 
 impl From<&TaskStatus> for SpawnStatus {
     fn from(s: &TaskStatus) -> Self {
         match s {
-            TaskStatus::Running => SpawnStatus::Running,
+            TaskStatus::Pending | TaskStatus::Running => SpawnStatus::Running,
             TaskStatus::Completed(r) => SpawnStatus::Completed(r.clone()),
             TaskStatus::Failed(e) => SpawnStatus::Failed(e.clone()),
+            TaskStatus::Cancelled => SpawnStatus::Failed("Cancelled".to_string()),
         }
     }
 }
@@ -187,14 +202,46 @@ impl SpawnSummary {
     }
 }
 
+/// A message sent between sub-agents or from the parent agent.
+///
+/// Messages are stored in a per-task mailbox and can be drained
+/// by the task owner at any time.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubAgentMessage {
+    /// Sender identifier — a task ID or `"parent"`.
+    pub from: String,
+    /// Message content.
+    pub content: String,
+    /// When this message was created.
+    pub timestamp: chrono::DateTime<chrono::Local>,
+}
+
+impl SubAgentMessage {
+    /// Create a new message from the given sender.
+    pub fn new(from: impl Into<String>, content: impl Into<String>) -> Self {
+        Self {
+            from: from.into(),
+            content: content.into(),
+            timestamp: chrono::Local::now(),
+        }
+    }
+}
+
 /// Internal tracked task for background monitoring.
 struct TrackedTask {
     id: String,
     name: String,
-    description: String,
     status: TaskStatus,
+    /// Per-task mailbox for inter-agent messages.
+    mailbox: Vec<SubAgentMessage>,
+    /// When the task transitioned to Running.
+    started_at: Option<Instant>,
+    /// When the task reached a terminal state.
+    completed_at: Option<Instant>,
     /// JoinHandle so we can abort the background tokio task on cancel.
     handle: Option<tokio::task::JoinHandle<()>>,
+    /// Signalled when the task reaches a terminal state.
+    done_notify: Arc<tokio::sync::Notify>,
 }
 
 // ─── SubAgentHandle ─────────────────────────────────────────────
@@ -203,7 +250,7 @@ struct TrackedTask {
 ///
 /// Provides methods to query status and request cancellation without
 /// exposing the internal `SubAgentManager`.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct SubAgentHandle {
     /// Task ID.
     pub id: String,
@@ -227,6 +274,24 @@ impl SubAgentHandle {
 
 // ─── SubAgentManager ──────────────────────────────────────────
 
+/// Configuration defaults for the sub-agent manager.
+#[derive(Debug, Clone)]
+pub struct SubAgentManagerConfig {
+    /// Maximum number of concurrently tracked tasks. 0 = unlimited.
+    pub max_tasks: usize,
+    /// Default timeout in seconds for `spawn_single`. 0 = no timeout.
+    pub default_timeout_secs: u64,
+}
+
+impl Default for SubAgentManagerConfig {
+    fn default() -> Self {
+        Self {
+            max_tasks: 0,
+            default_timeout_secs: 120,
+        }
+    }
+}
+
 /// Manages sub-agent spawning — both background tracking and parallel execution.
 ///
 /// Holds shared config, provider registry, and tool registry so each sub-agent
@@ -237,6 +302,15 @@ pub struct SubAgentManager {
     providers: Arc<ProviderRegistry>,
     tools: Arc<ToolRegistry>,
     tasks: Arc<RwLock<Vec<TrackedTask>>>,
+    manager_config: SubAgentManagerConfig,
+}
+
+impl std::fmt::Debug for SubAgentManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SubAgentManager")
+            .field("manager_config", &self.manager_config)
+            .finish_non_exhaustive()
+    }
 }
 
 impl SubAgentManager {
@@ -251,41 +325,83 @@ impl SubAgentManager {
             providers,
             tools,
             tasks: Arc::new(RwLock::new(Vec::new())),
+            manager_config: SubAgentManagerConfig::default(),
+        }
+    }
+
+    /// Create with custom manager-level configuration.
+    pub fn with_manager_config(
+        config: Arc<Config>,
+        providers: Arc<ProviderRegistry>,
+        tools: Arc<ToolRegistry>,
+        manager_config: SubAgentManagerConfig,
+    ) -> Self {
+        Self {
+            config,
+            providers,
+            tools,
+            tasks: Arc::new(RwLock::new(Vec::new())),
+            manager_config,
         }
     }
 
     // ─── Background task tracking (legacy + monitoring) ────────
 
-    /// Register a new background task for tracking.
-    pub async fn spawn(&self, name: &str, description: &str) -> String {
+    /// Register a new background task for tracking (starts in Pending state).
+    ///
+    /// Returns the task ID. The task is not yet executing — call
+    /// [`start`](Self::start) or use [`spawn_single`](Self::spawn_single)
+    /// for automatic lifecycle management.
+    pub async fn spawn(&self, name: &str, _description: &str) -> String {
         let id = Uuid::new_v4().to_string();
         let task = TrackedTask {
             id: id.clone(),
             name: name.to_string(),
-            description: description.to_string(),
-            status: TaskStatus::Running,
+            status: TaskStatus::Pending,
+            mailbox: Vec::new(),
+            started_at: None,
+            completed_at: None,
             handle: None,
+            done_notify: Arc::new(tokio::sync::Notify::new()),
         };
         self.tasks.write().await.push(task);
-        info!("Spawned subagent task: {} ({})", name, id);
+        info!("Registered subagent task: {} ({})", name, id);
         id
     }
 
     /// Mark a tracked task as completed.
     pub async fn complete(&self, id: &str, result: String) {
-        let mut tasks = self.tasks.write().await;
-        if let Some(task) = tasks.iter_mut().find(|t| t.id == id) {
-            task.status = TaskStatus::Completed(result);
-            debug!("Completed subagent task: {}", id);
+        let notify = {
+            let mut tasks = self.tasks.write().await;
+            if let Some(task) = tasks.iter_mut().find(|t| t.id == id) {
+                task.status = TaskStatus::Completed(result);
+                task.completed_at = Some(Instant::now());
+                debug!("Completed subagent task: {}", id);
+                Some(Arc::clone(&task.done_notify))
+            } else {
+                None
+            }
+        };
+        if let Some(n) = notify {
+            n.notify_one();
         }
     }
 
     /// Mark a tracked task as failed.
     pub async fn fail(&self, id: &str, error: String) {
-        let mut tasks = self.tasks.write().await;
-        if let Some(task) = tasks.iter_mut().find(|t| t.id == id) {
-            task.status = TaskStatus::Failed(error);
-            debug!("Failed subagent task: {}", id);
+        let notify = {
+            let mut tasks = self.tasks.write().await;
+            if let Some(task) = tasks.iter_mut().find(|t| t.id == id) {
+                task.status = TaskStatus::Failed(error);
+                task.completed_at = Some(Instant::now());
+                debug!("Failed subagent task: {}", id);
+                Some(Arc::clone(&task.done_notify))
+            } else {
+                None
+            }
+        };
+        if let Some(n) = notify {
+            n.notify_one();
         }
     }
 
@@ -311,25 +427,55 @@ impl SubAgentManager {
     /// Registers the task, kicks off execution via a dedicated `AgentRunner`,
     /// and updates the tracking status on completion or failure.
     /// Returns a [`SubAgentHandle`] for monitoring.
+    ///
+    /// If `timeout_secs` is `Some`, the sub-agent will be killed after that
+    /// many seconds. If `None`, [`SubAgentManagerConfig::default_timeout_secs`]
+    /// is used (0 means no timeout).
     pub async fn spawn_single(
         self: &Arc<Self>,
         name: &str,
         prompt: &str,
         context: Option<String>,
+        timeout_secs: Option<u64>,
     ) -> Result<SubAgentHandle> {
+        // Check max_tasks limit
+        {
+            let tasks = self.tasks.read().await;
+            let active = tasks.iter().filter(|t| !t.status.is_terminal()).count();
+            if self.manager_config.max_tasks > 0 && active >= self.manager_config.max_tasks {
+                anyhow::bail!(
+                    "Cannot spawn: {} active tasks (limit: {})",
+                    active,
+                    self.manager_config.max_tasks
+                );
+            }
+        }
+
         let id = Uuid::new_v4().to_string();
+        let timeout = timeout_secs
+            .or(if self.manager_config.default_timeout_secs > 0 {
+                Some(self.manager_config.default_timeout_secs)
+            } else {
+                None
+            })
+            .map(Duration::from_secs);
 
         // Register tracking entry
-        {
+        let _notify = {
             let task = TrackedTask {
                 id: id.clone(),
                 name: name.to_string(),
-                description: prompt.to_string(),
-                status: TaskStatus::Running,
+                status: TaskStatus::Pending,
+                mailbox: Vec::new(),
+                started_at: None,
+                completed_at: None,
                 handle: None,
+                done_notify: Arc::new(tokio::sync::Notify::new()),
             };
+            let notify = Arc::clone(&task.done_notify);
             self.tasks.write().await.push(task);
-        }
+            notify
+        };
 
         info!("Spawning single sub-agent task '{}' ({})", name, id);
 
@@ -363,13 +509,40 @@ impl SubAgentManager {
             Be concise and direct in your response."
             .to_string();
 
+        // Transition to Running
+        {
+            let mut tasks = self.tasks.write().await;
+            if let Some(task) = tasks.iter_mut().find(|t| t.id == id) {
+                task.status = TaskStatus::Running;
+                task.started_at = Some(Instant::now());
+            }
+        }
+
         // Spawn background tokio task
         let mgr = Arc::clone(self);
         let task_id = id.clone();
         let handle = tokio::spawn(async move {
-            match runner.run(system_prompt, messages).await {
-                Ok(result) => {
-                    mgr.complete(&task_id, result.content).await;
+            let run_future = runner.run(system_prompt, messages);
+
+            let result = match timeout {
+                Some(dur) => match tokio::time::timeout(dur, run_future).await {
+                    Ok(Ok(r)) => Ok(r),
+                    Ok(Err(e)) => Err(e),
+                    Err(_) => {
+                        mgr.fail(
+                            &task_id,
+                            format!("Sub-agent timed out after {:.0}s", dur.as_secs_f64()),
+                        )
+                        .await;
+                        return;
+                    }
+                },
+                None => run_future.await,
+            };
+
+            match result {
+                Ok(run_result) => {
+                    mgr.complete(&task_id, run_result.content).await;
                 }
                 Err(e) => {
                     mgr.fail(&task_id, format!("{}", e)).await;
@@ -377,7 +550,7 @@ impl SubAgentManager {
             }
         });
 
-        // Store the join handle so we can abort on cancel
+        // Store the join handle
         {
             let mut tasks = self.tasks.write().await;
             if let Some(task) = tasks.iter_mut().find(|t| t.id == id) {
@@ -385,12 +558,85 @@ impl SubAgentManager {
             }
         }
 
-        let name_owned = name.to_string();
         Ok(SubAgentHandle {
             id,
-            name: name_owned,
+            name: name.to_string(),
             manager: Arc::clone(self),
         })
+    }
+
+    /// Wait for a tracked task to reach a terminal state.
+    ///
+    /// Returns the final [`TaskStatus`], or `None` if the task ID is unknown.
+    /// If `timeout` elapses before the task finishes, returns the current
+    /// (non-terminal) status.
+    pub async fn wait_for(
+        &self,
+        id: &str,
+        timeout: Duration,
+    ) -> Option<TaskStatus> {
+        // Snapshot the notify handle without holding the lock across the await.
+        let notify = {
+            let tasks = self.tasks.read().await;
+            let task = tasks.iter().find(|t| t.id == id)?;
+            if task.status.is_terminal() {
+                return Some(task.status.clone());
+            }
+            Arc::clone(&task.done_notify)
+        };
+
+        // Wait for completion signal
+        let _ = tokio::time::timeout(timeout, notify.notified()).await;
+
+        // Read final status
+        let tasks = self.tasks.read().await;
+        tasks.iter().find(|t| t.id == id).map(|t| t.status.clone())
+    }
+
+    /// Abort all running background tasks and mark them as Cancelled.
+    ///
+    /// Returns the number of tasks that were terminated.
+    pub async fn terminate_all(&self) -> usize {
+        let mut count = 0;
+        let notifies: Vec<Arc<tokio::sync::Notify>> = {
+            let mut tasks = self.tasks.write().await;
+            let mut notifies = Vec::new();
+            for task in tasks.iter_mut() {
+                if !task.status.is_terminal() {
+                    if let Some(handle) = task.handle.take() {
+                        handle.abort();
+                    }
+                    task.status = TaskStatus::Cancelled;
+                    task.completed_at = Some(Instant::now());
+                    notifies.push(Arc::clone(&task.done_notify));
+                    count += 1;
+                }
+            }
+            notifies
+        };
+        for n in notifies {
+            n.notify_one();
+        }
+        if count > 0 {
+            info!("Terminated {} sub-agent tasks", count);
+        }
+        count
+    }
+
+    /// Remove all tasks that have reached a terminal state.
+    ///
+    /// Returns the number of tasks removed.
+    pub async fn cleanup_completed(&self) -> usize {
+        let mut tasks = self.tasks.write().await;
+        let before = tasks.len();
+        tasks.retain(|t| !t.status.is_terminal());
+        before - tasks.len()
+    }
+
+    /// Count tasks that are currently in a non-terminal state.
+    pub async fn active_count(&self) -> usize {
+        let tasks = self.tasks.read().await;
+        tasks.iter().filter(|t| !t.status.is_terminal()).count()
     }
 
     // ─── Parallel execution ───────────────────────────────────
@@ -551,6 +797,69 @@ impl SubAgentManager {
         )
     }
 
+    // ─── Inter-agent messaging ────────────────────────────────
+
+    /// Send a message to a specific task's mailbox.
+    ///
+    /// Returns `false` if the task ID is unknown or the task is already
+    /// in a terminal state.
+    pub async fn send_message(&self, task_id: &str, from: &str, content: String) -> bool {
+        let mut tasks = self.tasks.write().await;
+        if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
+            if task.status.is_terminal() {
+                return false;
+            }
+            task.mailbox.push(SubAgentMessage::new(from, content));
+            debug!("Sent message to task '{}' from '{}'", task_id, from);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Broadcast a message to all running tasks' mailboxes.
+    ///
+    /// Returns the number of tasks that received the message.
+    pub async fn broadcast_message(&self, from: &str, content: String) -> usize {
+        let mut tasks = self.tasks.write().await;
+        let mut count = 0;
+        for task in tasks.iter_mut() {
+            if !task.status.is_terminal() {
+                task.mailbox.push(SubAgentMessage::new(from, content.clone()));
+                count += 1;
+            }
+        }
+        if count > 0 {
+            debug!("Broadcast message from '{}' to {} tasks", from, count);
+        }
+        count
+    }
+
+    /// Drain all pending messages from a task's mailbox.
+    ///
+    /// Returns the messages in FIFO order. Returns an empty vec if
+    /// the task ID is unknown.
+    pub async fn drain_messages(&self, task_id: &str) -> Vec<SubAgentMessage> {
+        let mut tasks = self.tasks.write().await;
+        if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
+            std::mem::take(&mut task.mailbox)
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Get the number of pending messages in a task's mailbox.
+    pub async fn mailbox_len(&self, task_id: &str) -> usize {
+        let tasks = self.tasks.read().await;
+        tasks
+            .iter()
+            .find(|t| t.id == task_id)
+            .map(|t| t.mailbox.len())
+            .unwrap_or(0)
+    }
+
+    // ─── Runner construction helpers ──────────────────────────
+
     /// Build a tool registry with denied tools filtered out.
     fn build_filtered_tools(&self, denied: &[String]) -> Result<Arc<ToolRegistry>> {
         if denied.is_empty() {
@@ -572,15 +881,35 @@ impl SubAgentSpawner for SubAgentManager {
         prompt: &str,
         context: Option<String>,
     ) -> Result<String> {
-        // We need an Arc<Self> to call spawn_single, so wrap self.
-        // The manager is always used behind an Arc in practice.
+        // The shared `tasks` map is an Arc<RwLock<..>>, so cloning the manager
+        // shell is cheap and shares the same underlying task list with any
+        // existing Arc<Self> the caller may already hold.
         let arc_self: Arc<Self> = Arc::new(Self {
             config: self.config.clone(),
             providers: self.providers.clone(),
             tools: self.tools.clone(),
             tasks: self.tasks.clone(),
+            manager_config: self.manager_config.clone(),
         });
-        let handle = arc_self.spawn_single(name, prompt, context).await?;
+        let handle = arc_self.spawn_single(name, prompt, context, None).await?;
+        Ok(handle.id)
+    }
+
+    async fn spawn_with_timeout(
+        &self,
+        name: &str,
+        prompt: &str,
+        context: Option<String>,
+        timeout_secs: Option<u64>,
+    ) -> Result<String> {
+        let arc_self: Arc<Self> = Arc::new(Self {
+            config: self.config.clone(),
+            providers: self.providers.clone(),
+            tools: self.tools.clone(),
+            tasks: self.tasks.clone(),
+            manager_config: self.manager_config.clone(),
+        });
+        let handle = arc_self.spawn_single(name, prompt, context, timeout_secs).await?;
         Ok(handle.id)
     }
 
@@ -593,19 +922,29 @@ impl SubAgentSpawner for SubAgentManager {
     }
 
     async fn cancel(&self, task_id: &str) -> bool {
-        let mut tasks = self.tasks.write().await;
-        if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
-            // Abort the tokio task if we have the handle
-            if let Some(handle) = task.handle.take() {
-                handle.abort();
-            }
-            if task.status == TaskStatus::Running {
-                task.status = TaskStatus::Failed("Cancelled".to_string());
+        let notify = {
+            let mut tasks = self.tasks.write().await;
+            if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
+                if task.status.is_terminal() {
+                    return false;
+                }
+                if let Some(handle) = task.handle.take() {
+                    handle.abort();
+                }
+                task.status = TaskStatus::Cancelled;
+                task.completed_at = Some(Instant::now());
                 debug!("Cancelled subagent task: {}", task_id);
-                return true;
+                Some(Arc::clone(&task.done_notify))
+            } else {
+                None
             }
+        };
+        if let Some(n) = notify {
+            n.notify_one();
+            true
+        } else {
+            false
         }
-        false
     }
 
     async fn list(&self) -> Vec<(String, String, SpawnStatus)> {
@@ -885,7 +1224,7 @@ mod tests {
         let mgr = make_manager_with_mock(MockProvider::simple("ok"));
         let id = mgr.spawn("test_task", "a test").await;
         let status = mgr.get_status(&id).await.unwrap();
-        assert_eq!(status, TaskStatus::Running);
+        assert_eq!(status, TaskStatus::Pending);
 
         mgr.complete(&id, "done".to_string()).await;
         let status = mgr.get_status(&id).await.unwrap();
@@ -964,7 +1303,7 @@ mod tests {
     #[tokio::test]
     async fn test_handle_status_and_cancel() {
         let mgr = Arc::new(make_manager_with_delayed("slow result", Duration::from_secs(5)));
-        let handle = mgr.spawn_single("slow-task", "take your time", None)
+        let handle = mgr.spawn_single("slow-task", "take your time", None, None)
             .await
             .unwrap();
 
@@ -987,7 +1326,7 @@ mod tests {
     #[tokio::test]
     async fn test_handle_completed() {
         let mgr = Arc::new(make_manager_with_mock(MockProvider::simple("done")));
-        let handle = mgr.spawn_single("fast-task", "quick work", None)
+        let handle = mgr.spawn_single("fast-task", "quick work", None, None)
             .await
             .unwrap();
 
@@ -1010,7 +1349,7 @@ mod tests {
     async fn test_handle_with_context() {
         let mgr = Arc::new(make_manager_with_mock(MockProvider::simple("context ok")));
         let handle = mgr
-            .spawn_single("ctx-task", "use context", Some("extra info".to_string()))
+            .spawn_single("ctx-task", "use context", Some("extra info".to_string()), None)
             .await
             .unwrap();
 
@@ -1405,5 +1744,335 @@ mod tests {
         assert_eq!(back.context, Some("Extra context".into()));
         assert_eq!(back.model_override, Some("gpt-4o-mini".into()));
         assert_eq!(back.max_tokens, Some(512));
+    }
+
+    // ─── Lifecycle management tests ───────────────────────────
+
+    #[tokio::test]
+    async fn test_task_status_is_terminal() {
+        assert!(!TaskStatus::Pending.is_terminal());
+        assert!(!TaskStatus::Running.is_terminal());
+        assert!(TaskStatus::Completed("ok".into()).is_terminal());
+        assert!(TaskStatus::Failed("err".into()).is_terminal());
+        assert!(TaskStatus::Cancelled.is_terminal());
+    }
+
+    #[tokio::test]
+    async fn test_task_status_from_for_spawn_status() {
+        assert_eq!(SpawnStatus::from(&TaskStatus::Pending), SpawnStatus::Running);
+        assert_eq!(SpawnStatus::from(&TaskStatus::Running), SpawnStatus::Running);
+        assert_eq!(
+            SpawnStatus::from(&TaskStatus::Completed("ok".into())),
+            SpawnStatus::Completed("ok".into())
+        );
+        assert_eq!(
+            SpawnStatus::from(&TaskStatus::Failed("err".into())),
+            SpawnStatus::Failed("err".into())
+        );
+        assert_eq!(
+            SpawnStatus::from(&TaskStatus::Cancelled),
+            SpawnStatus::Failed("Cancelled".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_terminate_all() {
+        let mgr = Arc::new(make_manager_with_delayed("slow", Duration::from_secs(10)));
+
+        // Spawn 3 slow tasks
+        let h1 = mgr.spawn_single("t1", "p1", None, None).await.unwrap();
+        let h2 = mgr.spawn_single("t2", "p2", None, None).await.unwrap();
+        let h3 = mgr.spawn_single("t3", "p3", None, None).await.unwrap();
+
+        // All should be running
+        assert_eq!(mgr.active_count().await, 3);
+
+        let terminated = mgr.terminate_all().await;
+        assert_eq!(terminated, 3);
+        assert_eq!(mgr.active_count().await, 0);
+
+        // All handles should report cancelled
+        assert!(matches!(h1.status().await, Some(SpawnStatus::Failed(ref m)) if m == "Cancelled"));
+        assert!(matches!(h2.status().await, Some(SpawnStatus::Failed(ref m)) if m == "Cancelled"));
+        assert!(matches!(h3.status().await, Some(SpawnStatus::Failed(ref m)) if m == "Cancelled"));
+    }
+
+    #[tokio::test]
+    async fn test_terminate_all_skips_completed() {
+        let mgr = Arc::new(make_manager_with_mock(MockProvider::simple("fast")));
+
+        // Spawn a fast task and wait for it
+        let _h = mgr.spawn_single("fast", "p", None, None).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        // Spawn a slow task
+        let _slow_mgr = Arc::new(make_manager_with_delayed("slow", Duration::from_secs(10)));
+        // Actually, let's just use the same manager with a slow provider approach
+        // For simplicity, register a pending task manually
+        let _id_slow = mgr.spawn("slow-task", "desc").await;
+
+        let terminated = mgr.terminate_all().await;
+        // Only the slow-task (Pending) gets terminated, the fast one should be done
+        assert!(terminated <= 1);
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_completed() {
+        let mgr = make_manager_with_mock(MockProvider::simple("ok"));
+
+        let id1 = mgr.spawn("t1", "d1").await;
+        let id2 = mgr.spawn("t2", "d2").await;
+        mgr.complete(&id1, "done".into()).await;
+        // id2 stays Pending
+
+        let removed = mgr.cleanup_completed().await;
+        assert_eq!(removed, 1);
+
+        let tasks = mgr.list_tasks().await;
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].0, id2);
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_completed_all_terminal() {
+        let mgr = make_manager_with_mock(MockProvider::simple("ok"));
+
+        let id1 = mgr.spawn("t1", "d1").await;
+        let id2 = mgr.spawn("t2", "d2").await;
+        mgr.complete(&id1, "done".into()).await;
+        mgr.fail(&id2, "error".into()).await;
+
+        let removed = mgr.cleanup_completed().await;
+        assert_eq!(removed, 2);
+        assert!(mgr.list_tasks().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_active_count() {
+        let mgr = make_manager_with_mock(MockProvider::simple("ok"));
+
+        assert_eq!(mgr.active_count().await, 0);
+
+        let id1 = mgr.spawn("t1", "d1").await;
+        let _id2 = mgr.spawn("t2", "d2").await;
+        assert_eq!(mgr.active_count().await, 2);
+
+        mgr.complete(&id1, "done".into()).await;
+        assert_eq!(mgr.active_count().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_max_tasks_limit() {
+        let mut config = Config::default();
+        config.agent.model = "mock-model".to_string();
+        config.agent.max_iterations = 5;
+        let mut reg = ProviderRegistry::new();
+        reg.register("mock", DelayedProvider::new("result", Duration::from_secs(10)));
+        reg.set_default("mock");
+
+        let mgr = Arc::new(SubAgentManager::with_manager_config(
+            Arc::new(config),
+            Arc::new(reg),
+            Arc::new(ToolRegistry::new()),
+            SubAgentManagerConfig {
+                max_tasks: 2,
+                default_timeout_secs: 0,
+            },
+        ));
+
+        // Spawn 2 tasks — should succeed
+        let h1 = mgr.spawn_single("t1", "p1", None, None).await.unwrap();
+        let h2 = mgr.spawn_single("t2", "p2", None, None).await.unwrap();
+
+        // 3rd should fail
+        let result = mgr.spawn_single("t3", "p3", None, None).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Cannot spawn"));
+
+        // Cleanup
+        mgr.terminate_all().await;
+        let _ = h1;
+        let _ = h2;
+    }
+
+    #[tokio::test]
+    async fn test_spawn_single_timeout() {
+        // Provider takes 5 seconds, timeout is 100ms
+        let mgr = Arc::new(make_manager_with_delayed("slow", Duration::from_secs(5)));
+
+        let handle = mgr.spawn_single("timed-task", "work", None, Some(1))
+            .await
+            .unwrap();
+
+        // Wait for the timeout to trigger
+        let status = mgr.wait_for(&handle.id, Duration::from_secs(3)).await;
+        assert!(status.is_some());
+        assert!(matches!(status, Some(TaskStatus::Failed(ref msg)) if msg.contains("timed out")));
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_already_completed() {
+        let mgr = Arc::new(make_manager_with_mock(MockProvider::simple("fast")));
+        let handle = mgr.spawn_single("fast", "p", None, None).await.unwrap();
+
+        // Wait for completion
+        let status = mgr.wait_for(&handle.id, Duration::from_secs(2)).await;
+        assert!(status.is_some());
+        assert!(matches!(status, Some(TaskStatus::Completed(_))));
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_unknown_task() {
+        let mgr = make_manager_with_mock(MockProvider::simple("ok"));
+        let status = mgr.wait_for("nonexistent", Duration::from_millis(50)).await;
+        assert!(status.is_none());
+    }
+
+    // ─── Messaging tests ──────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_send_message_to_task() {
+        let mgr = make_manager_with_mock(MockProvider::simple("ok"));
+        let id = mgr.spawn("worker", "test").await;
+
+        let sent = mgr.send_message(&id, "parent", "hello from parent".into()).await;
+        assert!(sent);
+        assert_eq!(mgr.mailbox_len(&id).await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_send_message_to_unknown_task() {
+        let mgr = make_manager_with_mock(MockProvider::simple("ok"));
+        let sent = mgr.send_message("no-such-id", "parent", "msg".into()).await;
+        assert!(!sent);
+    }
+
+    #[tokio::test]
+    async fn test_send_message_to_terminal_task() {
+        let mgr = make_manager_with_mock(MockProvider::simple("ok"));
+        let id = mgr.spawn("worker", "test").await;
+        mgr.complete(&id, "done".into()).await;
+
+        let sent = mgr.send_message(&id, "parent", "too late".into()).await;
+        assert!(!sent);
+    }
+
+    #[tokio::test]
+    async fn test_drain_messages() {
+        let mgr = make_manager_with_mock(MockProvider::simple("ok"));
+        let id = mgr.spawn("worker", "test").await;
+
+        mgr.send_message(&id, "parent", "msg1".into()).await;
+        mgr.send_message(&id, "sibling", "msg2".into()).await;
+        mgr.send_message(&id, "parent", "msg3".into()).await;
+
+        assert_eq!(mgr.mailbox_len(&id).await, 3);
+
+        let msgs = mgr.drain_messages(&id).await;
+        assert_eq!(msgs.len(), 3);
+        assert_eq!(msgs[0].from, "parent");
+        assert_eq!(msgs[0].content, "msg1");
+        assert_eq!(msgs[1].from, "sibling");
+        assert_eq!(msgs[2].content, "msg3");
+
+        // Mailbox should be empty after drain
+        assert_eq!(mgr.mailbox_len(&id).await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_drain_messages_unknown_task() {
+        let mgr = make_manager_with_mock(MockProvider::simple("ok"));
+        let msgs = mgr.drain_messages("no-such-id").await;
+        assert!(msgs.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_broadcast_message() {
+        let mgr = make_manager_with_mock(MockProvider::simple("ok"));
+
+        let id1 = mgr.spawn("worker1", "test").await;
+        let id2 = mgr.spawn("worker2", "test").await;
+        let id3 = mgr.spawn("worker3", "test").await;
+
+        // Complete one so it won't receive
+        mgr.complete(&id3, "done".into()).await;
+
+        let received = mgr.broadcast_message("coordinator", "all hands".into()).await;
+        assert_eq!(received, 2); // id3 is terminal
+
+        assert_eq!(mgr.mailbox_len(&id1).await, 1);
+        assert_eq!(mgr.mailbox_len(&id2).await, 1);
+        assert_eq!(mgr.mailbox_len(&id3).await, 0); // terminal
+    }
+
+    #[tokio::test]
+    async fn test_sub_agent_message_new() {
+        let msg = SubAgentMessage::new("parent", "hello");
+        assert_eq!(msg.from, "parent");
+        assert_eq!(msg.content, "hello");
+        assert!(!msg.timestamp.to_rfc3339().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_sub_agent_message_serde() {
+        let msg = SubAgentMessage::new("task-1", "result data");
+        let json = serde_json::to_string(&msg).unwrap();
+        let back: SubAgentMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.from, "task-1");
+        assert_eq!(back.content, "result data");
+    }
+
+    // ─── Manager config tests ─────────────────────────────────
+
+    #[test]
+    fn test_manager_config_default() {
+        let config = SubAgentManagerConfig::default();
+        assert_eq!(config.max_tasks, 0);
+        assert_eq!(config.default_timeout_secs, 120);
+    }
+
+    #[test]
+    fn test_manager_config_custom() {
+        let config = SubAgentManagerConfig {
+            max_tasks: 10,
+            default_timeout_secs: 300,
+        };
+        assert_eq!(config.max_tasks, 10);
+        assert_eq!(config.default_timeout_secs, 300);
+    }
+
+    // ─── spawn_with_timeout tests ──────────────────────────────
+
+    #[tokio::test]
+    async fn test_spawn_with_custom_timeout() {
+        let mgr = make_manager_with_mock(MockProvider::simple("hello"));
+        let arc = Arc::new(mgr);
+
+        // Use spawn_with_timeout via the SubAgentSpawner trait
+        let spawner: Arc<dyn SubAgentSpawner> = arc.clone();
+        let id = spawner
+            .spawn_with_timeout("timeout-test", "Say hello", None, Some(5))
+            .await
+            .unwrap();
+
+        // Task should be tracked
+        let status = spawner.status(&id).await.unwrap();
+        assert!(matches!(status, SpawnStatus::Running | SpawnStatus::Completed(_)));
+    }
+
+    #[tokio::test]
+    async fn test_spawn_with_default_timeout() {
+        let mgr = make_manager_with_mock(MockProvider::simple("hello"));
+        let arc = Arc::new(mgr);
+
+        let spawner: Arc<dyn SubAgentSpawner> = arc.clone();
+        // None = use default from config (120s)
+        let id = spawner
+            .spawn_with_timeout("default-timeout", "Say hi", None, None)
+            .await
+            .unwrap();
+
+        let status = spawner.status(&id).await;
+        assert!(status.is_some());
     }
 }

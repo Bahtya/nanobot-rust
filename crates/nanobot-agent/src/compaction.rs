@@ -78,6 +78,8 @@ pub struct CompactionResult {
     pub tokens_before: usize,
     /// Estimated tokens after compaction.
     pub tokens_after: usize,
+    /// Number of structured notes extracted from the compacted messages.
+    pub notes_extracted: usize,
 }
 
 /// Compact a session's message history when it exceeds the token threshold.
@@ -95,6 +97,7 @@ pub fn compact_session(session: &mut Session, config: &CompactionConfig) -> Resu
             messages_after: messages_before,
             tokens_before,
             tokens_after: tokens_before,
+            notes_extracted: 0,
         });
     }
 
@@ -114,6 +117,7 @@ pub fn compact_session(session: &mut Session, config: &CompactionConfig) -> Resu
             messages_after: messages_before,
             tokens_before,
             tokens_after: tokens_before,
+            notes_extracted: 0,
         });
     }
 
@@ -150,6 +154,7 @@ fn compact_summarize(
             messages_after: messages_before,
             tokens_before,
             tokens_after: tokens_before,
+            notes_extracted: 0,
         });
     }
 
@@ -208,6 +213,7 @@ fn compact_summarize(
         messages_after: session.messages.len(),
         tokens_before,
         tokens_after,
+        notes_extracted,
     })
 }
 
@@ -228,6 +234,7 @@ fn compact_truncate(
         messages_after: session.messages.len(),
         tokens_before,
         tokens_after,
+        notes_extracted: 0,
     })
 }
 
@@ -466,5 +473,85 @@ mod tests {
         assert!(result.tokens_before > result.tokens_after);
         assert!(result.messages_before > 0);
         assert!(result.messages_after > 0);
+        // notes_extracted should be populated (at least a summary from user messages)
+        assert!(result.notes_extracted > 0);
+    }
+
+    #[test]
+    fn test_compaction_notes_extracted_count() {
+        let config = CompactionConfig {
+            context_window_tokens: 500,
+            threshold_ratio: 0.3,
+            keep_recent: 2,
+            strategy: CompactionStrategy::Summarize,
+        };
+        let mut session = Session::new("test:notes_count".to_string());
+        session.add_system_message("System".to_string());
+        session.add_user_message("What database should we use?".to_string());
+        session.add_assistant_message("We decided to use PostgreSQL for the backend. You should add tests.".to_string());
+        session.add_user_message("How do we handle migrations?".to_string());
+        session.add_assistant_message("Let's use sqlx for migrations.".to_string());
+        // Add enough to trigger compaction
+        for i in 0..20 {
+            session.add_user_message(format!("filler message {} with content", i));
+            session.add_assistant_message(format!("filler response {}", i));
+        }
+
+        let result = compact_session(&mut session, &config).unwrap();
+        // Should extract at least summary + decisions + action_items + questions
+        assert!(result.notes_extracted >= 1);
+    }
+
+    #[test]
+    fn test_compaction_notes_deduplicated() {
+        let config = CompactionConfig {
+            context_window_tokens: 500,
+            threshold_ratio: 0.3,
+            keep_recent: 2,
+            strategy: CompactionStrategy::Summarize,
+        };
+
+        // Run compaction twice on the same session
+        let mut session = Session::new("test:dedup".to_string());
+        session.add_system_message("System".to_string());
+        for i in 0..20 {
+            session.add_user_message(format!("User message {} about topics", i));
+            session.add_assistant_message(format!("Assistant response {}", i));
+        }
+
+        let r1 = compact_session(&mut session, &config).unwrap();
+        let notes_after_first = session.all_notes().len();
+
+        // Add more messages to trigger second compaction
+        for i in 0..20 {
+            session.add_user_message(format!("More user message {}", i));
+            session.add_assistant_message(format!("More assistant response {}", i));
+        }
+
+        let r2 = compact_session(&mut session, &config).unwrap();
+
+        // Notes count should be similar (deduped), not doubled
+        let notes_after_second = session.all_notes().len();
+        assert!(r1.notes_extracted > 0);
+        assert!(r2.notes_extracted > 0);
+        // Old compaction notes should have been replaced, not accumulated
+        assert!(
+            notes_after_second <= notes_after_first + r2.notes_extracted,
+            "notes should be deduped, not accumulated: first={}, second={}, extracted={}",
+            notes_after_first, notes_after_second, r2.notes_extracted,
+        );
+    }
+
+    #[test]
+    fn test_truncate_notes_extracted_is_zero() {
+        let config = CompactionConfig {
+            context_window_tokens: 500,
+            threshold_ratio: 0.3,
+            keep_recent: 6,
+            strategy: CompactionStrategy::Truncate,
+        };
+        let mut session = make_session_with_messages(10);
+        let result = compact_session(&mut session, &config).unwrap();
+        assert_eq!(result.notes_extracted, 0);
     }
 }

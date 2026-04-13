@@ -1251,6 +1251,31 @@ impl BaseChannel for TelegramChannel {
             let running = self.running.clone();
             let router = self.router.clone();
 
+            // Register built-in callback handlers for /settings and /history.
+            {
+                let mut guard = router.lock().await;
+                guard.register("settings", |ctx: CallbackContext| async move {
+                    let data = rebuild_callback_data(&ctx);
+                    match crate::commands::handle_callback(&data) {
+                        Some(resp) => CallbackResponse::EditMessage {
+                            text: resp.text,
+                            keyboard: resp.keyboard,
+                        },
+                        None => CallbackResponse::Toast("Unknown action".to_string()),
+                    }
+                });
+                guard.register("history", |ctx: CallbackContext| async move {
+                    let data = rebuild_callback_data(&ctx);
+                    match crate::commands::handle_callback(&data) {
+                        Some(resp) => CallbackResponse::EditMessage {
+                            text: resp.text,
+                            keyboard: resp.keyboard,
+                        },
+                        None => CallbackResponse::Toast("Unknown page".to_string()),
+                    }
+                });
+            }
+
             tokio::spawn(async move {
                 Self::poll_loop(client, token, handler, running, router).await;
             });
@@ -1760,6 +1785,21 @@ impl TelegramChannel {
             warn!("Failed to answer callback query: {e}");
         }
         Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Callback helpers
+// ---------------------------------------------------------------------------
+
+/// Reconstruct the original callback_data string from a parsed CallbackContext.
+fn rebuild_callback_data(ctx: &CallbackContext) -> String {
+    match &ctx.action.payload {
+        Some(p) => format!(
+            "{}:{}:{}",
+            ctx.action.prefix, ctx.action.action, p
+        ),
+        None => format!("{}:{}", ctx.action.prefix, ctx.action.action),
     }
 }
 

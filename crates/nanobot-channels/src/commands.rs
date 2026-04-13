@@ -11,6 +11,9 @@ use std::fmt::Write;
 
 use crate::platforms::telegram::{InlineKeyboardBuilder, InlineKeyboardMarkup};
 
+/// Model names available for cycling via /settings.
+const MODEL_CYCLE: &[&str] = &["gpt-4o", "claude-sonnet-4-6", "deepseek-chat"];
+
 // ---------------------------------------------------------------------------
 // Command response type
 // ---------------------------------------------------------------------------
@@ -103,6 +106,7 @@ fn handle_help() -> String {
     let _ = writeln!(out, "/validate - Validate config.yaml and show results");
     let _ = writeln!(out, "/settings - Toggle preferences (notifications, model)");
     let _ = writeln!(out, "/history  - Browse recent conversation history");
+    let _ = writeln!(out, "/reset    - Reset conversation context for this chat");
     out
 }
 
@@ -394,38 +398,46 @@ fn format_key_status(name: &str, key: Option<&str>) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// /reset implementation
+// ---------------------------------------------------------------------------
+
+/// Reset (clear) the conversation history for a session.
+///
+/// Deletes the persisted session file and notes, then returns a confirmation
+/// message.  The session will be re-created with empty history on the next
+/// message.
+pub fn handle_reset(session_key: &str) -> String {
+    let home = match nanobot_config::paths::get_nanobot_home() {
+        Ok(h) => h,
+        Err(e) => return format!("Cannot determine data directory: {e}"),
+    };
+    let data_dir = home.join("data");
+
+    let mgr = match SessionManager::new(data_dir) {
+        Ok(m) => m,
+        Err(e) => return format!("Session store error: {e}"),
+    };
+
+    match mgr.reset_session(session_key) {
+        Ok(()) => "Session reset. Conversation history cleared.".to_string(),
+        Err(e) => format!("Failed to reset session: {e}"),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // /settings implementation
 // ---------------------------------------------------------------------------
 
 /// Show user preferences as an inline keyboard for toggling.
 ///
-/// Preferences are stored per-user in a JSON file at
-/// `~/.nanobot-rs/preferences/{user_id}.json`.
+/// Loads the current config and renders a keyboard with model switch and
+/// streaming toggle buttons.  Button presses are handled by [`handle_callback`].
 fn handle_settings() -> CommandResponse {
     let config = match load_config(None) {
         Ok(c) => c,
         Err(e) => return CommandResponse::text(format!("Failed to load config: {e}")),
     };
-
-    let model = &config.agent.model;
-    let streaming = config.agent.streaming;
-
-    let mut out = String::new();
-    let _ = writeln!(out, "Settings");
-    let _ = writeln!(out, "Model: {}", model);
-    let _ = writeln!(out, "Streaming: {}", if streaming { "on" } else { "off" });
-    let _ = writeln!(out, "\nTap a button to change:");
-
-    let keyboard = InlineKeyboardBuilder::new()
-        .row_pair(
-            "Model: switch",
-            "settings:model:switch",
-            "Streaming: toggle",
-            "settings:streaming:toggle",
-        )
-        .build();
-
-    CommandResponse::with_keyboard(out, keyboard)
+    build_settings_response(&config)
 }
 
 // ---------------------------------------------------------------------------
@@ -560,6 +572,111 @@ fn truncate_str(s: &str, max: usize) -> String {
         let end = s.ceil_char_boundary(max).min(s.len());
         format!("{}...", &s[..end])
     }
+}
+
+// ---------------------------------------------------------------------------
+// Callback handler (for inline keyboard button presses)
+// ---------------------------------------------------------------------------
+
+/// Handle a callback from an inline keyboard button press.
+///
+/// Parses the `callback_data` string and dispatches to the appropriate handler.
+/// Returns `Some(CommandResponse)` if the callback was handled, `None` if
+/// unrecognized (caller should fall through to the bus).
+///
+/// For settings callbacks, this modifies and saves the config file.
+/// For history callbacks, this renders the requested page.
+pub fn handle_callback(data: &str) -> Option<CommandResponse> {
+    let mut parts = data.splitn(3, ':');
+    let prefix = parts.next()?;
+    let action = parts.next()?;
+    let payload = parts.next();
+
+    match prefix {
+        "settings" => match action {
+            "model" if payload == Some("switch") => Some(handle_settings_model_switch()),
+            "streaming" if payload == Some("toggle") => Some(handle_settings_streaming_toggle()),
+            _ => None,
+        },
+        "history" => {
+            if action == "page" {
+                let page: usize = payload.and_then(|p| p.parse().ok()).unwrap_or(0);
+                Some(handle_history_page(page))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Cycle the default model through the predefined list and persist to config.
+fn handle_settings_model_switch() -> CommandResponse {
+    let mut config = match load_config(None) {
+        Ok(c) => c,
+        Err(e) => return CommandResponse::text(format!("Failed to load config: {e}")),
+    };
+
+    // Find current model in the cycle list and advance.
+    let current = config.agent.model.to_lowercase();
+    let idx = MODEL_CYCLE
+        .iter()
+        .position(|m| m.eq_ignore_ascii_case(&current))
+        .map(|i| (i + 1) % MODEL_CYCLE.len())
+        .unwrap_or(0);
+    config.agent.model = MODEL_CYCLE[idx].to_string();
+
+    if let Err(e) = save_config_to_default(&config) {
+        return CommandResponse::text(format!("Failed to save config: {e}"));
+    }
+
+    build_settings_response(&config)
+}
+
+/// Toggle the streaming setting and persist to config.
+fn handle_settings_streaming_toggle() -> CommandResponse {
+    let mut config = match load_config(None) {
+        Ok(c) => c,
+        Err(e) => return CommandResponse::text(format!("Failed to load config: {e}")),
+    };
+
+    config.agent.streaming = !config.agent.streaming;
+
+    if let Err(e) = save_config_to_default(&config) {
+        return CommandResponse::text(format!("Failed to save config: {e}"));
+    }
+
+    build_settings_response(&config)
+}
+
+/// Save config to the default path.
+fn save_config_to_default(config: &Config) -> Result<(), String> {
+    let path = nanobot_config::paths::get_config_path().map_err(|e| e.to_string())?;
+    nanobot_config::loader::save_config(config, &path).map_err(|e| e.to_string())
+}
+
+/// Build the settings CommandResponse with current config state.
+fn build_settings_response(config: &Config) -> CommandResponse {
+    let mut out = String::new();
+    let _ = writeln!(out, "Settings");
+    let _ = writeln!(out, "Model: {}", config.agent.model);
+    let _ = writeln!(
+        out,
+        "Streaming: {}",
+        if config.agent.streaming { "on" } else { "off" }
+    );
+    let _ = writeln!(out, "\nTap a button to change:");
+
+    let keyboard = InlineKeyboardBuilder::new()
+        .row_pair(
+            "Model: switch",
+            "settings:model:switch",
+            "Streaming: toggle",
+            "settings:streaming:toggle",
+        )
+        .build();
+
+    CommandResponse::with_keyboard(out, keyboard)
 }
 
 // ---------------------------------------------------------------------------

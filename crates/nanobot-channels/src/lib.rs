@@ -9,7 +9,7 @@ pub mod platforms;
 pub mod registry;
 
 pub use base::BaseChannel;
-pub use commands::CommandResponse;
+pub use commands::{handle_callback, CommandResponse};
 pub use manager::ChannelManager;
 pub use platforms::telegram::{
     CallbackAction, CallbackContext, CallbackResponse, CallbackRouter, InlineKeyboardBuilder,

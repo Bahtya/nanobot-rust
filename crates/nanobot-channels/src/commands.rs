@@ -1,8 +1,8 @@
 //! Built-in slash command handlers.
 //!
 //! Provides channel-level command handling that runs *before* messages are
-//! forwarded to the message bus.  This means commands like `/validate` work
-//! even when the LLM provider is misconfigured.
+//! forwarded to the message bus.  This means commands like `/validate` and
+//! `/status` work even when the LLM provider is misconfigured.
 
 use nanobot_config::validate::ValidationFinding;
 use nanobot_config::{load_config, validate, Config};
@@ -38,7 +38,11 @@ pub fn matches_command(text: &str, command: &str) -> bool {
 /// Otherwise returns `None`, signalling the caller to forward the message
 /// through the normal bus path.
 pub fn try_handle_command(text: &str) -> Option<String> {
-    if matches_command(text, "validate") {
+    if matches_command(text, "help") {
+        Some(handle_help())
+    } else if matches_command(text, "status") {
+        Some(handle_status())
+    } else if matches_command(text, "validate") {
         Some(handle_validate())
     } else {
         None
@@ -211,6 +215,144 @@ fn build_summary(config: &Config) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// /help implementation
+// ---------------------------------------------------------------------------
+
+/// Return a formatted help text listing all available commands.
+fn handle_help() -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "Available commands:\n");
+    let _ = writeln!(out, "/help     - Show this help message");
+    let _ = writeln!(out, "/status   - Show bot status, channels, and config summary");
+    let _ = writeln!(out, "/validate - Validate config.yaml and show results");
+    out
+}
+
+// ---------------------------------------------------------------------------
+// /status implementation
+// ---------------------------------------------------------------------------
+
+/// Return a status snapshot: agent info, provider availability, connected
+/// channels, and heartbeat info derived from config + environment.
+fn handle_status() -> String {
+    let config = match load_config(None) {
+        Ok(c) => c,
+        Err(e) => {
+            return format!(
+                "Status: config load failed\n\n\
+                 Error: {e}\n\n\
+                 The bot is receiving messages (you just sent one), but the \
+                 config file could not be loaded. Try /validate for details."
+            );
+        }
+    };
+
+    let mut out = String::new();
+
+    // Agent info.
+    let name = config.name.as_deref().unwrap_or("unnamed");
+    let _ = writeln!(out, "Agent: {} ({})", config.agent.model, name);
+
+    // Channel status — the bot is clearly connected on whatever platform
+    // received this message, plus any others configured.
+    let mut channels: Vec<String> = Vec::new();
+    if let Some(ref tg) = config.channels.telegram {
+        let state = if tg.enabled {
+            // If the env var is set we assume connected.
+            if std::env::var("TELEGRAM_BOT_TOKEN").is_ok() {
+                "connected"
+            } else {
+                "configured (no token)"
+            }
+        } else {
+            "disabled"
+        };
+        channels.push(format!("telegram: {}", state));
+    }
+    if let Some(ref dc) = config.channels.discord {
+        let state = if dc.enabled {
+            if std::env::var("DISCORD_BOT_TOKEN").is_ok() {
+                "connected"
+            } else {
+                "configured (no token)"
+            }
+        } else {
+            "disabled"
+        };
+        channels.push(format!("discord: {}", state));
+    }
+    if channels.is_empty() {
+        channels.push("(none)".to_string());
+    }
+    let _ = writeln!(out, "Channels: {}", channels.join(", "));
+
+    // Provider availability.
+    let mut providers: Vec<String> = Vec::new();
+    if let Some(ref p) = config.providers.openai {
+        providers.push(format_key_status("openai", p.api_key.as_deref()));
+    }
+    if let Some(ref p) = config.providers.anthropic {
+        providers.push(format_key_status("anthropic", p.api_key.as_deref()));
+    }
+    if let Some(ref p) = config.providers.openrouter {
+        providers.push(format_key_status("openrouter", p.api_key.as_deref()));
+    }
+    if let Some(ref p) = config.providers.ollama {
+        providers.push(format_key_status("ollama", p.api_key.as_deref()));
+    }
+    if let Some(ref p) = config.providers.deepseek {
+        providers.push(format_key_status("deepseek", p.api_key.as_deref()));
+    }
+    if let Some(ref p) = config.providers.gemini {
+        providers.push(format_key_status("gemini", p.api_key.as_deref()));
+    }
+    if let Some(ref p) = config.providers.groq {
+        providers.push(format_key_status("groq", p.api_key.as_deref()));
+    }
+    if let Some(ref p) = config.providers.moonshot {
+        providers.push(format_key_status("moonshot", p.api_key.as_deref()));
+    }
+    if let Some(ref p) = config.providers.minimax {
+        providers.push(format_key_status("minimax", p.api_key.as_deref()));
+    }
+    if config.providers.azure_openai.is_some() {
+        providers.push("azure_openai".to_string());
+    }
+    if let Some(ref p) = config.providers.github_copilot {
+        providers.push(format_key_status("github_copilot", p.api_key.as_deref()));
+    }
+    if let Some(ref p) = config.providers.openai_codex {
+        providers.push(format_key_status("openai_codex", p.api_key.as_deref()));
+    }
+    for cp in &config.custom_providers {
+        providers.push(format!("{} (custom)", cp.name));
+    }
+    if providers.is_empty() {
+        providers.push("(none)".to_string());
+    }
+    let _ = writeln!(out, "Providers: {}", providers.join(", "));
+
+    // Heartbeat.
+    let hb = if config.heartbeat.enabled {
+        format!("enabled (interval: {}s)", config.heartbeat.interval_secs)
+    } else {
+        "disabled".to_string()
+    };
+    let _ = writeln!(out, "Heartbeat: {}", hb);
+
+    out
+}
+
+/// Format provider key status for display.
+fn format_key_status(name: &str, key: Option<&str>) -> String {
+    match key {
+        Some(k) if !k.is_empty() && !k.starts_with("${") => format!("{}: ok", name),
+        Some(k) if !k.is_empty() => format!("{}: key unresolved", name),
+        _ => format!("{}: no key", name),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -266,7 +408,7 @@ mod tests {
 
     #[test]
     fn test_try_handle_command_other() {
-        assert!(try_handle_command("/help").is_none());
+        assert!(try_handle_command("/unknown_cmd").is_none());
         assert!(try_handle_command("hello").is_none());
         assert!(try_handle_command("").is_none());
     }
@@ -422,5 +564,150 @@ providers:
         let _dir = with_temp_config(yaml);
         let result = handle_validate();
         assert!(result.contains("Channels: (none)") || result.contains("Channel"));
+    }
+
+    // -- /help tests ---------------------------------------------------------
+
+    #[test]
+    fn test_handle_help_lists_commands() {
+        let result = handle_help();
+        assert!(result.contains("/help"));
+        assert!(result.contains("/status"));
+        assert!(result.contains("/validate"));
+    }
+
+    #[test]
+    fn test_try_handle_command_help() {
+        let result = try_handle_command("/help");
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("/help"));
+    }
+
+    #[test]
+    fn test_try_handle_command_help_case_insensitive() {
+        assert!(try_handle_command("/HELP").is_some());
+        assert!(try_handle_command("/Help").is_some());
+    }
+
+    #[test]
+    fn test_try_handle_command_help_bot_mention() {
+        assert!(try_handle_command("/help@MyBot").is_some());
+    }
+
+    // -- /status tests -------------------------------------------------------
+
+    #[test]
+    fn test_handle_status_basic() {
+        let _dir = with_empty_home();
+        let result = handle_status();
+        assert!(result.contains("Agent:"));
+        assert!(result.contains("Channels:"));
+        assert!(result.contains("Providers:"));
+        assert!(result.contains("Heartbeat:"));
+    }
+
+    #[test]
+    fn test_handle_status_with_config() {
+        let yaml = r#"
+name: "testbot"
+providers:
+  openai:
+    api_key: "sk-test123"
+channels:
+  telegram:
+    token: "123456:ABC"
+heartbeat:
+  enabled: true
+  interval_secs: 30
+"#;
+        let _dir = with_temp_config(yaml);
+        let result = handle_status();
+        assert!(result.contains("testbot"));
+        assert!(result.contains("openai: ok"));
+        assert!(result.contains("telegram"));
+        assert!(result.contains("Heartbeat: enabled"));
+        assert!(result.contains("30s"));
+    }
+
+    #[test]
+    fn test_handle_status_no_key() {
+        let yaml = r#"
+providers:
+  openai:
+    api_key: ""
+"#;
+        let _dir = with_temp_config(yaml);
+        let result = handle_status();
+        assert!(result.contains("openai: no key"));
+    }
+
+    #[test]
+    fn test_handle_status_unresolved_key() {
+        // When env var is missing, ${MISSING_VAR} expands to empty string,
+        // so after loading it becomes api_key: "" → "no key".
+        let yaml = r#"
+providers:
+  openai:
+    api_key: "${MISSING_VAR}"
+"#;
+        // Ensure the env var is not set.
+        std::env::remove_var("MISSING_VAR");
+        let _dir = with_temp_config(yaml);
+        let result = handle_status();
+        // After env var expansion, the key becomes empty → "no key".
+        assert!(result.contains("openai: no key"));
+    }
+
+    #[test]
+    fn test_handle_status_heartbeat_disabled() {
+        let yaml = r#"
+heartbeat:
+  enabled: false
+"#;
+        let _dir = with_temp_config(yaml);
+        let result = handle_status();
+        assert!(result.contains("Heartbeat: disabled"));
+    }
+
+    #[test]
+    fn test_handle_status_no_providers() {
+        let _dir = with_empty_home();
+        let result = handle_status();
+        assert!(result.contains("Providers: (none)"));
+    }
+
+    #[test]
+    fn test_try_handle_command_status() {
+        let _dir = with_empty_home();
+        let result = try_handle_command("/status");
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("Agent:"));
+    }
+
+    // -- format_key_status tests ---------------------------------------------
+
+    #[test]
+    fn test_format_key_status_ok() {
+        assert_eq!(format_key_status("openai", Some("sk-abc")), "openai: ok");
+    }
+
+    #[test]
+    fn test_format_key_status_no_key() {
+        assert_eq!(format_key_status("openai", None), "openai: no key");
+    }
+
+    #[test]
+    fn test_format_key_status_empty() {
+        assert_eq!(format_key_status("openai", Some("")), "openai: no key");
+    }
+
+    #[test]
+    fn test_format_key_status_unresolved() {
+        // This branch can't happen after load_config (env vars are expanded),
+        // but test the defensive check anyway.
+        assert_eq!(
+            format_key_status("openai", Some("${MISSING}")),
+            "openai: key unresolved"
+        );
     }
 }

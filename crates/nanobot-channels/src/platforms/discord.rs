@@ -466,6 +466,36 @@ impl DiscordChannel {
         }
     }
 
+    /// Send a text reply directly via the Discord REST API (bypassing the bus).
+    ///
+    /// Used for built-in commands like `/validate` that must work even when
+    /// the LLM provider is down.  Non-critical: failures are logged only.
+    async fn send_direct_reply(
+        client: &reqwest::Client,
+        api_base: &str,
+        auth_header: &str,
+        channel_id: &str,
+        text: &str,
+    ) {
+        let path = format!("/channels/{channel_id}/messages");
+        let url = format!("{}{}", api_base, path);
+        let body = CreateMessageBody {
+            content: text.to_string(),
+            message_reference: None,
+            embed: None,
+        };
+        match client
+            .post(&url)
+            .header("Authorization", auth_header)
+            .json(&body)
+            .send()
+            .await
+        {
+            Ok(_) => debug!("Discord direct reply sent"),
+            Err(e) => warn!("Failed to send direct reply: {e}"),
+        }
+    }
+
     /// Emit a gateway lifecycle event (if an event sender is configured).
     fn emit_gateway_event(
         event_tx: &Option<tokio::sync::broadcast::Sender<AgentEvent>>,
@@ -729,10 +759,23 @@ impl DiscordChannel {
                                             if let Ok(msg_data) =
                                                 serde_json::from_value::<GatewayMessage>(payload.d)
                                             {
-                                                let dispatched =
-                                                    Self::dispatch_message(handler, &msg_data)
-                                                        .await;
-                                                if dispatched {
+                                                // /reset needs the session key, so handle it separately.
+                                                if crate::commands::matches_command(
+                                                    &msg_data.content,
+                                                    "reset",
+                                                ) {
+                                                    let session_key =
+                                                        format!("discord:{}", msg_data.channel_id);
+                                                    let response =
+                                                        crate::commands::handle_reset(&session_key);
+                                                    Self::send_direct_reply(
+                                                        &rest.client,
+                                                        &rest.api_base,
+                                                        &rest.auth_header,
+                                                        &msg_data.channel_id,
+                                                        &response,
+                                                    )
+                                                    .await;
                                                     Self::send_read_receipt(
                                                         &rest.client,
                                                         &rest.api_base,
@@ -741,6 +784,41 @@ impl DiscordChannel {
                                                         &msg_data.id,
                                                     )
                                                     .await;
+                                                } else if let Some(response) =
+                                                    crate::commands::try_handle_command(
+                                                        &msg_data.content,
+                                                    )
+                                                {
+                                                    Self::send_direct_reply(
+                                                        &rest.client,
+                                                        &rest.api_base,
+                                                        &rest.auth_header,
+                                                        &msg_data.channel_id,
+                                                        &response.text,
+                                                    )
+                                                    .await;
+                                                    Self::send_read_receipt(
+                                                        &rest.client,
+                                                        &rest.api_base,
+                                                        &rest.auth_header,
+                                                        &msg_data.channel_id,
+                                                        &msg_data.id,
+                                                    )
+                                                    .await;
+                                                } else {
+                                                    let dispatched =
+                                                        Self::dispatch_message(handler, &msg_data)
+                                                            .await;
+                                                    if dispatched {
+                                                        Self::send_read_receipt(
+                                                            &rest.client,
+                                                            &rest.api_base,
+                                                            &rest.auth_header,
+                                                            &msg_data.channel_id,
+                                                            &msg_data.id,
+                                                        )
+                                                        .await;
+                                                    }
                                                 }
                                             }
                                         }

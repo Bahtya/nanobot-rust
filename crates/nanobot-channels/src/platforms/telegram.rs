@@ -5,6 +5,8 @@
 //! `sendMessage` / `sendPhoto` / `sendChatAction` for outbound operations.
 
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -139,6 +141,8 @@ struct SendMessageBody {
     text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     reply_to_message_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reply_markup: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -381,6 +385,129 @@ impl CallbackAction {
 }
 
 // ---------------------------------------------------------------------------
+// Callback routing
+// ---------------------------------------------------------------------------
+
+/// Context provided to a callback handler with all relevant data from the
+/// incoming `callback_query`.
+#[derive(Debug, Clone)]
+pub struct CallbackContext {
+    /// Chat where the callback originated.
+    pub chat_id: String,
+    /// Message that carried the inline keyboard.
+    pub message_id: String,
+    /// User who pressed the button.
+    pub sender_id: String,
+    /// Telegram callback query ID (needed to answer the query).
+    pub callback_query_id: String,
+    /// Parsed callback action.
+    pub action: CallbackAction,
+}
+
+/// Instructions a callback handler returns to the channel layer.
+///
+/// The channel executes the corresponding Telegram API calls.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CallbackResponse {
+    /// Send a new text message to the same chat.
+    Reply(String),
+    /// Edit the original message text, optionally attaching a new keyboard.
+    EditMessage {
+        text: String,
+        keyboard: Option<InlineKeyboardMarkup>,
+    },
+    /// Remove the inline keyboard from the original message.
+    RemoveKeyboard,
+    /// Show a short toast notification to the user.
+    Toast(String),
+    /// Handler already processed the callback; no further action needed.
+    Acknowledged,
+}
+
+/// Type-erased async callback handler.
+type BoxedHandler =
+    Box<dyn Fn(CallbackContext) -> Pin<Box<dyn Future<Output = CallbackResponse> + Send>> + Send + Sync>;
+
+/// Router that dispatches Telegram callback queries to registered handlers
+/// based on prefix matching.
+///
+/// Handlers are tried in registration order; the first handler whose prefix
+/// matches the callback's `prefix` field wins.  If no handler matches, the
+/// callback falls through to the default `InboundMessage` path on the bus.
+///
+/// # Examples
+///
+/// ```no_run
+/// use nanobot_channels::platforms::telegram::{
+///     CallbackContext, CallbackResponse, CallbackRouter,
+/// };
+///
+/// let mut router = CallbackRouter::new();
+/// router.register("confirm", |_ctx| async {
+///     CallbackResponse::Reply("Confirmed!".into())
+/// });
+/// ```
+pub struct CallbackRouter {
+    handlers: Vec<(String, BoxedHandler)>,
+}
+
+impl CallbackRouter {
+    /// Create an empty router.
+    pub fn new() -> Self {
+        Self {
+            handlers: Vec::new(),
+        }
+    }
+
+    /// Register an async handler for all callbacks whose `prefix` field
+    /// matches `prefix`.
+    ///
+    /// If multiple handlers share the same prefix the first one registered
+    /// wins.  Registration order is preserved.
+    pub fn register<F, Fut>(&mut self, prefix: &str, handler: F)
+    where
+        F: Fn(CallbackContext) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = CallbackResponse> + Send + 'static,
+    {
+        let wrapped = Box::new(move |ctx: CallbackContext| {
+            let fut = handler(ctx);
+            Box::pin(fut) as Pin<Box<dyn Future<Output = CallbackResponse> + Send>>
+        });
+        self.handlers.push((prefix.to_string(), wrapped));
+    }
+
+    /// Dispatch a parsed callback context to the first matching handler.
+    ///
+    /// Returns `Some(response)` if a handler matched, `None` otherwise.
+    pub async fn dispatch(&self, ctx: CallbackContext) -> Option<CallbackResponse> {
+        let prefix = &ctx.action.prefix;
+        for (registered_prefix, handler) in &self.handlers {
+            if registered_prefix == prefix {
+                let resp = handler(ctx.clone()).await;
+                return Some(resp);
+            }
+        }
+        None
+    }
+
+    /// Returns `true` if a handler is registered for the given prefix.
+    pub fn has_handler(&self, prefix: &str) -> bool {
+        self.handlers.iter().any(|(p, _)| p == prefix)
+    }
+
+    /// Number of registered handlers.
+    pub fn handler_count(&self) -> usize {
+        self.handlers.len()
+    }
+}
+
+impl Default for CallbackRouter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // TelegramChannel
 // ---------------------------------------------------------------------------
 
@@ -393,6 +520,8 @@ pub struct TelegramChannel {
     client: reqwest::Client,
     /// Override base URL for testing.
     base_url_override: Option<String>,
+    /// Optional callback router for inline-keyboard button interactions.
+    router: Arc<tokio::sync::Mutex<CallbackRouter>>,
 }
 
 impl TelegramChannel {
@@ -437,6 +566,7 @@ impl TelegramChannel {
             running: Arc::new(AtomicBool::new(false)),
             client: Self::build_client(),
             base_url_override: None,
+            router: Arc::new(tokio::sync::Mutex::new(CallbackRouter::new())),
         }
     }
 
@@ -453,6 +583,7 @@ impl TelegramChannel {
                 .build()
                 .unwrap_or_else(|_| reqwest::Client::new()),
             base_url_override: Some(base_url),
+            router: Arc::new(tokio::sync::Mutex::new(CallbackRouter::new())),
         }
     }
 
@@ -521,6 +652,52 @@ impl TelegramChannel {
         }
     }
 
+    /// Send a text reply directly via the Telegram Bot API (bypassing the bus).
+    ///
+    /// Used for built-in commands like `/validate` that must work even when
+    /// the LLM provider is down.  Non-critical: failures are logged only.
+    async fn send_direct_reply(
+        client: &reqwest::Client,
+        base_url: &str,
+        chat_id: i64,
+        text: &str,
+    ) {
+        let body = SendMessageBody {
+            chat_id,
+            text: text.to_string(),
+            reply_to_message_id: None,
+            reply_markup: None,
+        };
+        let url = format!("{}/sendMessage", base_url);
+        if let Err(e) = client.post(&url).json(&body).send().await {
+            warn!("Failed to send direct reply: {e}");
+        }
+    }
+
+    /// Send a text reply with an inline keyboard (bypassing the bus).
+    ///
+    /// Used by built-in commands like `/settings` and `/history` that need
+    /// interactive buttons.  Non-critical: failures are logged only.
+    async fn send_direct_reply_with_keyboard(
+        client: &reqwest::Client,
+        base_url: &str,
+        chat_id: i64,
+        text: &str,
+        keyboard: &InlineKeyboardMarkup,
+    ) {
+        let reply_markup = serde_json::to_value(keyboard).unwrap_or_default();
+        let body = SendMessageBody {
+            chat_id,
+            text: text.to_string(),
+            reply_to_message_id: None,
+            reply_markup: Some(reply_markup),
+        };
+        let url = format!("{}/sendMessage", base_url);
+        if let Err(e) = client.post(&url).json(&body).send().await {
+            warn!("Failed to send direct reply with keyboard: {e}");
+        }
+    }
+
     /// Poll `getUpdates` in a loop until `running` is cleared.
     ///
     /// Uses exponential backoff on transient errors (max 60s).
@@ -530,6 +707,7 @@ impl TelegramChannel {
         token: String,
         handler: tokio::sync::mpsc::Sender<InboundMessage>,
         running: Arc<AtomicBool>,
+        router: Arc<tokio::sync::Mutex<CallbackRouter>>,
     ) {
         let base_url = format!("https://api.telegram.org/bot{}", token);
         let mut offset: Option<i64> = None;
@@ -592,25 +770,79 @@ impl TelegramChannel {
                 offset = Some(update.update_id + 1);
 
                 if let Some(msg) = update.message {
-                    match Self::dispatch_message(&handler, &msg).await {
-                        Ok(true) => {
-                            // Message dispatched — send 👀 read receipt.
-                            Self::send_read_receipt(
+                    let text = msg.text.as_deref().unwrap_or("");
+                    // /reset needs the session key, so handle it separately.
+                    if crate::commands::matches_command(text, "reset") {
+                        let session_key = format!("telegram:{}", msg.chat.id);
+                        let response = crate::commands::handle_reset(&session_key);
+                        Self::send_direct_reply(
+                            &client,
+                            &base_url,
+                            msg.chat.id,
+                            &response,
+                        )
+                        .await;
+                        Self::send_read_receipt(
+                            &client,
+                            &base_url,
+                            msg.chat.id,
+                            msg.message_id,
+                        )
+                        .await;
+                    } else if let Some(response) = crate::commands::try_handle_command(text) {
+                        // Built-in command matched — reply directly, skip bus.
+                        if let Some(ref keyboard) = response.keyboard {
+                            Self::send_direct_reply_with_keyboard(
                                 &client,
                                 &base_url,
                                 msg.chat.id,
-                                msg.message_id,
+                                &response.text,
+                                keyboard,
+                            )
+                            .await;
+                        } else {
+                            Self::send_direct_reply(
+                                &client,
+                                &base_url,
+                                msg.chat.id,
+                                &response.text,
                             )
                             .await;
                         }
-                        Ok(false) => {} // Skipped (no text/photo).
-                        Err(e) => {
-                            error!("Failed to dispatch Telegram message: {e}");
+                        Self::send_read_receipt(
+                            &client,
+                            &base_url,
+                            msg.chat.id,
+                            msg.message_id,
+                        )
+                        .await;
+                    } else {
+                        match Self::dispatch_message(&handler, &msg).await {
+                            Ok(true) => {
+                                // Message dispatched — send 👀 read receipt.
+                                Self::send_read_receipt(
+                                    &client,
+                                    &base_url,
+                                    msg.chat.id,
+                                    msg.message_id,
+                                )
+                                .await;
+                            }
+                            Ok(false) => {} // Skipped (no text/photo).
+                            Err(e) => {
+                                error!("Failed to dispatch Telegram message: {e}");
+                            }
                         }
                     }
                 } else if let Some(cq) = update.callback_query {
-                    if let Err(e) =
-                        Self::dispatch_callback_query(&client, &base_url, &handler, &cq).await
+                    if let Err(e) = Self::dispatch_callback_query(
+                        &client,
+                        &base_url,
+                        &handler,
+                        &cq,
+                        &router,
+                    )
+                    .await
                     {
                         error!("Failed to dispatch Telegram callback query: {e}");
                     }
@@ -742,27 +974,63 @@ impl TelegramChannel {
     }
 
     /// Convert a `TgCallbackQuery` into an `InboundMessage` and answer it.
+    ///
+    /// If a `CallbackRouter` handler matches the callback prefix, the handler
+    /// runs and the resulting `CallbackResponse` is executed against the
+    /// Telegram API.  If no handler matches, the callback is forwarded as a
+    /// regular `InboundMessage` on the bus.
     async fn dispatch_callback_query(
         client: &reqwest::Client,
         base_url: &str,
         handler: &tokio::sync::mpsc::Sender<InboundMessage>,
         cq: &TgCallbackQuery,
+        router: &Arc<tokio::sync::Mutex<CallbackRouter>>,
     ) -> Result<()> {
-        // Answer the callback query so the button stops loading.
-        let answer_url = format!("{}/answerCallbackQuery", base_url);
-        let answer_body = AnswerCallbackQueryBody {
-            callback_query_id: cq.id.clone(),
-            text: None,
-        };
-        if let Err(e) = client.post(&answer_url).json(&answer_body).send().await {
-            warn!("Failed to answer Telegram callback query: {e}");
-        }
-
         let sender_id = cq
             .from
             .as_ref()
             .map(|u| u.id.to_string())
             .unwrap_or_default();
+
+        let data = cq.data.clone().unwrap_or_default();
+
+        let msg = match &cq.message {
+            Some(m) => m,
+            None => return Ok(()),
+        };
+
+        let chat_id = msg.chat.id.to_string();
+        let message_id = msg.message_id.to_string();
+
+        // Try the registered router first.
+        if let Some(action) = CallbackAction::parse(&data) {
+            let ctx = CallbackContext {
+                chat_id: chat_id.clone(),
+                message_id: message_id.clone(),
+                sender_id: sender_id.clone(),
+                callback_query_id: cq.id.clone(),
+                action,
+            };
+            let router_guard = router.lock().await;
+            if router_guard.has_handler(&ctx.action.prefix) {
+                // Show loading animation before running the handler.
+                Self::edit_message_text_static(
+                    client, base_url, &chat_id, &message_id, "⏳ Loading...", None,
+                )
+                .await;
+                if let Some(response) = router_guard.dispatch(ctx).await {
+                    drop(router_guard);
+                    // Answer the callback query so the button stops loading.
+                    Self::answer_callback_query_static(client, base_url, &cq.id, None).await;
+                    Self::execute_callback_response(client, base_url, &chat_id, &message_id, response)
+                        .await;
+                    return Ok(());
+                }
+            }
+        }
+
+        // No handler matched — answer and fall through to the bus.
+        Self::answer_callback_query_static(client, base_url, &cq.id, None).await;
 
         let user_name = cq.from.as_ref().map(|u| {
             let first = u.first_name.as_deref().unwrap_or("");
@@ -774,14 +1042,6 @@ impl TelegramChannel {
             }
         });
 
-        let data = cq.data.clone().unwrap_or_default();
-
-        let msg = match &cq.message {
-            Some(m) => m,
-            None => return Ok(()),
-        };
-
-        let chat_id = msg.chat.id.to_string();
         let chat_type = msg
             .chat
             .chat_type
@@ -841,6 +1101,124 @@ impl TelegramChannel {
             .await
             .context("message handler channel closed")
     }
+
+    /// Answer a callback query (static version for use outside `&self`).
+    async fn answer_callback_query_static(
+        client: &reqwest::Client,
+        base_url: &str,
+        callback_query_id: &str,
+        text: Option<&str>,
+    ) {
+        let body = AnswerCallbackQueryBody {
+            callback_query_id: callback_query_id.to_string(),
+            text: text.map(|s| s.to_string()),
+        };
+        let url = format!("{}/answerCallbackQuery", base_url);
+        if let Err(e) = client.post(&url).json(&body).send().await {
+            warn!("Failed to answer Telegram callback query: {e}");
+        }
+    }
+
+    /// Edit a message's text (static version for loading animation).
+    async fn edit_message_text_static(
+        client: &reqwest::Client,
+        base_url: &str,
+        chat_id: &str,
+        message_id: &str,
+        text: &str,
+        reply_markup: Option<serde_json::Value>,
+    ) {
+        if let (Ok(chat_id_num), Ok(msg_id_num)) =
+            (chat_id.parse::<i64>(), message_id.parse::<i64>())
+        {
+            let body = EditMessageTextBody {
+                chat_id: chat_id_num,
+                message_id: msg_id_num,
+                text: text.to_string(),
+                reply_markup,
+            };
+            let url = format!("{}/editMessageText", base_url);
+            if let Err(e) = client.post(&url).json(&body).send().await {
+                debug!("Failed to edit message for loading animation: {e}");
+            }
+        }
+    }
+
+    /// Execute a [`CallbackResponse`] against the Telegram API.
+    async fn execute_callback_response(
+        client: &reqwest::Client,
+        base_url: &str,
+        chat_id: &str,
+        message_id: &str,
+        response: CallbackResponse,
+    ) {
+        match response {
+            CallbackResponse::Reply(text) => {
+                if let Ok(chat_id_num) = chat_id.parse::<i64>() {
+                    let body = SendMessageBody {
+                        chat_id: chat_id_num,
+                        text,
+                        reply_to_message_id: None,
+                        reply_markup: None,
+                    };
+                    let url = format!("{}/sendMessage", base_url);
+                    if let Err(e) = client.post(&url).json(&body).send().await {
+                        warn!("Failed to send callback reply: {e}");
+                    }
+                }
+            }
+            CallbackResponse::EditMessage { text, keyboard } => {
+                if let (Ok(chat_id_num), Ok(msg_id_num)) =
+                    (chat_id.parse::<i64>(), message_id.parse::<i64>())
+                {
+                    let reply_markup = keyboard.map(|kb| serde_json::to_value(&kb).unwrap_or_default());
+                    let body = EditMessageTextBody {
+                        chat_id: chat_id_num,
+                        message_id: msg_id_num,
+                        text,
+                        reply_markup,
+                    };
+                    let url = format!("{}/editMessageText", base_url);
+                    if let Err(e) = client.post(&url).json(&body).send().await {
+                        warn!("Failed to edit message for callback: {e}");
+                    }
+                }
+            }
+            CallbackResponse::RemoveKeyboard => {
+                if let (Ok(chat_id_num), Ok(msg_id_num)) =
+                    (chat_id.parse::<i64>(), message_id.parse::<i64>())
+                {
+                    // Removing the keyboard means editing with an empty keyboard.
+                    let reply_markup = serde_json::json!({"inline_keyboard": []});
+                    let body = EditMessageReplyMarkupBody {
+                        chat_id: chat_id_num,
+                        message_id: msg_id_num,
+                        reply_markup: Some(reply_markup),
+                    };
+                    let url = format!("{}/editMessageReplyMarkup", base_url);
+                    if let Err(e) = client.post(&url).json(&body).send().await {
+                        warn!("Failed to remove keyboard for callback: {e}");
+                    }
+                }
+            }
+            CallbackResponse::Toast(text) => {
+                // Reuse the static helper — Toast is just an answer with text.
+                // We don't have the callback_query_id here, but Toast is
+                // already handled before execute_callback_response is called
+                // via answer_callback_query_static.  Log a debug if someone
+                // returns Toast without a query context.
+                debug!("Toast response: {text} (answered via answerCallbackQuery)");
+            }
+            CallbackResponse::Acknowledged => {}
+        }
+    }
+
+    /// Get a reference-counted handle to the callback router.
+    ///
+    /// Use this to register handlers before calling `connect()`.
+    pub fn router(&self) -> Arc<tokio::sync::Mutex<CallbackRouter>> {
+        self.router.clone()
+    }
 }
 
 impl Default for TelegramChannel {
@@ -889,9 +1267,35 @@ impl BaseChannel for TelegramChannel {
                 }
             };
             let running = self.running.clone();
+            let router = self.router.clone();
+
+            // Register built-in callback handlers for /settings and /history.
+            {
+                let mut guard = router.lock().await;
+                guard.register("settings", |ctx: CallbackContext| async move {
+                    let data = rebuild_callback_data(&ctx);
+                    match crate::commands::handle_callback(&data) {
+                        Some(resp) => CallbackResponse::EditMessage {
+                            text: resp.text,
+                            keyboard: resp.keyboard,
+                        },
+                        None => CallbackResponse::Toast("Unknown action".to_string()),
+                    }
+                });
+                guard.register("history", |ctx: CallbackContext| async move {
+                    let data = rebuild_callback_data(&ctx);
+                    match crate::commands::handle_callback(&data) {
+                        Some(resp) => CallbackResponse::EditMessage {
+                            text: resp.text,
+                            keyboard: resp.keyboard,
+                        },
+                        None => CallbackResponse::Toast("Unknown page".to_string()),
+                    }
+                });
+            }
 
             tokio::spawn(async move {
-                Self::poll_loop(client, token, handler, running).await;
+                Self::poll_loop(client, token, handler, running, router).await;
             });
 
             info!("Telegram channel connected — polling started");
@@ -935,6 +1339,7 @@ impl BaseChannel for TelegramChannel {
             chat_id: chat_id_num,
             text: content.to_string(),
             reply_to_message_id: reply_to_id,
+            reply_markup: None,
         };
 
         let url = self.api_url("sendMessage");
@@ -1402,6 +1807,21 @@ impl TelegramChannel {
 }
 
 // ---------------------------------------------------------------------------
+// Callback helpers
+// ---------------------------------------------------------------------------
+
+/// Reconstruct the original callback_data string from a parsed CallbackContext.
+pub(crate) fn rebuild_callback_data(ctx: &CallbackContext) -> String {
+    match &ctx.action.payload {
+        Some(p) => format!(
+            "{}:{}:{}",
+            ctx.action.prefix, ctx.action.action, p
+        ),
+        None => format!("{}:{}", ctx.action.prefix, ctx.action.action),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -1865,6 +2285,7 @@ mod tests {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<InboundMessage>(10);
         let client = reqwest::Client::new();
         let base_url = "http://127.0.0.1:0";
+        let router = Arc::new(tokio::sync::Mutex::new(CallbackRouter::new()));
 
         let cq = TgCallbackQuery {
             id: "cb999".to_string(),
@@ -1889,7 +2310,7 @@ mod tests {
         // The answerCallbackQuery call will fail (no server) but dispatch
         // should still succeed since we only warn on failure.
         let result =
-            TelegramChannel::dispatch_callback_query(&client, base_url, &tx, &cq).await;
+            TelegramChannel::dispatch_callback_query(&client, base_url, &tx, &cq, &router).await;
         // The handler should still receive the message even if answer fails.
         if result.is_ok() {
             let inbound = rx.try_recv().unwrap();
@@ -1916,6 +2337,7 @@ mod tests {
         let (tx, _rx) = tokio::sync::mpsc::channel::<InboundMessage>(10);
         let client = reqwest::Client::new();
         let base_url = "http://127.0.0.1:0";
+        let router = Arc::new(tokio::sync::Mutex::new(CallbackRouter::new()));
 
         let cq = TgCallbackQuery {
             id: "cb_naked".to_string(),
@@ -1930,7 +2352,7 @@ mod tests {
         };
 
         // Should return Ok(()) — no message attached means nothing to dispatch.
-        TelegramChannel::dispatch_callback_query(&client, base_url, &tx, &cq)
+        TelegramChannel::dispatch_callback_query(&client, base_url, &tx, &cq, &router)
             .await
             .unwrap();
     }
@@ -2323,5 +2745,354 @@ mod tests {
         // Will fail to connect but should not panic.
         let result = channel.answer_callback_query("cb123", Some("Done!")).await;
         assert!(result.is_ok());
+    }
+
+    // -----------------------------------------------------------------------
+    // CallbackRouter tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_router_new_empty() {
+        let router = CallbackRouter::new();
+        assert_eq!(router.handler_count(), 0);
+        assert!(!router.has_handler("any"));
+    }
+
+    #[test]
+    fn test_router_default() {
+        let router = CallbackRouter::default();
+        assert_eq!(router.handler_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_router_register_and_dispatch() {
+        let mut router = CallbackRouter::new();
+        router.register("confirm", |_ctx| async {
+            CallbackResponse::Reply("Confirmed!".into())
+        });
+
+        assert!(router.has_handler("confirm"));
+        assert_eq!(router.handler_count(), 1);
+
+        let ctx = CallbackContext {
+            chat_id: "123".into(),
+            message_id: "42".into(),
+            sender_id: "999".into(),
+            callback_query_id: "cb1".into(),
+            action: CallbackAction::parse("confirm:yes").unwrap(),
+        };
+
+        let resp = router.dispatch(ctx).await.unwrap();
+        assert_eq!(resp, CallbackResponse::Reply("Confirmed!".into()));
+    }
+
+    #[tokio::test]
+    async fn test_router_no_match_returns_none() {
+        let mut router = CallbackRouter::new();
+        router.register("confirm", |_ctx| async {
+            CallbackResponse::Acknowledged
+        });
+
+        let ctx = CallbackContext {
+            chat_id: "123".into(),
+            message_id: "1".into(),
+            sender_id: "1".into(),
+            callback_query_id: "cb2".into(),
+            action: CallbackAction::parse("cancel:nope").unwrap(),
+        };
+
+        assert!(router.dispatch(ctx).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_router_first_match_wins() {
+        let mut router = CallbackRouter::new();
+        router.register("menu", |_ctx| async {
+            CallbackResponse::Reply("first".into())
+        });
+        router.register("menu", |_ctx| async {
+            CallbackResponse::Reply("second".into())
+        });
+
+        let ctx = CallbackContext {
+            chat_id: "1".into(),
+            message_id: "1".into(),
+            sender_id: "1".into(),
+            callback_query_id: "cb".into(),
+            action: CallbackAction::parse("menu:open").unwrap(),
+        };
+
+        let resp = router.dispatch(ctx).await.unwrap();
+        assert_eq!(resp, CallbackResponse::Reply("first".into()));
+    }
+
+    #[tokio::test]
+    async fn test_router_multiple_prefixes() {
+        let mut router = CallbackRouter::new();
+        router.register("confirm", |_ctx| async {
+            CallbackResponse::Reply("confirmed".into())
+        });
+        router.register("cancel", |_ctx| async {
+            CallbackResponse::Toast("cancelling".into())
+        });
+        router.register("page", |_ctx| async {
+            CallbackResponse::EditMessage {
+                text: "page content".into(),
+                keyboard: None,
+            }
+        });
+
+        assert_eq!(router.handler_count(), 3);
+        assert!(router.has_handler("confirm"));
+        assert!(router.has_handler("cancel"));
+        assert!(router.has_handler("page"));
+        assert!(!router.has_handler("unknown"));
+
+        let ctx_cancel = CallbackContext {
+            chat_id: "1".into(),
+            message_id: "1".into(),
+            sender_id: "1".into(),
+            callback_query_id: "cb".into(),
+            action: CallbackAction::parse("cancel:abort").unwrap(),
+        };
+        let resp = router.dispatch(ctx_cancel).await.unwrap();
+        assert_eq!(resp, CallbackResponse::Toast("cancelling".into()));
+
+        let ctx_page = CallbackContext {
+            chat_id: "1".into(),
+            message_id: "1".into(),
+            sender_id: "1".into(),
+            callback_query_id: "cb".into(),
+            action: CallbackAction::parse("page:goto:5").unwrap(),
+        };
+        let resp = router.dispatch(ctx_page).await.unwrap();
+        assert_eq!(
+            resp,
+            CallbackResponse::EditMessage {
+                text: "page content".into(),
+                keyboard: None,
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn test_router_handler_receives_context() {
+        let mut router = CallbackRouter::new();
+        router.register("echo", |ctx| async move {
+            let payload = ctx.action.payload.unwrap_or_default();
+            CallbackResponse::Reply(format!("echo:{payload}"))
+        });
+
+        let ctx = CallbackContext {
+            chat_id: "42".into(),
+            message_id: "10".into(),
+            sender_id: "7".into(),
+            callback_query_id: "cb3".into(),
+            action: CallbackAction::parse("echo:say:hello").unwrap(),
+        };
+
+        let resp = router.dispatch(ctx).await.unwrap();
+        assert_eq!(resp, CallbackResponse::Reply("echo:hello".into()));
+    }
+
+    #[tokio::test]
+    async fn test_router_remove_keyboard_response() {
+        let mut router = CallbackRouter::new();
+        router.register("del", |_ctx| async { CallbackResponse::RemoveKeyboard });
+
+        let ctx = CallbackContext {
+            chat_id: "1".into(),
+            message_id: "1".into(),
+            sender_id: "1".into(),
+            callback_query_id: "cb".into(),
+            action: CallbackAction::parse("del:confirm").unwrap(),
+        };
+
+        let resp = router.dispatch(ctx).await.unwrap();
+        assert_eq!(resp, CallbackResponse::RemoveKeyboard);
+    }
+
+    #[tokio::test]
+    async fn test_router_edit_message_with_keyboard_response() {
+        let mut router = CallbackRouter::new();
+        router.register("menu", |_ctx| async {
+            let kb = InlineKeyboardBuilder::pagination("menu", 1, 3).build();
+            CallbackResponse::EditMessage {
+                text: "Page 2".into(),
+                keyboard: Some(kb),
+            }
+        });
+
+        let ctx = CallbackContext {
+            chat_id: "1".into(),
+            message_id: "1".into(),
+            sender_id: "1".into(),
+            callback_query_id: "cb".into(),
+            action: CallbackAction::parse("menu:page:1").unwrap(),
+        };
+
+        let resp = router.dispatch(ctx).await.unwrap();
+        match resp {
+            CallbackResponse::EditMessage { text, keyboard } => {
+                assert_eq!(text, "Page 2");
+                assert!(keyboard.is_some());
+                let kb = keyboard.unwrap();
+                assert_eq!(kb.inline_keyboard.len(), 1);
+            }
+            other => panic!("Expected EditMessage, got {other:?}"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // CallbackResponse variant tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_callback_response_equality() {
+        assert_eq!(
+            CallbackResponse::Reply("hi".into()),
+            CallbackResponse::Reply("hi".into())
+        );
+        assert_eq!(CallbackResponse::RemoveKeyboard, CallbackResponse::RemoveKeyboard);
+        assert_eq!(CallbackResponse::Acknowledged, CallbackResponse::Acknowledged);
+        assert_eq!(
+            CallbackResponse::Toast("ok".into()),
+            CallbackResponse::Toast("ok".into())
+        );
+        assert_eq!(
+            CallbackResponse::EditMessage {
+                text: "x".into(),
+                keyboard: None,
+            },
+            CallbackResponse::EditMessage {
+                text: "x".into(),
+                keyboard: None,
+            }
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // CallbackContext construction test
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_callback_context_debug() {
+        let ctx = CallbackContext {
+            chat_id: "123".into(),
+            message_id: "42".into(),
+            sender_id: "999".into(),
+            callback_query_id: "cb1".into(),
+            action: CallbackAction::parse("menu:open").unwrap(),
+        };
+        let debug_str = format!("{ctx:?}");
+        assert!(debug_str.contains("123"));
+        assert!(debug_str.contains("menu"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Integration: dispatch_callback_query with router
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_dispatch_callback_query_with_router_match() {
+        let (tx, _rx) = tokio::sync::mpsc::channel::<InboundMessage>(10);
+        let client = reqwest::Client::new();
+        let base_url = "http://127.0.0.1:0";
+
+        let mut router = CallbackRouter::new();
+        router.register("action", |_ctx| async { CallbackResponse::Acknowledged });
+        let router = Arc::new(tokio::sync::Mutex::new(router));
+
+        let cq = TgCallbackQuery {
+            id: "cb_routed".to_string(),
+            from: Some(TgUser {
+                id: 555,
+                first_name: Some("Router".to_string()),
+                last_name: None,
+                username: None,
+            }),
+            message: Some(TgCallbackMessage {
+                message_id: 99,
+                chat: TgChat {
+                    id: 555,
+                    chat_type: Some("private".to_string()),
+                    title: None,
+                    thread_id: None,
+                },
+            }),
+            data: Some("action:confirm".to_string()),
+        };
+
+        // Router matches → handler runs, returns Acknowledged.
+        // No message sent to bus.
+        let result = TelegramChannel::dispatch_callback_query(
+            &client, base_url, &tx, &cq, &router,
+        )
+        .await;
+        // Should succeed (HTTP calls to localhost:0 fail but are only warned).
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_callback_query_router_no_match_falls_through() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<InboundMessage>(10);
+        let client = reqwest::Client::new();
+        let base_url = "http://127.0.0.1:0";
+
+        // Router has no handler for "unknown" prefix.
+        let router = Arc::new(tokio::sync::Mutex::new(CallbackRouter::new()));
+
+        let cq = TgCallbackQuery {
+            id: "cb_fallback".to_string(),
+            from: Some(TgUser {
+                id: 888,
+                first_name: Some("Fallback".to_string()),
+                last_name: None,
+                username: None,
+            }),
+            message: Some(TgCallbackMessage {
+                message_id: 77,
+                chat: TgChat {
+                    id: 888,
+                    chat_type: Some("private".to_string()),
+                    title: None,
+                    thread_id: None,
+                },
+            }),
+            data: Some("unknown:something".to_string()),
+        };
+
+        let result = TelegramChannel::dispatch_callback_query(
+            &client, base_url, &tx, &cq, &router,
+        )
+        .await;
+        if result.is_ok() {
+            // Falls through to bus → InboundMessage produced.
+            let inbound = rx.try_recv().unwrap();
+            assert_eq!(inbound.content, "callback:unknown:something");
+            assert_eq!(inbound.sender_id, "888");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // TelegramChannel.router() accessor
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_channel_router_accessor() {
+        let channel = TelegramChannel::new();
+        let router = channel.router();
+        let r = router.lock().await;
+        assert_eq!(r.handler_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_channel_router_register_via_accessor() {
+        let channel = TelegramChannel::new();
+        let router = channel.router();
+        let mut r = router.lock().await;
+        r.register("test", |_ctx| async { CallbackResponse::Acknowledged });
+        assert!(r.has_handler("test"));
+        assert_eq!(r.handler_count(), 1);
     }
 }

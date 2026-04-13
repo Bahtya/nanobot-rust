@@ -4,7 +4,7 @@ use crate::base::BaseChannel;
 use crate::registry::ChannelRegistry;
 use anyhow::Result;
 use dashmap::DashMap;
-use nanobot_bus::events::OutboundMessage;
+use nanobot_bus::events::{AgentEvent, OutboundMessage};
 use nanobot_bus::MessageBus;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
@@ -100,6 +100,10 @@ impl ChannelManager {
                 warn!("No running channel for platform: {}", channel_name);
             }
         }
+
+        // Stop typing for this session after the reply is sent.
+        let session_key = format!("{}:{}", msg.channel, msg.chat_id);
+        self.stop_typing(&session_key);
     }
 
     /// Start the outbound message consumer.
@@ -171,10 +175,10 @@ impl ChannelManager {
             });
         }
 
-        // Spawn a periodic typing task (every 4 s).
+        // Spawn a periodic typing task (every 5 s).
         let handle = tokio::spawn(async move {
             loop {
-                tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 let ch = channel.lock().await;
                 let _ = ch.send_typing(&chat_id_owned).await;
             }
@@ -190,6 +194,44 @@ impl ChannelManager {
     pub fn stop_typing(&self, session_key: &str) {
         if let Some((_, handle)) = self.typing_tasks.remove(session_key) {
             handle.abort();
+        }
+    }
+
+    /// Run an event listener that starts/stops typing based on agent lifecycle.
+    ///
+    /// - `AgentEvent::Started` → start typing for that session.
+    /// - `AgentEvent::Completed` / `AgentEvent::Error` → stop typing.
+    ///
+    /// Call this once at startup (e.g. alongside `run_outbound_consumer`).
+    pub async fn run_typing_on_events(&self) {
+        let mut rx = self.bus.subscribe_events();
+        info!("Channel manager typing event listener started");
+
+        loop {
+            match rx.recv().await {
+                Ok(event) => match &event {
+                    AgentEvent::Started { session_key } => {
+                        debug!("Typing started for session: {session_key}");
+                        self.start_typing(session_key);
+                    }
+                    AgentEvent::Completed { session_key, .. } => {
+                        debug!("Typing stopped for session: {session_key}");
+                        self.stop_typing(session_key);
+                    }
+                    AgentEvent::Error { session_key, .. } => {
+                        debug!("Typing stopped (error) for session: {session_key}");
+                        self.stop_typing(session_key);
+                    }
+                    _ => {}
+                },
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    warn!("Typing event listener lagged by {n} events");
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    info!("Typing event listener: event bus closed");
+                    break;
+                }
+            }
         }
     }
 
@@ -345,5 +387,94 @@ mod tests {
         manager
             .send_reaction_for_chat("telegram", "123", "456", "👀")
             .await;
+    }
+
+    // -----------------------------------------------------------------------
+    // Tests for event-driven typing
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_typing_started_on_agent_started_event() {
+        let registry = ChannelRegistry::new();
+        let bus = MessageBus::new();
+        let manager = ChannelManager::new(registry, bus.clone());
+
+        bus.emit_event(AgentEvent::Started {
+            session_key: "telegram:123".to_string(),
+        });
+
+        let mgr = Arc::new(manager);
+        let mgr_clone = mgr.clone();
+        let handle = tokio::spawn(async move {
+            mgr_clone.run_typing_on_events().await;
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        // No running channel → typing task not created, but no panic.
+        assert!(mgr.typing_tasks.is_empty());
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn test_typing_stopped_on_agent_completed_event() {
+        let registry = ChannelRegistry::new();
+        let bus = MessageBus::new();
+        let manager = ChannelManager::new(registry, bus.clone());
+
+        bus.emit_event(AgentEvent::Completed {
+            session_key: "telegram:123".to_string(),
+            iterations: 1,
+            tool_calls: 0,
+        });
+
+        let mgr = Arc::new(manager);
+        let mgr_clone = mgr.clone();
+        let handle = tokio::spawn(async move {
+            mgr_clone.run_typing_on_events().await;
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(mgr.typing_tasks.is_empty());
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn test_typing_stopped_on_agent_error_event() {
+        let registry = ChannelRegistry::new();
+        let bus = MessageBus::new();
+        let manager = ChannelManager::new(registry, bus.clone());
+
+        bus.emit_event(AgentEvent::Error {
+            session_key: "discord:456".to_string(),
+            error: "timeout".to_string(),
+        });
+
+        let mgr = Arc::new(manager);
+        let mgr_clone = mgr.clone();
+        let handle = tokio::spawn(async move {
+            mgr_clone.run_typing_on_events().await;
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(mgr.typing_tasks.is_empty());
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn test_handle_outbound_stops_typing() {
+        let registry = ChannelRegistry::new();
+        let bus = MessageBus::new();
+        let manager = ChannelManager::new(registry, bus);
+
+        let msg = OutboundMessage {
+            channel: nanobot_core::Platform::Telegram,
+            chat_id: "123".to_string(),
+            content: "reply".to_string(),
+            reply_to: None,
+            media: vec![],
+            metadata: Default::default(),
+        };
+        manager.handle_outbound(msg).await;
+        assert!(manager.typing_tasks.is_empty());
     }
 }

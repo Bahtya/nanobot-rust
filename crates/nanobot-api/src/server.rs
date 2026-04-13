@@ -2,10 +2,19 @@
 //!
 //! Provides `/v1/chat/completions` (with SSE streaming), `/v1/models`, and `/health`.
 //! The completions endpoint runs the agent directly to produce responses.
+//!
+//! ## Middleware
+//!
+//! - **Request logging**: Structured logs with method, path, status, and latency.
+//! - **Auth**: Bearer-token authentication via axum middleware on protected routes.
+//! - **CORS**: Permissive cross-origin support.
+//! - **Tracing**: HTTP request/response tracing via `tower-http`.
 
 use axum::{
+    body::Body,
     extract::State,
-    http::{HeaderMap, StatusCode},
+    http::{Request, StatusCode},
+    middleware::{self, Next},
     response::sse::{Event, KeepAlive, Sse},
     response::IntoResponse,
     routing::{get, post},
@@ -23,6 +32,7 @@ use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Instant;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{debug, info, warn};
@@ -90,10 +100,21 @@ impl ApiServer {
 
     /// Build the Axum router.
     pub fn router(&self) -> Router {
-        Router::new()
-            .route("/v1/chat/completions", post(chat_completions))
+        let public_routes = Router::new()
             .route("/v1/models", get(list_models))
-            .route("/health", get(health))
+            .route("/health", get(health));
+
+        let protected_routes = Router::new()
+            .route("/v1/chat/completions", post(chat_completions))
+            .layer(middleware::from_fn_with_state(
+                self.state.clone(),
+                auth_middleware,
+            ));
+
+        Router::new()
+            .merge(public_routes)
+            .merge(protected_routes)
+            .layer(middleware::from_fn(request_log_middleware))
             .layer(CorsLayer::permissive())
             .layer(TraceLayer::new_for_http())
             .with_state(self.state.clone())
@@ -200,22 +221,52 @@ struct ErrorDetail {
 
 // ─── Auth helper ────────────────────────────────────────────
 
-/// Validate bearer token if an API key is configured.
-/// Returns Ok(()) if auth passes (or no key configured), Err(response) otherwise.
-#[allow(clippy::result_large_err)]
-fn check_auth(headers: &HeaderMap, expected_key: &Option<String>) -> Result<(), axum::response::Response> {
-    let key = match expected_key {
+// ─── Middleware ──────────────────────────────────────────────
+
+/// Request logging middleware — logs method, path, status code, and latency.
+async fn request_log_middleware(
+    req: Request<Body>,
+    next: Next,
+) -> impl IntoResponse {
+    let method = req.method().clone();
+    let path = req.uri().path().to_owned();
+    let start = Instant::now();
+
+    let response = next.run(req).await;
+
+    let elapsed = start.elapsed();
+    let status = response.status();
+    info!(
+        method = %method,
+        path = %path,
+        status = %status.as_u16(),
+        elapsed_ms = elapsed.as_millis() as u64,
+        "HTTP request"
+    );
+
+    response
+}
+
+/// Auth middleware — validates bearer token if an API key is configured.
+/// Applied only to protected routes (e.g. `/v1/chat/completions`).
+async fn auth_middleware(
+    State(state): State<AppState>,
+    req: Request<Body>,
+    next: Next,
+) -> impl IntoResponse {
+    let key = match &state.api_key {
         Some(k) if !k.is_empty() => k,
-        _ => return Ok(()), // No auth configured
+        _ => return next.run(req).await, // No auth configured
     };
 
-    let auth_header = headers
+    let auth_header = req
+        .headers()
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
     if auth_header == format!("Bearer {}", key) {
-        Ok(())
+        next.run(req).await
     } else {
         let error = ErrorResponse {
             error: ErrorDetail {
@@ -224,7 +275,7 @@ fn check_auth(headers: &HeaderMap, expected_key: &Option<String>) -> Result<(), 
                 code: Some("invalid_api_key".to_string()),
             },
         };
-        Err((StatusCode::UNAUTHORIZED, Json(error)).into_response())
+        (StatusCode::UNAUTHORIZED, Json(error)).into_response()
     }
 }
 
@@ -313,14 +364,8 @@ fn validate_request(req: &ChatCompletionRequest) -> Result<(), axum::response::R
 
 async fn chat_completions(
     State(state): State<AppState>,
-    headers: HeaderMap,
     Json(req): Json<ChatCompletionRequest>,
 ) -> impl IntoResponse {
-    // Auth check
-    if let Err(resp) = check_auth(&headers, &state.api_key) {
-        return resp;
-    }
-
     debug!("Chat completion request for model: {} (stream: {})", req.model, req.stream);
 
     // Validate request
@@ -529,26 +574,103 @@ async fn stream_completion(
 
 async fn list_models(State(state): State<AppState>) -> impl IntoResponse {
     let mut models = Vec::new();
+    let mut seen_ids = std::collections::HashSet::new();
 
     // Collect models from all registered providers
     for name in state.provider_registry.provider_names() {
-        models.push(ModelInfo {
-            id: name.clone(),
-            object: "model".to_string(),
-            created: 0,
-            owned_by: "nanobot-rs".to_string(),
-        });
+        if seen_ids.insert(name.clone()) {
+            models.push(ModelInfo {
+                id: name.clone(),
+                object: "model".to_string(),
+                created: 0,
+                owned_by: format!("nanobot-rs/{}", name),
+            });
+        }
     }
 
-    // Also include the configured agent model
+    // Include the configured agent model
     let agent_model = &state.config.agent.model;
-    if !agent_model.is_empty() && !models.iter().any(|m| m.id == *agent_model) {
+    if !agent_model.is_empty() && seen_ids.insert(agent_model.clone()) {
         models.push(ModelInfo {
             id: agent_model.clone(),
             object: "model".to_string(),
             created: 0,
             owned_by: "nanobot-rs".to_string(),
         });
+    }
+
+    // Include models from provider configs
+    if let Some(ref entry) = state.config.providers.anthropic {
+        if let Some(ref model) = entry.model {
+            if seen_ids.insert(model.clone()) {
+                models.push(ModelInfo {
+                    id: model.clone(),
+                    object: "model".to_string(),
+                    created: 0,
+                    owned_by: "anthropic".to_string(),
+                });
+            }
+        }
+    }
+    if let Some(ref entry) = state.config.providers.openai {
+        if let Some(ref model) = entry.model {
+            if seen_ids.insert(model.clone()) {
+                models.push(ModelInfo {
+                    id: model.clone(),
+                    object: "model".to_string(),
+                    created: 0,
+                    owned_by: "openai".to_string(),
+                });
+            }
+        }
+    }
+    if let Some(ref entry) = state.config.providers.deepseek {
+        if let Some(ref model) = entry.model {
+            if seen_ids.insert(model.clone()) {
+                models.push(ModelInfo {
+                    id: model.clone(),
+                    object: "model".to_string(),
+                    created: 0,
+                    owned_by: "deepseek".to_string(),
+                });
+            }
+        }
+    }
+    if let Some(ref entry) = state.config.providers.groq {
+        if let Some(ref model) = entry.model {
+            if seen_ids.insert(model.clone()) {
+                models.push(ModelInfo {
+                    id: model.clone(),
+                    object: "model".to_string(),
+                    created: 0,
+                    owned_by: "groq".to_string(),
+                });
+            }
+        }
+    }
+    if let Some(ref entry) = state.config.providers.openrouter {
+        if let Some(ref model) = entry.model {
+            if seen_ids.insert(model.clone()) {
+                models.push(ModelInfo {
+                    id: model.clone(),
+                    object: "model".to_string(),
+                    created: 0,
+                    owned_by: "openrouter".to_string(),
+                });
+            }
+        }
+    }
+    if let Some(ref entry) = state.config.providers.ollama {
+        if let Some(ref model) = entry.model {
+            if !model.is_empty() && seen_ids.insert(model.clone()) {
+                models.push(ModelInfo {
+                    id: model.clone(),
+                    object: "model".to_string(),
+                    created: 0,
+                    owned_by: "ollama".to_string(),
+                });
+            }
+        }
     }
 
     Json(ModelsResponse {
@@ -664,11 +786,22 @@ mod tests {
     }
 
     fn router_with_auth() -> Router {
-        Router::new()
-            .route("/v1/chat/completions", post(chat_completions))
+        let state = test_state_with_auth();
+        let public_routes = Router::new()
             .route("/v1/models", get(list_models))
-            .route("/health", get(health))
-            .with_state(test_state_with_auth())
+            .route("/health", get(health));
+
+        let protected_routes = Router::new()
+            .route("/v1/chat/completions", post(chat_completions))
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            ));
+
+        Router::new()
+            .merge(public_routes)
+            .merge(protected_routes)
+            .with_state(state)
     }
 
     // ─── Health ─────────────────────────────────────────

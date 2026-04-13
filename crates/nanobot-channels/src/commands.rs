@@ -1018,7 +1018,7 @@ mod tests {
     #[test]
     fn test_try_handle_command_other() {
         assert!(try_handle_command("/unknown_cmd").is_none());
-        assert!(try_handle_command("/help").is_none()); // help is handled, not "other"
+        assert!(try_handle_command("/help").is_some()); // help IS handled by try_handle_command
         assert!(try_handle_command("hello").is_none());
         assert!(try_handle_command("").is_none());
     }

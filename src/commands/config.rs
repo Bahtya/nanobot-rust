@@ -51,7 +51,12 @@ pub fn validate(config: &Config) -> Result<()> {
 pub fn migrate(from: &Path, dry_run: bool) -> Result<()> {
     info!("Migrating Python nanobot config from: {}", from.display());
 
-    let result = nanobot_config::migrate_from_python(from)?;
+    let opts = nanobot_config::MigrationOptions {
+        dry_run,
+        ..Default::default()
+    };
+
+    let result = nanobot_config::migrate_from_python(from, &opts)?;
 
     // Print migration report
     if !result.report.mapped.is_empty() {

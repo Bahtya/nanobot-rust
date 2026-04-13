@@ -50,7 +50,13 @@ fn main() -> Result<()> {
 
     eprintln!("Migrating Python nanobot config from: {}", from.display());
 
-    let result = nanobot_config::migrate_from_python(from)
+    let opts = nanobot_config::MigrationOptions {
+        dry_run: cli.dry_run,
+        output_file: cli.output.clone(),
+        ..Default::default()
+    };
+
+    let result = nanobot_config::migrate_from_python(from, &opts)
         .context("Failed to migrate Python config")?;
 
     // Print migration report to stderr so stdout stays clean for --dry-run

@@ -10,7 +10,8 @@ pub mod registry;
 pub use base::BaseChannel;
 pub use manager::ChannelManager;
 pub use platforms::telegram::{
-    CallbackAction, InlineKeyboardBuilder, InlineKeyboardButton, InlineKeyboardMarkup,
+    CallbackAction, CallbackContext, CallbackResponse, CallbackRouter, InlineKeyboardBuilder,
+    InlineKeyboardButton, InlineKeyboardMarkup,
 };
 pub use platforms::websocket::WebSocketChannel;
 pub use registry::ChannelRegistry;

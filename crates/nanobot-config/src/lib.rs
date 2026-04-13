@@ -14,4 +14,4 @@ pub mod validate;
 pub use loader::load_config;
 pub use python_migrate::{migrate_from_python, MigrationReport, MigrationResult};
 pub use schema::Config;
-pub use validate::{validate, ValidationReport};
+pub use validate::{fill_defaults, validate, validate_and_fill, ValidationReport};

@@ -34,6 +34,10 @@ pub struct Config {
     #[serde(default)]
     pub heartbeat: HeartbeatConfig,
 
+    /// Cron job settings.
+    #[serde(default)]
+    pub cron: CronConfig,
+
     /// Security settings.
     #[serde(default)]
     pub security: SecurityConfig,
@@ -68,6 +72,7 @@ impl Default for Config {
             agent: AgentDefaults::default(),
             dream: DreamConfig::default(),
             heartbeat: HeartbeatConfig::default(),
+            cron: CronConfig::default(),
             security: SecurityConfig::default(),
             custom_instructions: None,
             name: None,
@@ -486,6 +491,33 @@ impl Default for HeartbeatConfig {
     }
 }
 
+/// Cron job configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct CronConfig {
+    /// Whether the cron scheduler is enabled.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Path to the cron state file.
+    #[serde(default)]
+    pub state_file: Option<String>,
+
+    /// Tick interval in seconds for checking due jobs.
+    #[serde(default = "default_cron_tick_secs")]
+    pub tick_secs: u64,
+}
+
+impl Default for CronConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            state_file: None,
+            tick_secs: default_cron_tick_secs(),
+        }
+    }
+}
+
 /// Security configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -581,6 +613,10 @@ fn default_dream_interval() -> u64 {
 
 fn default_heartbeat_interval() -> u64 {
     1800
+}
+
+fn default_cron_tick_secs() -> u64 {
+    60
 }
 
 fn default_mcp_transport() -> String {
@@ -804,6 +840,28 @@ custom_providers:
         let hc = HeartbeatConfig::default();
         assert!(!hc.enabled);
         assert_eq!(hc.interval_secs, 1800);
+    }
+
+    #[test]
+    fn test_cron_config_default() {
+        let cc = CronConfig::default();
+        assert!(!cc.enabled);
+        assert!(cc.state_file.is_none());
+        assert_eq!(cc.tick_secs, 60);
+    }
+
+    #[test]
+    fn test_cron_config_parse() {
+        let yaml = r#"
+cron:
+  enabled: true
+  state_file: /tmp/cron_state.json
+  tick_secs: 30
+"#;
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        assert!(config.cron.enabled);
+        assert_eq!(config.cron.state_file, Some("/tmp/cron_state.json".to_string()));
+        assert_eq!(config.cron.tick_secs, 30);
     }
 
     #[test]

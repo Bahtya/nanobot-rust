@@ -12,6 +12,7 @@ anyhow = { workspace = true }
 regex = { workspace = true }
 dirs = "5"
 tracing = { workspace = true }
+ipnet = "2"
 
 [dev-dependencies]
 tempfile = { workspace = true }

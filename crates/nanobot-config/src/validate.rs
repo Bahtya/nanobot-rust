@@ -3,10 +3,22 @@
 //! Validates field types, required fields, value ranges, and cross-field
 //! constraints. Returns a structured [`ValidationReport`] with warnings
 //! and errors.
+//!
+//! # Sections validated
+//!
+//! - **Providers** — API keys, base URLs, required fields for Azure
+//! - **Channels** — required fields per enabled channel (Telegram, Discord, etc.)
+//! - **Agent** — model name, temperature range, max_tokens, max_iterations
+//! - **Dream** — interval bounds
+//! - **Heartbeat** — interval bounds
+//! - **Cron** — tick interval bounds, state file
+//! - **Security** — network CIDR format
+//! - **MCP servers** — transport type, required fields
+//! - **Cross-field** — model ↔ provider matching
 
 use crate::schema::{
-    AgentDefaults, ChannelsConfig, Config, CustomProviderConfig, DiscordConfig,
-    ProvidersConfig, TelegramConfig,
+    AgentDefaults, ChannelsConfig, Config, CronConfig, CustomProviderConfig, DiscordConfig,
+    DreamConfig, HeartbeatConfig, McpServerConfig, ProvidersConfig, SecurityConfig, TelegramConfig,
 };
 use std::fmt;
 
@@ -121,14 +133,99 @@ impl fmt::Display for ValidationReport {
 // ---------------------------------------------------------------------------
 
 /// Validate a [`Config`] and return a report.
+///
+/// Checks all sections: providers, channels, agent, dream, heartbeat,
+/// cron, security, MCP servers, and cross-field constraints.
 pub fn validate(config: &Config) -> ValidationReport {
     let mut report = ValidationReport::new();
 
     validate_providers(&config.providers, &config.custom_providers, &mut report);
     validate_channels(&config.channels, &mut report);
     validate_agent(&config.agent, &mut report);
+    validate_dream(&config.dream, &mut report);
+    validate_heartbeat(&config.heartbeat, &mut report);
+    validate_cron(&config.cron, &mut report);
+    validate_security(&config.security, &mut report);
+    validate_mcp_servers(&config.mcp_servers, &mut report);
+    validate_cross_field(&config.providers, &config.custom_providers, &config.agent, &mut report);
 
     report
+}
+
+/// Fill default values for optional/missing fields in a [`Config`].
+///
+/// This mutates the config in place, setting sensible defaults for fields
+/// that are empty or unset. Returns a list of fields that were filled.
+pub fn fill_defaults(config: &mut Config) -> Vec<String> {
+    let mut filled = Vec::new();
+
+    // Agent section
+    if config.agent.model.is_empty() {
+        config.agent.model = "gpt-4o".to_string();
+        filled.push("agent.model".to_string());
+    }
+    if config.agent.max_tokens == 0 {
+        config.agent.max_tokens = 4096;
+        filled.push("agent.max_tokens".to_string());
+    }
+    if config.agent.max_iterations == 0 {
+        config.agent.max_iterations = 50;
+        filled.push("agent.max_iterations".to_string());
+    }
+    if config.agent.tool_timeout == 0 {
+        config.agent.tool_timeout = 120;
+        filled.push("agent.tool_timeout".to_string());
+    }
+
+    // Dream section
+    if config.dream.interval_secs == 0 {
+        config.dream.interval_secs = 7200;
+        filled.push("dream.interval_secs".to_string());
+    }
+
+    // Heartbeat section
+    if config.heartbeat.interval_secs == 0 {
+        config.heartbeat.interval_secs = 1800;
+        filled.push("heartbeat.interval_secs".to_string());
+    }
+
+    // Cron section
+    if config.cron.tick_secs == 0 {
+        config.cron.tick_secs = 60;
+        filled.push("cron.tick_secs".to_string());
+    }
+
+    // Config version
+    if config._config_version.is_none() {
+        config._config_version = Some(4);
+        filled.push("_config_version".to_string());
+    }
+
+    filled
+}
+
+/// Validate and fill defaults in one step.
+///
+/// First fills defaults, then validates. Returns the report and the list
+/// of fields that were filled.
+pub fn validate_and_fill(config: &mut Config) -> (ValidationReport, Vec<String>) {
+    let filled = fill_defaults(config);
+    let report = validate(config);
+    (report, filled)
+}
+
+// ---------------------------------------------------------------------------
+// URL validation helper
+// ---------------------------------------------------------------------------
+
+fn validate_url(url: &str, path: &str, report: &mut ValidationReport) {
+    if url.is_empty() {
+        report.error(path, "URL cannot be empty");
+        return;
+    }
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        report.error(path, "URL must start with http:// or https://");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -150,6 +247,9 @@ fn validate_providers(
         } else if let Some(ref key) = p.api_key {
             validate_api_key_prefix(key, "providers.openai.api_key", "sk-", report);
         }
+        if let Some(ref url) = p.base_url {
+            validate_url(url, "providers.openai.base_url", report);
+        }
     }
 
     // Anthropic
@@ -159,6 +259,9 @@ fn validate_providers(
             report.warning("providers.anthropic.api_key", "API key is empty or missing");
         } else if let Some(ref key) = p.api_key {
             validate_api_key_prefix(key, "providers.anthropic.api_key", "sk-ant-", report);
+        }
+        if let Some(ref url) = p.base_url {
+            validate_url(url, "providers.anthropic.base_url", report);
         }
     }
 
@@ -194,20 +297,23 @@ fn validate_providers(
         }
     }
 
-    // Ollama — no key needed, but check base_url
-    if let Some(ref p) = providers.ollama {
-        has_provider = true;
-        if p.base_url.as_deref().is_none_or(|u| u.is_empty()) {
-            report.warning("providers.ollama.base_url", "base_url is empty (default: http://localhost:11434)");
-        }
-    }
-
-    // Moonshot, MiniMax, etc.
+    // Moonshot
     if providers.moonshot.is_some() {
         has_provider = true;
     }
+    // MiniMax
     if providers.minimax.is_some() {
         has_provider = true;
+    }
+
+    // Ollama — no key needed, but check base_url
+    if let Some(ref p) = providers.ollama {
+        has_provider = true;
+        if let Some(ref url) = p.base_url {
+            if url.is_empty() {
+                report.warning("providers.ollama.base_url", "base_url is empty (default: http://localhost:11434)");
+            }
+        }
     }
 
     // Azure OpenAI
@@ -218,6 +324,8 @@ fn validate_providers(
         }
         if p.endpoint.as_deref().is_none_or(|e| e.is_empty()) {
             report.error("providers.azure_openai.endpoint", "Azure endpoint is required");
+        } else if let Some(ref ep) = p.endpoint {
+            validate_url(ep, "providers.azure_openai.endpoint", report);
         }
         if p.deployment.as_deref().is_none_or(|d| d.is_empty()) {
             report.error("providers.azure_openai.deployment", "Deployment name is required");
@@ -242,8 +350,8 @@ fn validate_providers(
         }
         if cp.base_url.is_empty() {
             report.error(format!("{prefix}.base_url"), "Custom provider base_url is empty");
-        } else if !cp.base_url.starts_with("http://") && !cp.base_url.starts_with("https://") {
-            report.error(format!("{prefix}.base_url"), "base_url must start with http:// or https://");
+        } else {
+            validate_url(&cp.base_url, &format!("{prefix}.base_url"), report);
         }
     }
 
@@ -330,6 +438,8 @@ fn validate_channels(channels: &ChannelsConfig, report: &mut ValidationReport) {
             has_enabled_channel = true;
             if d.webhook.as_deref().is_none_or(|w| w.is_empty()) {
                 report.error("channels.dingtalk.webhook", "Webhook URL is required when DingTalk is enabled");
+            } else if let Some(ref url) = d.webhook {
+                validate_url(url, "channels.dingtalk.webhook", report);
             }
         }
     }
@@ -386,6 +496,8 @@ fn validate_channels(channels: &ChannelsConfig, report: &mut ValidationReport) {
             has_enabled_channel = true;
             if m.webhook_url.as_deref().is_none_or(|u| u.is_empty()) {
                 report.error("channels.mochat.webhook_url", "Webhook URL is required when Mochat is enabled");
+            } else if let Some(ref url) = m.webhook_url {
+                validate_url(url, "channels.mochat.webhook_url", report);
             }
         }
     }
@@ -426,10 +538,11 @@ fn validate_agent(agent: &AgentDefaults, report: &mut ValidationReport) {
         report.error("agent.model", "Model name cannot be empty");
     }
 
-    if agent.temperature < 0.0 {
-        report.error("agent.temperature", "Temperature must be >= 0.0");
-    } else if agent.temperature > 2.0 {
-        report.error("agent.temperature", "Temperature must be <= 2.0");
+    if !(0.0..=2.0).contains(&agent.temperature) {
+        report.error(
+            "agent.temperature",
+            format!("Temperature must be between 0.0 and 2.0, got {}", agent.temperature),
+        );
     }
 
     if agent.max_tokens == 0 {
@@ -453,6 +566,246 @@ fn validate_agent(agent: &AgentDefaults, report: &mut ValidationReport) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Dream validation
+// ---------------------------------------------------------------------------
+
+fn validate_dream(dream: &DreamConfig, report: &mut ValidationReport) {
+    if dream.enabled {
+        if dream.interval_secs == 0 {
+            report.error("dream.interval_secs", "Dream interval must be > 0 when dream is enabled");
+        } else if dream.interval_secs < 60 {
+            report.warning("dream.interval_secs", "Dream interval < 60s may be too frequent and waste tokens");
+        }
+
+        if let Some(ref model) = dream.model {
+            if model.is_empty() {
+                report.warning("dream.model", "Dream model is set but empty — will fall back to agent model");
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Heartbeat validation
+// ---------------------------------------------------------------------------
+
+fn validate_heartbeat(heartbeat: &HeartbeatConfig, report: &mut ValidationReport) {
+    if heartbeat.enabled {
+        if heartbeat.interval_secs == 0 {
+            report.error("heartbeat.interval_secs", "Heartbeat interval must be > 0 when heartbeat is enabled");
+        } else if heartbeat.interval_secs < 10 {
+            report.warning("heartbeat.interval_secs", "Heartbeat interval < 10s may cause excessive load");
+        } else if heartbeat.interval_secs > 86400 {
+            report.warning("heartbeat.interval_secs", "Heartbeat interval > 86400s (24h) means checks will be very infrequent");
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Cron validation
+// ---------------------------------------------------------------------------
+
+fn validate_cron(cron: &CronConfig, report: &mut ValidationReport) {
+    if cron.enabled {
+        if cron.tick_secs == 0 {
+            report.error("cron.tick_secs", "Cron tick interval must be > 0 when cron is enabled");
+        } else if cron.tick_secs < 5 {
+            report.warning("cron.tick_secs", "Cron tick < 5s is very aggressive and may waste CPU");
+        }
+
+        if let Some(ref path) = cron.state_file {
+            if path.is_empty() {
+                report.warning("cron.state_file", "State file path is set but empty");
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Security validation
+// ---------------------------------------------------------------------------
+
+fn validate_security(security: &SecurityConfig, report: &mut ValidationReport) {
+    for (i, cidr) in security.ssrf_whitelist.iter().enumerate() {
+        if cidr.is_empty() {
+            report.warning(
+                format!("security.ssrf_whitelist[{i}]"),
+                "Empty CIDR entry",
+            );
+        } else if cidr.parse::<ipnet::IpNet>().is_err() {
+            report.warning(
+                format!("security.ssrf_whitelist[{i}]"),
+                format!("'{}' is not a valid CIDR (expected e.g. '10.0.0.0/8')", cidr),
+            );
+        }
+    }
+
+    for (i, cidr) in security.blocked_networks.iter().enumerate() {
+        if cidr.is_empty() {
+            report.warning(
+                format!("security.blocked_networks[{i}]"),
+                "Empty CIDR entry",
+            );
+        } else if cidr.parse::<ipnet::IpNet>().is_err() {
+            report.warning(
+                format!("security.blocked_networks[{i}]"),
+                format!("'{}' is not a valid CIDR (expected e.g. '192.168.0.0/16')", cidr),
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MCP server validation
+// ---------------------------------------------------------------------------
+
+fn validate_mcp_servers(servers: &std::collections::HashMap<String, McpServerConfig>, report: &mut ValidationReport) {
+    for (name, srv) in servers {
+        let prefix = format!("mcp_servers.{name}");
+
+        match srv.transport.as_str() {
+            "stdio" => {
+                if srv.command.as_deref().is_none_or(|c| c.is_empty()) {
+                    report.error(
+                        format!("{prefix}.command"),
+                        "Command is required for stdio transport",
+                    );
+                }
+            }
+            "sse" | "http" => {
+                if srv.url.as_deref().is_none_or(|u| u.is_empty()) {
+                    report.error(
+                        format!("{prefix}.url"),
+                        format!("URL is required for {} transport", srv.transport),
+                    );
+                } else if let Some(ref url) = srv.url {
+                    validate_url(url, &format!("{prefix}.url"), report);
+                }
+            }
+            other => {
+                report.error(
+                    format!("{prefix}.transport"),
+                    format!("Unknown transport '{}'. Must be 'stdio', 'sse', or 'http'", other),
+                );
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Cross-field validation
+// ---------------------------------------------------------------------------
+
+/// Model keyword to provider name mapping (mirrors ProviderRegistry).
+const MODEL_KEYWORD_MAP: &[(&str, &str)] = &[
+    ("claude", "anthropic"),
+    ("anthropic", "anthropic"),
+    ("gpt", "openai"),
+    ("o1", "openai"),
+    ("o3", "openai"),
+    ("o4", "openai"),
+    ("chatgpt", "openai"),
+    ("deepseek", "deepseek"),
+    ("gemini", "gemini"),
+    ("groq", "groq"),
+    ("moonshot", "moonshot"),
+    ("kimi", "moonshot"),
+    ("minimax", "minimax"),
+    ("llama", "ollama"),
+    ("mistral", "ollama"),
+    ("qwen", "ollama"),
+    ("codestral", "ollama"),
+];
+
+fn validate_cross_field(
+    providers: &ProvidersConfig,
+    custom: &[CustomProviderConfig],
+    agent: &AgentDefaults,
+    report: &mut ValidationReport,
+) {
+    if agent.model.is_empty() {
+        return; // Already caught by validate_agent
+    }
+
+    // Build list of configured provider names
+    let mut configured: Vec<&str> = Vec::new();
+    if providers.openai.is_some() { configured.push("openai"); }
+    if providers.anthropic.is_some() { configured.push("anthropic"); }
+    if providers.openrouter.is_some() { configured.push("openrouter"); }
+    if providers.ollama.is_some() { configured.push("ollama"); }
+    if providers.deepseek.is_some() { configured.push("deepseek"); }
+    if providers.gemini.is_some() { configured.push("gemini"); }
+    if providers.groq.is_some() { configured.push("groq"); }
+    if providers.moonshot.is_some() { configured.push("moonshot"); }
+    if providers.minimax.is_some() { configured.push("minimax"); }
+    if providers.azure_openai.is_some() { configured.push("azure_openai"); }
+    for cp in custom {
+        configured.push(&cp.name);
+    }
+
+    if configured.is_empty() {
+        return; // Already caught by validate_providers
+    }
+
+    // Check if the agent model matches any configured provider
+    let model_lower = agent.model.to_lowercase();
+    let mut matched = false;
+    for (keyword, provider_name) in MODEL_KEYWORD_MAP {
+        if model_lower.contains(keyword) && configured.contains(provider_name) {
+            matched = true;
+            break;
+        }
+    }
+
+    // Custom providers match by model_patterns
+    if !matched {
+        for cp in custom {
+            if cp.model_patterns.iter().any(|p| model_lower.contains(&p.to_lowercase())) {
+                matched = true;
+                break;
+            }
+        }
+    }
+
+    // If the model doesn't match any provider by keyword, check if there's
+    // exactly one provider (it'll be the default fallback)
+    if !matched && configured.len() == 1 {
+        // Single provider will handle any model — OK, unless the model
+        // keyword explicitly targets a different provider
+        let mut explicit_mismatch = false;
+        for (keyword, provider_name) in MODEL_KEYWORD_MAP {
+            if model_lower.contains(keyword) {
+                // The model keyword points to a specific provider that isn't configured
+                if !configured.contains(provider_name) {
+                    explicit_mismatch = true;
+                    break;
+                }
+            }
+        }
+        if !explicit_mismatch {
+            matched = true;
+        }
+    }
+
+    if !matched {
+        report.warning(
+            "agent.model",
+            format!(
+                "Model '{}' may not match any configured provider. Configured: [{}]",
+                agent.model,
+                configured.join(", ")
+            ),
+        );
+    }
+
+    // Dream model cross-check
+    if let Some(ref dream_model) = agent.workspace {
+        // If there's a dream model specified elsewhere we'd check it here
+        let _ = dream_model;
+    }
+}
+
 // ===========================================================================
 // Tests
 // ===========================================================================
@@ -461,6 +814,7 @@ fn validate_agent(agent: &AgentDefaults, report: &mut ValidationReport) {
 mod tests {
     use super::*;
     use crate::schema::*;
+    use std::collections::HashMap;
 
     fn make_valid_config() -> Config {
         let mut config = Config::default();
@@ -893,7 +1247,363 @@ mod tests {
     }
 
     // -------------------------------------------------------------------
-    // Edge case: provider with None api_key
+    // Dream tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_dream_enabled_zero_interval() {
+        let mut config = make_valid_config();
+        config.dream.enabled = true;
+        config.dream.interval_secs = 0;
+        let report = validate(&config);
+        assert!(!report.is_valid());
+        assert!(report.errors().iter().any(|e| e.path == "dream.interval_secs"));
+    }
+
+    #[test]
+    fn test_dream_enabled_very_short_interval() {
+        let mut config = make_valid_config();
+        config.dream.enabled = true;
+        config.dream.interval_secs = 30;
+        let report = validate(&config);
+        assert!(report.warnings().iter().any(|w| w.path == "dream.interval_secs"));
+    }
+
+    #[test]
+    fn test_dream_disabled_zero_interval_ok() {
+        let mut config = make_valid_config();
+        config.dream.enabled = false;
+        config.dream.interval_secs = 0;
+        let report = validate(&config);
+        assert!(report.errors().iter().all(|e| e.path != "dream.interval_secs"));
+    }
+
+    #[test]
+    fn test_dream_empty_model() {
+        let mut config = make_valid_config();
+        config.dream.enabled = true;
+        config.dream.model = Some(String::new());
+        let report = validate(&config);
+        assert!(report.warnings().iter().any(|w| w.path == "dream.model"));
+    }
+
+    // -------------------------------------------------------------------
+    // Heartbeat tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_heartbeat_enabled_zero_interval() {
+        let mut config = make_valid_config();
+        config.heartbeat.enabled = true;
+        config.heartbeat.interval_secs = 0;
+        let report = validate(&config);
+        assert!(!report.is_valid());
+        assert!(report.errors().iter().any(|e| e.path == "heartbeat.interval_secs"));
+    }
+
+    #[test]
+    fn test_heartbeat_enabled_very_short_interval() {
+        let mut config = make_valid_config();
+        config.heartbeat.enabled = true;
+        config.heartbeat.interval_secs = 5;
+        let report = validate(&config);
+        assert!(report.warnings().iter().any(|w| w.path == "heartbeat.interval_secs"));
+    }
+
+    #[test]
+    fn test_heartbeat_enabled_very_long_interval() {
+        let mut config = make_valid_config();
+        config.heartbeat.enabled = true;
+        config.heartbeat.interval_secs = 100_000;
+        let report = validate(&config);
+        assert!(report.warnings().iter().any(|w| w.path == "heartbeat.interval_secs" && w.message.contains("24h")));
+    }
+
+    #[test]
+    fn test_heartbeat_disabled_zero_interval_ok() {
+        let mut config = make_valid_config();
+        config.heartbeat.enabled = false;
+        config.heartbeat.interval_secs = 0;
+        let report = validate(&config);
+        assert!(report.errors().iter().all(|e| e.path != "heartbeat.interval_secs"));
+    }
+
+    // -------------------------------------------------------------------
+    // Cron tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_cron_enabled_zero_tick() {
+        let mut config = make_valid_config();
+        config.cron.enabled = true;
+        config.cron.tick_secs = 0;
+        let report = validate(&config);
+        assert!(!report.is_valid());
+        assert!(report.errors().iter().any(|e| e.path == "cron.tick_secs"));
+    }
+
+    #[test]
+    fn test_cron_enabled_very_short_tick() {
+        let mut config = make_valid_config();
+        config.cron.enabled = true;
+        config.cron.tick_secs = 1;
+        let report = validate(&config);
+        assert!(report.warnings().iter().any(|w| w.path == "cron.tick_secs"));
+    }
+
+    #[test]
+    fn test_cron_disabled_zero_tick_ok() {
+        let mut config = make_valid_config();
+        config.cron.enabled = false;
+        config.cron.tick_secs = 0;
+        let report = validate(&config);
+        assert!(report.errors().iter().all(|e| e.path != "cron.tick_secs"));
+    }
+
+    #[test]
+    fn test_cron_empty_state_file() {
+        let mut config = make_valid_config();
+        config.cron.enabled = true;
+        config.cron.state_file = Some(String::new());
+        let report = validate(&config);
+        assert!(report.warnings().iter().any(|w| w.path == "cron.state_file"));
+    }
+
+    // -------------------------------------------------------------------
+    // Security tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_security_valid_cidr() {
+        let mut config = make_valid_config();
+        config.security.ssrf_whitelist = vec!["10.0.0.0/8".to_string(), "172.16.0.0/12".to_string()];
+        config.security.blocked_networks = vec!["192.168.0.0/16".to_string()];
+        let report = validate(&config);
+        assert!(report.warnings().iter().all(|w| !w.path.starts_with("security.")));
+    }
+
+    #[test]
+    fn test_security_invalid_cidr() {
+        let mut config = make_valid_config();
+        config.security.ssrf_whitelist = vec!["not-a-cidr".to_string()];
+        let report = validate(&config);
+        assert!(report.warnings().iter().any(|w| w.path == "security.ssrf_whitelist[0]" && w.message.contains("not a valid CIDR")));
+    }
+
+    #[test]
+    fn test_security_empty_cidr() {
+        let mut config = make_valid_config();
+        config.security.blocked_networks = vec![String::new()];
+        let report = validate(&config);
+        assert!(report.warnings().iter().any(|w| w.path == "security.blocked_networks[0]"));
+    }
+
+    #[test]
+    fn test_security_valid_ipv6_cidr() {
+        let mut config = make_valid_config();
+        config.security.ssrf_whitelist = vec!["::1/128".to_string(), "fd00::/8".to_string()];
+        let report = validate(&config);
+        assert!(report.warnings().iter().all(|w| !w.path.starts_with("security.")));
+    }
+
+    // -------------------------------------------------------------------
+    // MCP server tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_mcp_stdio_valid() {
+        let mut config = make_valid_config();
+        config.mcp_servers.insert("fs".to_string(), McpServerConfig {
+            transport: "stdio".to_string(),
+            command: Some("mcp-fs".to_string()),
+            args: None,
+            url: None,
+            env: HashMap::new(),
+        });
+        let report = validate(&config);
+        assert!(report.is_valid(), "Unexpected errors: {}", report);
+    }
+
+    #[test]
+    fn test_mcp_stdio_missing_command() {
+        let mut config = make_valid_config();
+        config.mcp_servers.insert("fs".to_string(), McpServerConfig {
+            transport: "stdio".to_string(),
+            command: None,
+            args: None,
+            url: None,
+            env: HashMap::new(),
+        });
+        let report = validate(&config);
+        assert!(!report.is_valid());
+        assert!(report.errors().iter().any(|e| e.path == "mcp_servers.fs.command"));
+    }
+
+    #[test]
+    fn test_mcp_sse_valid() {
+        let mut config = make_valid_config();
+        config.mcp_servers.insert("remote".to_string(), McpServerConfig {
+            transport: "sse".to_string(),
+            command: None,
+            args: None,
+            url: Some("https://mcp.example.com/sse".to_string()),
+            env: HashMap::new(),
+        });
+        let report = validate(&config);
+        assert!(report.is_valid(), "Unexpected errors: {}", report);
+    }
+
+    #[test]
+    fn test_mcp_http_missing_url() {
+        let mut config = make_valid_config();
+        config.mcp_servers.insert("remote".to_string(), McpServerConfig {
+            transport: "http".to_string(),
+            command: None,
+            args: None,
+            url: None,
+            env: HashMap::new(),
+        });
+        let report = validate(&config);
+        assert!(!report.is_valid());
+        assert!(report.errors().iter().any(|e| e.path == "mcp_servers.remote.url"));
+    }
+
+    #[test]
+    fn test_mcp_unknown_transport() {
+        let mut config = make_valid_config();
+        config.mcp_servers.insert("bad".to_string(), McpServerConfig {
+            transport: "grpc".to_string(),
+            command: None,
+            args: None,
+            url: None,
+            env: HashMap::new(),
+        });
+        let report = validate(&config);
+        assert!(!report.is_valid());
+        assert!(report.errors().iter().any(|e| e.path == "mcp_servers.bad.transport" && e.message.contains("Unknown transport")));
+    }
+
+    // -------------------------------------------------------------------
+    // Cross-field tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_cross_field_model_matches_provider() {
+        let config = make_valid_config(); // model=gpt-4o, openai configured
+        let report = validate(&config);
+        assert!(report.warnings().iter().all(|w| w.path != "agent.model"));
+    }
+
+    #[test]
+    fn test_cross_field_model_no_match() {
+        let mut config = Config::default();
+        config.providers.anthropic = Some(ProviderEntry {
+            api_key: Some("sk-ant-valid".to_string()),
+            base_url: None,
+            model: None,
+            no_proxy: None,
+        });
+        config.agent.model = "gpt-4o".to_string(); // gpt keywords → openai, but only anthropic configured
+        let report = validate(&config);
+        assert!(report.warnings().iter().any(|w| w.path == "agent.model" && w.message.contains("may not match")));
+    }
+
+    #[test]
+    fn test_cross_field_single_provider_any_model() {
+        let mut config = Config::default();
+        config.providers.openai = Some(ProviderEntry {
+            api_key: Some("sk-test".to_string()),
+            base_url: None,
+            model: None,
+            no_proxy: None,
+        });
+        config.agent.model = "some-unknown-model".to_string();
+        let report = validate(&config);
+        // Single provider → no warning (will be used as default)
+        assert!(report.warnings().iter().all(|w| w.path != "agent.model"));
+    }
+
+    // -------------------------------------------------------------------
+    // fill_defaults tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_fill_defaults_empty_config() {
+        let mut config = Config::default();
+        // Clear some defaults
+        config.agent.model = String::new();
+        config.agent.max_tokens = 0;
+        config.agent.max_iterations = 0;
+        config.agent.tool_timeout = 0;
+        config.dream.interval_secs = 0;
+        config.heartbeat.interval_secs = 0;
+        config.cron.tick_secs = 0;
+        config._config_version = None;
+
+        let filled = fill_defaults(&mut config);
+
+        assert_eq!(config.agent.model, "gpt-4o");
+        assert_eq!(config.agent.max_tokens, 4096);
+        assert_eq!(config.agent.max_iterations, 50);
+        assert_eq!(config.agent.tool_timeout, 120);
+        assert_eq!(config.dream.interval_secs, 7200);
+        assert_eq!(config.heartbeat.interval_secs, 1800);
+        assert_eq!(config.cron.tick_secs, 60);
+        assert_eq!(config._config_version, Some(4));
+
+        assert!(filled.contains(&"agent.model".to_string()));
+        assert!(filled.contains(&"agent.max_tokens".to_string()));
+        assert!(filled.contains(&"agent.max_iterations".to_string()));
+        assert!(filled.contains(&"agent.tool_timeout".to_string()));
+        assert!(filled.contains(&"dream.interval_secs".to_string()));
+        assert!(filled.contains(&"heartbeat.interval_secs".to_string()));
+        assert!(filled.contains(&"cron.tick_secs".to_string()));
+        assert!(filled.contains(&"_config_version".to_string()));
+    }
+
+    #[test]
+    fn test_fill_defaults_already_set() {
+        let mut config = Config::default();
+        config.agent.model = "claude-3".to_string();
+        config.agent.max_tokens = 8192;
+
+        let filled = fill_defaults(&mut config);
+
+        assert_eq!(config.agent.model, "claude-3"); // not overwritten
+        assert_eq!(config.agent.max_tokens, 8192); // not overwritten
+        assert!(!filled.contains(&"agent.model".to_string()));
+        assert!(!filled.contains(&"agent.max_tokens".to_string()));
+    }
+
+    // -------------------------------------------------------------------
+    // validate_and_fill tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_validate_and_fill_combines() {
+        let mut config = Config::default();
+        config.agent.model = String::new();
+        config.agent.max_tokens = 0;
+        config.providers.openai = Some(ProviderEntry {
+            api_key: Some("sk-test".to_string()),
+            base_url: None,
+            model: None,
+            no_proxy: None,
+        });
+
+        let (report, filled) = validate_and_fill(&mut config);
+
+        // Defaults should be filled
+        assert_eq!(config.agent.model, "gpt-4o");
+        assert_eq!(config.agent.max_tokens, 4096);
+        assert!(filled.contains(&"agent.model".to_string()));
+
+        // After filling, should be valid
+        assert!(report.is_valid(), "Unexpected errors: {}", report);
+    }
+
+    // -------------------------------------------------------------------
+    // Provider None api_key
     // -------------------------------------------------------------------
 
     #[test]
@@ -938,5 +1648,78 @@ mod tests {
         // Should warn (not error) — gateway can run local-only
         assert!(report.warnings().iter().any(|w| w.path == "channels"));
         assert!(report.is_valid());
+    }
+
+    // -------------------------------------------------------------------
+    // DingTalk webhook URL validation
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_dingtalk_invalid_webhook_url() {
+        let mut config = make_valid_config();
+        config.channels.dingtalk = Some(DingtalkConfig {
+            webhook: Some("not-a-url".to_string()),
+            secret: None,
+            enabled: true,
+        });
+        let report = validate(&config);
+        assert!(report.errors().iter().any(|e| e.path == "channels.dingtalk.webhook"));
+    }
+
+    #[test]
+    fn test_dingtalk_valid_webhook_url() {
+        let mut config = make_valid_config();
+        config.channels.dingtalk = Some(DingtalkConfig {
+            webhook: Some("https://oapi.dingtalk.com/robot/send?access_token=abc".to_string()),
+            secret: None,
+            enabled: true,
+        });
+        let report = validate(&config);
+        assert!(report.errors().iter().all(|e| e.path != "channels.dingtalk.webhook"));
+    }
+
+    // -------------------------------------------------------------------
+    // Mochat webhook URL validation
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_mochat_missing_webhook() {
+        let mut config = make_valid_config();
+        config.channels.mochat = Some(MochatConfig {
+            webhook_url: None,
+            enabled: true,
+        });
+        let report = validate(&config);
+        assert!(report.errors().iter().any(|e| e.path == "channels.mochat.webhook_url"));
+    }
+
+    // -------------------------------------------------------------------
+    // Provider base_url validation
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_openai_invalid_base_url() {
+        let mut config = make_valid_config();
+        config.providers.openai = Some(ProviderEntry {
+            api_key: Some("sk-test".to_string()),
+            base_url: Some("ftp://bad.proto".to_string()),
+            model: None,
+            no_proxy: None,
+        });
+        let report = validate(&config);
+        assert!(report.errors().iter().any(|e| e.path == "providers.openai.base_url"));
+    }
+
+    #[test]
+    fn test_azure_openai_invalid_endpoint() {
+        let mut config = make_valid_config();
+        config.providers.azure_openai = Some(AzureOpenAIProviderEntry {
+            api_key: Some("key".to_string()),
+            endpoint: Some("not-a-url".to_string()),
+            deployment: Some("my-deploy".to_string()),
+            api_version: None,
+        });
+        let report = validate(&config);
+        assert!(report.errors().iter().any(|e| e.path == "providers.azure_openai.endpoint"));
     }
 }

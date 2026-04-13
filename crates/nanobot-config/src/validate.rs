@@ -155,6 +155,7 @@ pub fn validate(config: &Config) -> ValidationReport {
         &config.custom_providers,
         &config.agent,
         &config.dream,
+        &config.channels,
         &mut report,
     );
 
@@ -221,6 +222,60 @@ pub fn validate_and_fill(config: &mut Config) -> (ValidationReport, Vec<String>)
     let filled = fill_defaults(config);
     let report = validate(config);
     (report, filled)
+}
+
+// ---------------------------------------------------------------------------
+// Raw YAML env-var validation
+// ---------------------------------------------------------------------------
+
+/// Check raw config YAML for unresolved environment variable templates.
+///
+/// Detects `${VAR}` patterns (without a `:-default` fallback) and warns
+/// if the referenced env var is not set. Returns a list of (path, message)
+/// findings. This should be called on the raw YAML string **before**
+/// [`crate::loader::expand_env_vars`] so unresolved vars are still visible.
+///
+/// Only emits warnings (not errors) because missing env vars may be
+/// intentional (e.g., set at deploy time).
+pub fn validate_raw_env_vars(raw_yaml: &str) -> Vec<ValidationFinding> {
+    let mut findings = Vec::new();
+
+    // Match ${VAR} without :-default
+    let re = regex::Regex::new(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}").unwrap();
+    for cap in re.captures_iter(raw_yaml) {
+        let var_name = &cap[1];
+        let has_default = cap.get(2).is_some();
+
+        if !has_default && std::env::var(var_name).is_err() {
+            // Find which line contains this variable for a useful path hint
+            let full_match = cap.get(0).unwrap().as_str();
+            for (line_num, line) in raw_yaml.lines().enumerate() {
+                if line.contains(full_match) {
+                    // Try to extract the YAML key from the line
+                    let key_hint = line
+                        .split(':')
+                        .next()
+                        .map(|k| k.trim().to_string())
+                        .unwrap_or_default();
+                    findings.push(ValidationFinding {
+                        severity: Severity::Warning,
+                        path: if key_hint.is_empty() {
+                            format!("line {}", line_num + 1)
+                        } else {
+                            key_hint
+                        },
+                        message: format!(
+                            "Env var '{}' is not set and has no default — will resolve to empty string",
+                            var_name
+                        ),
+                    });
+                    break;
+                }
+            }
+        }
+    }
+
+    findings
 }
 
 // ---------------------------------------------------------------------------
@@ -809,6 +864,7 @@ fn validate_cross_field(
     custom: &[CustomProviderConfig],
     agent: &AgentDefaults,
     dream: &DreamConfig,
+    channels: &ChannelsConfig,
     report: &mut ValidationReport,
 ) {
     if agent.model.is_empty() {
@@ -833,6 +889,30 @@ fn validate_cross_field(
 
     if configured.is_empty() {
         return; // Already caught by validate_providers
+    }
+
+    // Cross-check: if any channel is enabled, verify at least one provider is configured.
+    // (This produces a more specific warning than the generic "no provider" error.)
+    let has_enabled_channel = [
+        channels.telegram.as_ref().is_some_and(|t| t.enabled),
+        channels.discord.as_ref().is_some_and(|d| d.enabled),
+        channels.slack.as_ref().is_some_and(|s| s.enabled),
+        channels.matrix.as_ref().is_some_and(|m| m.enabled),
+        channels.email.as_ref().is_some_and(|e| e.enabled),
+        channels.dingtalk.as_ref().is_some_and(|d| d.enabled),
+        channels.feishu.as_ref().is_some_and(|f| f.enabled),
+        channels.wecom.as_ref().is_some_and(|w| w.enabled),
+        channels.weixin.as_ref().is_some_and(|w| w.enabled),
+        channels.qq.as_ref().is_some_and(|q| q.enabled),
+        channels.mochat.as_ref().is_some_and(|m| m.enabled),
+        channels.whatsapp.as_ref().is_some_and(|w| w.enabled),
+    ].iter().any(|&v| v);
+
+    if has_enabled_channel && configured.is_empty() {
+        report.warning(
+            "channels",
+            "Channels are enabled but no LLM provider is configured — the gateway will not be able to respond",
+        );
     }
 
     // Check if the agent model matches any configured provider
@@ -2088,5 +2168,357 @@ mod tests {
         config.dream.model = Some("claude-3".to_string()); // mismatch but dream disabled
         let report = validate(&config);
         assert!(report.warnings().iter().all(|w| w.path != "dream.model"));
+    }
+
+    // -------------------------------------------------------------------
+    // validate_raw_env_vars tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_raw_env_vars_unresolved_var() {
+        // Ensure THIS_VAR_DOES_NOT_EXIST is not in the environment
+        std::env::remove_var("THIS_VAR_DOES_NOT_EXIST_XYZ");
+        let yaml = r#"
+providers:
+  openai:
+    api_key: ${THIS_VAR_DOES_NOT_EXIST_XYZ}
+"#;
+        let findings = validate_raw_env_vars(yaml);
+        assert!(!findings.is_empty());
+        assert!(findings.iter().any(|f| f.message.contains("THIS_VAR_DOES_NOT_EXIST_XYZ")));
+        assert_eq!(findings[0].severity, Severity::Warning);
+    }
+
+    #[test]
+    fn test_raw_env_vars_with_default_ok() {
+        // Var with a default should NOT produce a warning
+        std::env::remove_var("PROBABLY_MISSING_VAR_ABC");
+        let yaml = r#"
+providers:
+  openai:
+    api_key: ${PROBABLY_MISSING_VAR_ABC:-fallback-key}
+"#;
+        let findings = validate_raw_env_vars(yaml);
+        assert!(findings.is_empty(), "Expected no findings for var with default, got: {:?}", findings);
+    }
+
+    #[test]
+    fn test_raw_env_vars_set_in_env_ok() {
+        // Var that IS set should NOT produce a warning
+        std::env::set_var("NANOBOT_TEST_SET_VAR", "hello");
+        let yaml = r#"
+providers:
+  openai:
+    api_key: ${NANOBOT_TEST_SET_VAR}
+"#;
+        let findings = validate_raw_env_vars(yaml);
+        std::env::remove_var("NANOBOT_TEST_SET_VAR");
+        assert!(findings.is_empty(), "Expected no findings for set var, got: {:?}", findings);
+    }
+
+    #[test]
+    fn test_raw_env_vars_no_vars() {
+        let yaml = r#"
+agent:
+  model: gpt-4o
+  temperature: 0.7
+"#;
+        let findings = validate_raw_env_vars(yaml);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn test_raw_env_vars_multiple_unresolved() {
+        std::env::remove_var("MISSING_AAA");
+        std::env::remove_var("MISSING_BBB");
+        let yaml = r#"
+providers:
+  openai:
+    api_key: ${MISSING_AAA}
+channels:
+  telegram:
+    token: ${MISSING_BBB}
+"#;
+        let findings = validate_raw_env_vars(yaml);
+        assert_eq!(findings.len(), 2);
+        let names: Vec<&str> = findings.iter().map(|f| {
+            // Extract var name from message
+            f.message.split('\'').nth(1).unwrap_or("")
+        }).collect();
+        assert!(names.contains(&"MISSING_AAA"));
+        assert!(names.contains(&"MISSING_BBB"));
+    }
+
+    #[test]
+    fn test_raw_env_vars_path_is_yaml_key() {
+        std::env::remove_var("MISSING_KEY_FOR_PATH_TEST");
+        let yaml = "api_key: ${MISSING_KEY_FOR_PATH_TEST}\n";
+        let findings = validate_raw_env_vars(yaml);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].path, "api_key");
+    }
+
+    #[test]
+    fn test_raw_env_vars_empty_default_no_warn() {
+        // ${VAR:-} has an empty default, should NOT warn
+        std::env::remove_var("MISSING_WITH_EMPTY_DEFAULT");
+        let yaml = "key: ${MISSING_WITH_EMPTY_DEFAULT:-}\n";
+        let findings = validate_raw_env_vars(yaml);
+        assert!(findings.is_empty(), "Expected no warning for var with empty default, got: {:?}", findings);
+    }
+
+    // -------------------------------------------------------------------
+    // Channel-provider cross-field tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_channels_enabled_no_provider_warns() {
+        // Channels enabled but no provider → cross-field warning
+        let mut config = Config::default();
+        // No providers configured at all
+        config.channels.telegram = Some(TelegramConfig {
+            token: "123456:ABC-DEF".to_string(),
+            enabled: true,
+            allowed_users: vec![],
+            admin_users: vec![],
+            streaming: false,
+        });
+        let report = validate(&config);
+        // Should have errors about no provider + the provider error
+        assert!(!report.is_valid());
+    }
+
+    #[test]
+    fn test_channels_enabled_with_provider_ok() {
+        // Channels enabled WITH a provider → no channel-provider warning
+        let config = make_valid_config(); // has openai provider + telegram enabled
+        let report = validate(&config);
+        assert!(report.is_valid(), "Unexpected errors: {}", report);
+        assert!(report.warnings().iter().all(|w| !w.message.contains("no LLM provider")));
+    }
+
+    // -------------------------------------------------------------------
+    // Additional invalid config scenario tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_invalid_temperature_string_model() {
+        // Agent model with only whitespace characters
+        let mut config = make_valid_config();
+        config.agent.model = "   ".to_string();
+        let report = validate(&config);
+        assert!(!report.is_valid());
+        assert!(report.errors().iter().any(|e| e.path == "agent.model"));
+    }
+
+    #[test]
+    fn test_agent_max_iterations_boundary() {
+        let mut config = make_valid_config();
+        config.agent.max_iterations = 500;
+        let report = validate(&config);
+        assert!(report.is_valid());
+        assert!(report.warnings().iter().all(|w| w.path != "agent.max_iterations"));
+    }
+
+    #[test]
+    fn test_agent_max_iterations_just_above_boundary() {
+        let mut config = make_valid_config();
+        config.agent.max_iterations = 501;
+        let report = validate(&config);
+        assert!(report.warnings().iter().any(|w| w.path == "agent.max_iterations" && w.message.contains("very high")));
+    }
+
+    #[test]
+    fn test_heartbeat_boundary_valid() {
+        let mut config = make_valid_config();
+        config.heartbeat.enabled = true;
+        config.heartbeat.interval_secs = 10;
+        assert!(validate(&config).is_valid());
+        config.heartbeat.interval_secs = 86400;
+        assert!(validate(&config).is_valid());
+    }
+
+    #[test]
+    fn test_cron_boundary_valid() {
+        let mut config = make_valid_config();
+        config.cron.enabled = true;
+        config.cron.tick_secs = 5;
+        assert!(validate(&config).is_valid());
+    }
+
+    #[test]
+    fn test_dream_boundary_valid() {
+        let mut config = make_valid_config();
+        config.dream.enabled = true;
+        config.dream.interval_secs = 60;
+        assert!(validate(&config).is_valid());
+    }
+
+    #[test]
+    fn test_dream_interval_below_60_warns() {
+        let mut config = make_valid_config();
+        config.dream.enabled = true;
+        config.dream.interval_secs = 59;
+        let report = validate(&config);
+        assert!(report.warnings().iter().any(|w| w.path == "dream.interval_secs"));
+    }
+
+    #[test]
+    fn test_api_empty_origins_warns() {
+        let mut config = make_valid_config();
+        config.api.allowed_origins = vec![];
+        let report = validate(&config);
+        assert!(report.warnings().iter().any(|w| w.path == "api.allowed_origins"));
+    }
+
+    #[test]
+    fn test_api_zero_body_size_errors() {
+        let mut config = make_valid_config();
+        config.api.max_body_size = 0;
+        let report = validate(&config);
+        assert!(!report.is_valid());
+        assert!(report.errors().iter().any(|e| e.path == "api.max_body_size"));
+    }
+
+    #[test]
+    fn test_mcp_empty_command_error() {
+        let mut config = make_valid_config();
+        config.mcp_servers.insert("bad".to_string(), McpServerConfig {
+            transport: "stdio".to_string(),
+            command: Some(String::new()),
+            args: None,
+            url: None,
+            env: HashMap::new(),
+        });
+        let report = validate(&config);
+        assert!(!report.is_valid());
+        assert!(report.errors().iter().any(|e| e.path == "mcp_servers.bad.command"));
+    }
+
+    #[test]
+    fn test_mcp_sse_empty_url_error() {
+        let mut config = make_valid_config();
+        config.mcp_servers.insert("bad".to_string(), McpServerConfig {
+            transport: "sse".to_string(),
+            command: None,
+            args: None,
+            url: Some(String::new()),
+            env: HashMap::new(),
+        });
+        let report = validate(&config);
+        assert!(!report.is_valid());
+        assert!(report.errors().iter().any(|e| e.path == "mcp_servers.bad.url"));
+    }
+
+    #[test]
+    fn test_mcp_sse_invalid_url_error() {
+        let mut config = make_valid_config();
+        config.mcp_servers.insert("bad".to_string(), McpServerConfig {
+            transport: "http".to_string(),
+            command: None,
+            args: None,
+            url: Some("not-a-url".to_string()),
+            env: HashMap::new(),
+        });
+        let report = validate(&config);
+        assert!(!report.is_valid());
+        assert!(report.errors().iter().any(|e| e.path == "mcp_servers.bad.url"));
+    }
+
+    #[test]
+    fn test_feishu_missing_app_id() {
+        let mut config = make_valid_config();
+        config.channels.feishu = Some(FeishuConfig {
+            app_id: None,
+            app_secret: Some("secret".to_string()),
+            enabled: true,
+        });
+        let report = validate(&config);
+        assert!(!report.is_valid());
+        assert!(report.errors().iter().any(|e| e.path == "channels.feishu.app_id"));
+    }
+
+    #[test]
+    fn test_feishu_missing_app_secret() {
+        let mut config = make_valid_config();
+        config.channels.feishu = Some(FeishuConfig {
+            app_id: Some("id".to_string()),
+            app_secret: None,
+            enabled: true,
+        });
+        let report = validate(&config);
+        assert!(!report.is_valid());
+        assert!(report.errors().iter().any(|e| e.path == "channels.feishu.app_secret"));
+    }
+
+    #[test]
+    fn test_wecom_missing_fields() {
+        let mut config = make_valid_config();
+        config.channels.wecom = Some(WecomConfig {
+            corp_id: None,
+            agent_id: None,
+            secret: None,
+            token: None,
+            encoding_aes_key: None,
+            enabled: true,
+        });
+        let report = validate(&config);
+        assert!(!report.is_valid());
+        let errs: Vec<&str> = report.errors().iter().map(|e| e.path.as_str()).collect();
+        assert!(errs.contains(&"channels.wecom.corp_id"));
+        assert!(errs.contains(&"channels.wecom.secret"));
+    }
+
+    #[test]
+    fn test_weixin_missing_app_id() {
+        let mut config = make_valid_config();
+        config.channels.weixin = Some(WeixinConfig {
+            app_id: None,
+            app_secret: None,
+            token: None,
+            encoding_aes_key: None,
+            enabled: true,
+        });
+        let report = validate(&config);
+        assert!(!report.is_valid());
+        assert!(report.errors().iter().any(|e| e.path == "channels.weixin.app_id"));
+    }
+
+    #[test]
+    fn test_qq_missing_app_id() {
+        let mut config = make_valid_config();
+        config.channels.qq = Some(QQConfig {
+            app_id: None,
+            app_secret: None,
+            token: None,
+            enabled: true,
+        });
+        let report = validate(&config);
+        assert!(!report.is_valid());
+        assert!(report.errors().iter().any(|e| e.path == "channels.qq.app_id"));
+    }
+
+    #[test]
+    fn test_email_port_boundary_valid() {
+        let mut config = make_valid_config();
+        config.channels.email = Some(EmailConfig {
+            imap_host: Some("imap.example.com".to_string()),
+            smtp_host: Some("smtp.example.com".to_string()),
+            username: Some("user".to_string()),
+            password: None,
+            port: 1,
+            enabled: true,
+        });
+        let report = validate(&config);
+        // port=1 is in range [1, 65535] but non-standard
+        assert!(report.warnings().iter().any(|w| w.path == "channels.email.port" && w.message.contains("non-standard")));
+    }
+
+    #[test]
+    fn test_security_blocked_networks_invalid() {
+        let mut config = make_valid_config();
+        config.security.blocked_networks = vec!["not-valid".to_string()];
+        let report = validate(&config);
+        assert!(report.warnings().iter().any(|w| w.path == "security.blocked_networks[0]" && w.message.contains("not a valid CIDR")));
     }
 }

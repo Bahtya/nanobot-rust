@@ -1,14 +1,24 @@
 //! # nanobot-providers
 //!
 //! LLM provider abstraction with support for multiple backends.
+//!
+//! ## Middleware
+//!
+//! Providers can be wrapped with [`ProviderMiddleware`] to add
+//! retry logic and rate limiting. Each provider gets independent
+//! configuration via [`MiddlewareConfig`].
 
 pub mod anthropic;
 pub mod base;
+pub mod middleware;
 pub mod openai_compat;
+pub mod rate_limit;
 pub mod registry;
 pub mod retry;
 
 pub use base::{CompletionRequest, CompletionResponse, LlmProvider};
+pub use middleware::{MiddlewareConfig, ProviderMiddleware};
+pub use rate_limit::{RateLimiter, TokenBucket};
 pub use registry::ProviderRegistry;
 pub use retry::RetryConfig;
 

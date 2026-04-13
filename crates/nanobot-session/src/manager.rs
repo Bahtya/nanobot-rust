@@ -3,8 +3,9 @@
 //! Provides session lookup, creation, and persistence with concurrent access
 //! via DashMap, matching the Python session/manager.py SessionManager pattern.
 
+use crate::note_store::NoteStore;
 use crate::store::SessionStore;
-use crate::types::{Session, SessionEntry};
+use crate::types::{Note, Session, SessionEntry};
 use anyhow::Result;
 use dashmap::DashMap;
 use nanobot_core::{SessionSource, DEFAULT_SESSION_HISTORY_LIMIT};
@@ -19,8 +20,11 @@ pub struct SessionManager {
     /// In-memory session cache.
     sessions: Arc<DashMap<String, Session>>,
 
-    /// Persistent JSONL storage.
+    /// Persistent JSONL storage for messages + notes.
     store: Arc<Mutex<SessionStore>>,
+
+    /// Dedicated note file storage.
+    note_store: Arc<Mutex<NoteStore>>,
 
     /// Maximum messages per session before truncation.
     max_history: usize,
@@ -30,10 +34,13 @@ impl SessionManager {
     /// Create a new SessionManager with the given data directory.
     pub fn new(data_dir: PathBuf) -> Result<Self> {
         let session_dir = data_dir.join("sessions");
+        let notes_dir = data_dir.join("notes");
         let store = SessionStore::new(session_dir)?;
+        let note_store = NoteStore::new(notes_dir)?;
         Ok(Self {
             sessions: Arc::new(DashMap::new()),
             store: Arc::new(Mutex::new(store)),
+            note_store: Arc::new(Mutex::new(note_store)),
             max_history: DEFAULT_SESSION_HISTORY_LIMIT,
         })
     }
@@ -41,10 +48,13 @@ impl SessionManager {
     /// Create with a custom max history size.
     pub fn with_max_history(data_dir: PathBuf, max_history: usize) -> Result<Self> {
         let session_dir = data_dir.join("sessions");
+        let notes_dir = data_dir.join("notes");
         let store = SessionStore::new(session_dir)?;
+        let note_store = NoteStore::new(notes_dir)?;
         Ok(Self {
             sessions: Arc::new(DashMap::new()),
             store: Arc::new(Mutex::new(store)),
+            note_store: Arc::new(Mutex::new(note_store)),
             max_history,
         })
     }
@@ -62,6 +72,14 @@ impl SessionManager {
             if let Some(src) = source {
                 session.source = Some(src);
             }
+
+            // Merge notes from dedicated note store (note store is authoritative)
+            if let Ok(notes) = self.note_store.lock().load_notes(key) {
+                if !notes.is_empty() {
+                    session.notes = notes;
+                }
+            }
+
             self.sessions.insert(key.to_string(), session.clone());
             return session;
         }
@@ -90,8 +108,11 @@ impl SessionManager {
             session.truncate(self.max_history);
         }
 
-        // Persist to disk
+        // Persist messages + notes to JSONL
         self.store.lock().save(&session)?;
+
+        // Also persist notes to dedicated note store
+        self.note_store.lock().save_notes(&session.key, &session.notes)?;
 
         // Update cache
         self.sessions.insert(session.key.clone(), session);
@@ -115,8 +136,9 @@ impl SessionManager {
         if let Some(mut session) = self.sessions.get_mut(key) {
             session.reset();
         }
-        // Delete the persisted file so we start fresh
+        // Delete the persisted files so we start fresh
         self.store.lock().delete(key)?;
+        self.note_store.lock().delete_notes(key)?;
         debug!("Reset session: {}", key);
         Ok(())
     }
@@ -125,6 +147,7 @@ impl SessionManager {
     pub fn remove_session(&self, key: &str) -> Result<()> {
         self.sessions.remove(key);
         self.store.lock().delete(key)?;
+        self.note_store.lock().delete_notes(key)?;
         Ok(())
     }
 
@@ -136,8 +159,10 @@ impl SessionManager {
     /// Persist all dirty sessions to disk.
     pub fn flush_all(&self) -> Result<()> {
         let store = self.store.lock();
+        let note_store = self.note_store.lock();
         for entry in self.sessions.iter() {
             store.save(entry.value())?;
+            note_store.save_notes(entry.key(), &entry.value().notes)?;
         }
         Ok(())
     }
@@ -145,6 +170,75 @@ impl SessionManager {
     /// Get the number of active sessions.
     pub fn session_count(&self) -> usize {
         self.sessions.len()
+    }
+
+    // ── Note search convenience methods ──────────────────────
+
+    /// Search notes within a specific session.
+    pub fn search_notes(&self, session_key: &str, query: &str) -> Vec<Note> {
+        if let Some(session) = self.sessions.get(session_key) {
+            session.search_notes(query).into_iter().cloned().collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Search notes across all sessions.
+    ///
+    /// Returns `(session_key, Note)` pairs for every match.
+    pub fn search_all_notes(&self, query: &str) -> Vec<(String, Note)> {
+        let mut results = Vec::new();
+
+        // Check in-memory sessions first
+        for entry in self.sessions.iter() {
+            for note in entry.value().search_notes(query) {
+                results.push((entry.key().clone(), note.clone()));
+            }
+        }
+
+        // Also check persisted sessions not currently in memory
+        if let Ok(disk_results) = self.note_store.lock().search_notes(query) {
+            let in_memory_keys: std::collections::HashSet<String> = self
+                .sessions
+                .iter()
+                .map(|e| e.key().clone())
+                .collect();
+
+            for (key, note) in disk_results {
+                if !in_memory_keys.contains(&key) {
+                    results.push((key, note));
+                }
+            }
+        }
+
+        results
+    }
+
+    /// Search notes across all sessions by a specific tag.
+    pub fn search_all_notes_by_tag(&self, tag: &str) -> Vec<(String, Note)> {
+        let mut results = Vec::new();
+
+        for entry in self.sessions.iter() {
+            for note in entry.value().notes_by_tag(tag) {
+                results.push((entry.key().clone(), note.clone()));
+            }
+        }
+
+        if let Ok(disk_results) = self.note_store.lock().search_notes_by_tag(tag) {
+            let in_memory_keys: std::collections::HashSet<String> = self
+                .sessions
+                .iter()
+                .map(|e| e.key().clone())
+                .collect();
+
+            for (key, note) in disk_results {
+                if !in_memory_keys.contains(&key) {
+                    results.push((key, note));
+                }
+            }
+        }
+
+        results
     }
 }
 
@@ -256,5 +350,81 @@ mod tests {
         let mut keys = mgr.active_session_keys();
         keys.sort();
         assert_eq!(keys, vec!["platform:chat1", "platform:chat2"]);
+    }
+
+    #[test]
+    fn test_search_notes_in_session() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = SessionManager::new(tmp.path().to_path_buf()).unwrap();
+
+        let mut session = mgr.get_or_create("test:search", None);
+        session.save_note(
+            "API Design".to_string(),
+            "Use REST".to_string(),
+            vec!["architecture".to_string()],
+        );
+        session.save_note(
+            "Database".to_string(),
+            "PostgreSQL".to_string(),
+            vec!["backend".to_string()],
+        );
+        mgr.save_session(&session).unwrap();
+
+        let results = mgr.search_notes("test:search", "rest");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "API Design");
+
+        let results = mgr.search_notes("test:search", "postgresql");
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn test_search_all_notes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = SessionManager::new(tmp.path().to_path_buf()).unwrap();
+
+        let mut s1 = mgr.get_or_create("session:a", None);
+        s1.save_note(
+            "Framework".to_string(),
+            "Tokio for async".to_string(),
+            vec!["rust".to_string()],
+        );
+        mgr.save_session(&s1).unwrap();
+
+        let mut s2 = mgr.get_or_create("session:b", None);
+        s2.save_note(
+            "Testing".to_string(),
+            "Use tokio::test".to_string(),
+            vec!["rust".to_string()],
+        );
+        mgr.save_session(&s2).unwrap();
+
+        let results = mgr.search_all_notes("tokio");
+        assert!(results.len() >= 2);
+    }
+
+    #[test]
+    fn test_search_all_notes_by_tag() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = SessionManager::new(tmp.path().to_path_buf()).unwrap();
+
+        let mut s1 = mgr.get_or_create("session:x", None);
+        s1.save_note(
+            "n1".to_string(),
+            "decision note".to_string(),
+            vec!["decision".to_string()],
+        );
+        mgr.save_session(&s1).unwrap();
+
+        let mut s2 = mgr.get_or_create("session:y", None);
+        s2.save_note(
+            "n2".to_string(),
+            "another decision".to_string(),
+            vec!["decision".to_string()],
+        );
+        mgr.save_session(&s2).unwrap();
+
+        let results = mgr.search_all_notes_by_tag("decision");
+        assert!(results.len() >= 2);
     }
 }

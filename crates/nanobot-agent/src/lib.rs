@@ -17,7 +17,7 @@ pub use context::ContextBuilder;
 pub use hook::{AgentHook, CompositeHook};
 pub use loop_mod::AgentLoop;
 pub use memory::MemoryStore;
-pub use notes::{Note, NotesManager};
+pub use notes::NotesManager;
 pub use runner::AgentRunner;
 pub use skills::SkillsLoader;
 pub use subagent::{

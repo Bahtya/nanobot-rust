@@ -1,6 +1,12 @@
 //! Session persistence via JSONL files.
+//!
+//! Each session file starts with an optional `SessionMeta` header line (JSON)
+//! containing notes, metadata, and source. Subsequent lines are `SessionEntry`
+//! objects. This format is backward-compatible: old files that only contain
+//! `SessionEntry` lines still load successfully (notes and metadata default to
+//! empty).
 
-use crate::types::{Session, SessionEntry};
+use crate::types::{Session, SessionEntry, SessionMeta};
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use tracing::{debug, warn};
@@ -29,6 +35,9 @@ impl SessionStore {
     }
 
     /// Load a session from disk.
+    ///
+    /// Reads the meta header line (if present) to restore notes, metadata,
+    /// and source. Then reads remaining lines as message entries.
     pub fn load(&self, key: &str) -> Result<Option<Session>> {
         let path = self.session_path(key);
         if !path.exists() {
@@ -40,10 +49,25 @@ impl SessionStore {
             .with_context(|| format!("Failed to read session file: {}", path.display()))?;
 
         let mut session = Session::new(key.to_string());
+        let mut first_line = true;
+
         for line in content.lines() {
             if line.trim().is_empty() {
                 continue;
             }
+
+            // Try to parse the first line as a SessionMeta header.
+            if first_line {
+                first_line = false;
+                if let Ok(meta) = serde_json::from_str::<SessionMeta>(line) {
+                    session.notes = meta.notes;
+                    session.metadata = meta.metadata;
+                    session.source = meta.source;
+                    continue;
+                }
+                // Not a meta line — fall through to parse as SessionEntry
+            }
+
             match serde_json::from_str::<SessionEntry>(line) {
                 Ok(entry) => session.messages.push(entry),
                 Err(e) => {
@@ -52,7 +76,7 @@ impl SessionStore {
             }
         }
 
-        if session.messages.is_empty() {
+        if session.messages.is_empty() && session.notes.is_empty() {
             return Ok(None);
         }
 
@@ -60,18 +84,31 @@ impl SessionStore {
     }
 
     /// Save a session to disk (full overwrite).
+    ///
+    /// Writes a `SessionMeta` header line with notes, metadata, and source,
+    /// followed by one `SessionEntry` line per message.
     pub fn save(&self, session: &Session) -> Result<()> {
         let path = self.session_path(&session.key);
         debug!("Saving session to {}", path.display());
 
         let mut lines = Vec::new();
+
+        // Header line with notes + metadata
+        let meta = SessionMeta {
+            type_: "meta".to_string(),
+            notes: session.notes.clone(),
+            metadata: session.metadata.clone(),
+            source: session.source.clone(),
+        };
+        lines.push(serde_json::to_string(&meta)?);
+
+        // Message entries
         for entry in &session.messages {
             let line = serde_json::to_string(entry)?;
             lines.push(line);
         }
 
-        let content = lines.join("\n");
-        let content = format!("{}\n", content);
+        let content = format!("{}\n", lines.join("\n"));
         std::fs::write(&path, content)
             .with_context(|| format!("Failed to write session file: {}", path.display()))?;
 
@@ -156,6 +193,70 @@ mod tests {
     }
 
     #[test]
+    fn test_session_roundtrip_with_notes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = SessionStore::new(tmp.path().to_path_buf()).unwrap();
+
+        let mut session = Session::new("test:notes_persist".to_string());
+        session.add_user_message("Hello".to_string());
+        session.save_note(
+            "lang".to_string(),
+            "Rust".to_string(),
+            vec!["tech".to_string()],
+        );
+        session.save_note(
+            "style".to_string(),
+            "Concise".to_string(),
+            vec!["preference".to_string()],
+        );
+
+        store.save(&session).unwrap();
+
+        let loaded = store.load("test:notes_persist").unwrap().unwrap();
+        assert_eq!(loaded.messages.len(), 1);
+        assert_eq!(loaded.notes.len(), 2);
+
+        let note = loaded.get_note("lang").unwrap();
+        assert_eq!(note.content, "Rust");
+        assert_eq!(note.tags, vec!["tech"]);
+    }
+
+    #[test]
+    fn test_session_roundtrip_preserves_metadata() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = SessionStore::new(tmp.path().to_path_buf()).unwrap();
+
+        let mut session = Session::new("test:meta".to_string());
+        session.metadata.truncated = true;
+        session.metadata.turn_count = 42;
+        session.add_user_message("data".to_string());
+
+        store.save(&session).unwrap();
+
+        let loaded = store.load("test:meta").unwrap().unwrap();
+        assert!(loaded.metadata.truncated);
+        assert_eq!(loaded.metadata.turn_count, 42);
+    }
+
+    #[test]
+    fn test_backward_compat_load_old_format() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = SessionStore::new(tmp.path().to_path_buf()).unwrap();
+
+        // Write an old-style JSONL file (no meta header, just entries)
+        let path = tmp.path().join("sessions").join("test_old.jsonl");
+        let old_content = r#"{"role":"user","content":"hello from old format","timestamp":"2026-01-01T00:00:00+00:00"}
+{"role":"assistant","content":"hi","timestamp":"2026-01-01T00:00:01+00:00"}
+"#;
+        std::fs::write(&path, old_content).unwrap();
+
+        let loaded = store.load("test_old").unwrap().unwrap();
+        assert_eq!(loaded.messages.len(), 2);
+        assert_eq!(loaded.messages[0].content, "hello from old format");
+        assert!(loaded.notes.is_empty());
+    }
+
+    #[test]
     fn test_session_not_found() {
         let tmp = tempfile::tempdir().unwrap();
         let store = SessionStore::new(tmp.path().to_path_buf()).unwrap();
@@ -191,10 +292,8 @@ mod tests {
         session.add_user_message("data".to_string());
         store.save(&session).unwrap();
 
-        // Verify it exists
         assert!(store.load("test:delete_me").unwrap().is_some());
 
-        // Delete it
         store.delete("test:delete_me").unwrap();
         assert!(store.load("test:delete_me").unwrap().is_none());
     }
@@ -203,7 +302,6 @@ mod tests {
     fn test_delete_nonexistent_session() {
         let tmp = tempfile::tempdir().unwrap();
         let store = SessionStore::new(tmp.path().to_path_buf()).unwrap();
-        // Deleting a nonexistent session should succeed (idempotent)
         assert!(store.delete("no_such_session").is_ok());
     }
 

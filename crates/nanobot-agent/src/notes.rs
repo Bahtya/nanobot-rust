@@ -9,30 +9,8 @@
 //! and CRUD methods, so notes survive serialization and session reload.
 
 use anyhow::Result;
-use nanobot_session::Session;
-use serde::{Deserialize, Serialize};
+use nanobot_session::{Note, Session};
 use tracing::{debug, info};
-
-/// A single structured note (mirror of `nanobot_session::SessionNote`).
-///
-/// This type is kept for API compatibility and convenience when working
-/// with notes outside the session context.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Note {
-    /// Short title / key for the note.
-    pub key: String,
-    /// The note content.
-    pub content: String,
-    /// Optional category for grouping.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub category: Option<String>,
-    /// When this note was created.
-    #[serde(default)]
-    pub created_at: String,
-    /// When this note was last updated.
-    #[serde(default)]
-    pub updated_at: String,
-}
 
 /// Manages structured notes within a session.
 ///
@@ -40,38 +18,28 @@ pub struct Note {
 pub struct NotesManager;
 
 impl NotesManager {
-    /// Save a note to the session (create or update by key).
+    /// Save a note to the session (create or update by title).
     pub fn save_note(
         session: &mut Session,
-        key: String,
+        title: String,
         content: String,
-        category: Option<String>,
+        tags: Vec<String>,
     ) -> Result<()> {
-        session.save_note(key, content, category);
+        session.save_note(title, content, tags);
         debug!("Saved note to session '{}'", session.key);
         Ok(())
     }
 
     /// Load all notes from a session.
     pub fn load_notes(session: &Session) -> Vec<Note> {
-        session
-            .notes
-            .iter()
-            .map(|n| Note {
-                key: n.key.clone(),
-                content: n.content.clone(),
-                category: n.category.clone(),
-                created_at: n.created_at.clone(),
-                updated_at: n.updated_at.clone(),
-            })
-            .collect()
+        session.all_notes().to_vec()
     }
 
-    /// Delete a note from the session by key.
-    pub fn delete_note(session: &mut Session, key: &str) -> Result<bool> {
-        let deleted = session.delete_note(key);
+    /// Delete a note from the session by title.
+    pub fn delete_note(session: &mut Session, title: &str) -> Result<bool> {
+        let deleted = session.delete_note(title);
         if deleted {
-            info!("Deleted note '{}' from session '{}'", key, session.key);
+            info!("Deleted note '{}' from session '{}'", title, session.key);
         }
         Ok(deleted)
     }
@@ -81,30 +49,25 @@ impl NotesManager {
         session.format_notes_context()
     }
 
-    /// Get notes filtered by category.
-    pub fn notes_by_category(session: &Session, category: &str) -> Vec<Note> {
-        session
-            .notes_by_category(category)
-            .into_iter()
-            .map(|n| Note {
-                key: n.key.clone(),
-                content: n.content.clone(),
-                category: n.category.clone(),
-                created_at: n.created_at.clone(),
-                updated_at: n.updated_at.clone(),
-            })
-            .collect()
+    /// Get notes filtered by a tag.
+    pub fn notes_by_tag(session: &Session, tag: &str) -> Vec<Note> {
+        session.notes_by_tag(tag).into_iter().cloned().collect()
+    }
+
+    /// Search notes by a free-text query.
+    pub fn search_notes(session: &Session, query: &str) -> Vec<Note> {
+        session.search_notes(query).into_iter().cloned().collect()
     }
 
     /// Extract and save notes from an agent response.
     ///
     /// Looks for structured note blocks in the response text of the form:
     /// ```text
-    /// [NOTE:key:category]content[/NOTE]
+    /// [NOTE:title:tag1,tag2]content[/NOTE]
     /// ```
     /// or
     /// ```text
-    /// [NOTE:key]content[/NOTE]
+    /// [NOTE:title]content[/NOTE]
     /// ```
     ///
     /// Returns the number of notes extracted.
@@ -114,12 +77,21 @@ impl NotesManager {
             .expect("note extraction regex should compile");
 
         for cap in re.captures_iter(response) {
-            let key = cap[1].to_string();
-            let category = cap.get(2).map(|m| m.as_str().to_string());
+            let title = cap[1].to_string();
+            let tags: Vec<String> = cap
+                .get(2)
+                .map(|m| {
+                    m.as_str()
+                        .split(',')
+                        .map(|t| t.trim().to_string())
+                        .filter(|t| !t.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default();
             let content = cap[3].trim().to_string();
 
-            if !key.is_empty() && !content.is_empty() {
-                session.save_note(key, content, category);
+            if !title.is_empty() && !content.is_empty() {
+                session.save_note(title, content, tags);
                 count += 1;
             }
         }
@@ -158,23 +130,23 @@ mod tests {
             &mut session,
             "user_preference".to_string(),
             "Prefers concise answers".to_string(),
-            Some("preferences".to_string()),
+            vec!["preferences".to_string()],
         )
         .unwrap();
 
         let notes = NotesManager::load_notes(&session);
         assert_eq!(notes.len(), 1);
-        assert_eq!(notes[0].key, "user_preference");
+        assert_eq!(notes[0].title, "user_preference");
         assert_eq!(notes[0].content, "Prefers concise answers");
-        assert_eq!(notes[0].category, Some("preferences".to_string()));
+        assert_eq!(notes[0].tags, vec!["preferences"]);
     }
 
     #[test]
     fn test_save_multiple_notes() {
         let mut session = make_session();
-        NotesManager::save_note(&mut session, "note1".to_string(), "First note".to_string(), None)
+        NotesManager::save_note(&mut session, "note1".to_string(), "First note".to_string(), vec![])
             .unwrap();
-        NotesManager::save_note(&mut session, "note2".to_string(), "Second note".to_string(), None)
+        NotesManager::save_note(&mut session, "note2".to_string(), "Second note".to_string(), vec![])
             .unwrap();
 
         let notes = NotesManager::load_notes(&session);
@@ -184,9 +156,9 @@ mod tests {
     #[test]
     fn test_update_existing_note() {
         let mut session = make_session();
-        NotesManager::save_note(&mut session, "key1".to_string(), "Original".to_string(), None)
+        NotesManager::save_note(&mut session, "key1".to_string(), "Original".to_string(), vec![])
             .unwrap();
-        NotesManager::save_note(&mut session, "key1".to_string(), "Updated".to_string(), None)
+        NotesManager::save_note(&mut session, "key1".to_string(), "Updated".to_string(), vec![])
             .unwrap();
 
         let notes = NotesManager::load_notes(&session);
@@ -202,7 +174,7 @@ mod tests {
             &mut session,
             "to_delete".to_string(),
             "Will be deleted".to_string(),
-            None,
+            vec![],
         )
         .unwrap();
 
@@ -233,10 +205,10 @@ mod tests {
             &mut session,
             "lang".to_string(),
             "Rust".to_string(),
-            Some("tech".to_string()),
+            vec!["tech".to_string()],
         )
         .unwrap();
-        NotesManager::save_note(&mut session, "style".to_string(), "Concise".to_string(), None)
+        NotesManager::save_note(&mut session, "style".to_string(), "Concise".to_string(), vec![])
             .unwrap();
 
         let ctx = NotesManager::format_notes_context(&session).unwrap();
@@ -246,47 +218,71 @@ mod tests {
     }
 
     #[test]
-    fn test_notes_by_category() {
+    fn test_notes_by_tag() {
         let mut session = make_session();
-        NotesManager::save_note(&mut session, "n1".to_string(), "First".to_string(), Some("cat_a".to_string()))
-            .unwrap();
-        NotesManager::save_note(&mut session, "n2".to_string(), "Second".to_string(), Some("cat_b".to_string()))
-            .unwrap();
-        NotesManager::save_note(&mut session, "n3".to_string(), "Third".to_string(), Some("cat_a".to_string()))
-            .unwrap();
+        NotesManager::save_note(
+            &mut session,
+            "n1".to_string(),
+            "First".to_string(),
+            vec!["cat_a".to_string()],
+        )
+        .unwrap();
+        NotesManager::save_note(
+            &mut session,
+            "n2".to_string(),
+            "Second".to_string(),
+            vec!["cat_b".to_string()],
+        )
+        .unwrap();
+        NotesManager::save_note(
+            &mut session,
+            "n3".to_string(),
+            "Third".to_string(),
+            vec!["cat_a".to_string()],
+        )
+        .unwrap();
 
-        let cat_a = NotesManager::notes_by_category(&session, "cat_a");
+        let cat_a = NotesManager::notes_by_tag(&session, "cat_a");
         assert_eq!(cat_a.len(), 2);
-        let cat_b = NotesManager::notes_by_category(&session, "cat_b");
+        let cat_b = NotesManager::notes_by_tag(&session, "cat_b");
         assert_eq!(cat_b.len(), 1);
+    }
+
+    #[test]
+    fn test_search_notes() {
+        let mut session = make_session();
+        NotesManager::save_note(
+            &mut session,
+            "api design".to_string(),
+            "Use REST endpoints".to_string(),
+            vec!["architecture".to_string()],
+        )
+        .unwrap();
+
+        let results = NotesManager::search_notes(&session, "rest");
+        assert_eq!(results.len(), 1);
+
+        let results = NotesManager::search_notes(&session, "architecture");
+        assert_eq!(results.len(), 1);
     }
 
     #[test]
     fn test_notes_persist_across_session_operations() {
         let mut session = make_session();
         session.add_user_message("hello".to_string());
-        NotesManager::save_note(&mut session, "persistent".to_string(), "This survives".to_string(), None)
-            .unwrap();
+        NotesManager::save_note(
+            &mut session,
+            "persistent".to_string(),
+            "This survives".to_string(),
+            vec![],
+        )
+        .unwrap();
 
         session.add_assistant_message("response".to_string());
 
         let notes = NotesManager::load_notes(&session);
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0].content, "This survives");
-    }
-
-    #[test]
-    fn test_note_serialization_roundtrip() {
-        let note = Note {
-            key: "test".to_string(),
-            content: "content with special chars: <>&\"'".to_string(),
-            category: Some("misc".to_string()),
-            created_at: "2026-01-01T00:00:00Z".to_string(),
-            updated_at: "2026-01-01T00:00:00Z".to_string(),
-        };
-        let json = serde_json::to_string(&note).unwrap();
-        let back: Note = serde_json::from_str(&json).unwrap();
-        assert_eq!(note, back);
     }
 
     // === Auto-extraction tests ===
@@ -301,13 +297,13 @@ mod tests {
 
         let notes = NotesManager::load_notes(&session);
         assert_eq!(notes.len(), 1);
-        assert_eq!(notes[0].key, "user_lang");
+        assert_eq!(notes[0].title, "user_lang");
         assert_eq!(notes[0].content, "Rust");
-        assert_eq!(notes[0].category, Some("preference".to_string()));
+        assert_eq!(notes[0].tags, vec!["preference"]);
     }
 
     #[test]
-    fn test_extract_notes_without_category() {
+    fn test_extract_notes_without_tags() {
         let mut session = make_session();
         let response = "[NOTE:reminder]Check the deploy at 5pm[/NOTE]";
 
@@ -315,7 +311,19 @@ mod tests {
         assert_eq!(count, 1);
 
         let notes = NotesManager::load_notes(&session);
-        assert_eq!(notes[0].category, None);
+        assert!(notes[0].tags.is_empty());
+    }
+
+    #[test]
+    fn test_extract_notes_multiple_tags() {
+        let mut session = make_session();
+        let response = "[NOTE:decision:backend,urgent]Use PostgreSQL[/NOTE]";
+
+        let count = NotesManager::extract_notes_from_response(&mut session, response);
+        assert_eq!(count, 1);
+
+        let notes = NotesManager::load_notes(&session);
+        assert_eq!(notes[0].tags, vec!["backend", "urgent"]);
     }
 
     #[test]
@@ -344,7 +352,7 @@ mod tests {
     fn test_compact_if_needed_under_limit() {
         let mut session = make_session();
         for i in 0..10 {
-            session.save_note(format!("n{}", i), format!("note {}", i), None);
+            session.save_note(format!("n{}", i), format!("note {}", i), vec![]);
         }
 
         assert!(!NotesManager::compact_if_needed(&mut session));

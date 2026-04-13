@@ -4,9 +4,26 @@
 //! forwarded to the message bus.  This means commands like `/validate` work
 //! even when the LLM provider is misconfigured.
 
+use crate::platforms::telegram::{InlineKeyboardBuilder, InlineKeyboardMarkup};
 use nanobot_config::validate::ValidationFinding;
 use nanobot_config::{load_config, validate, Config};
 use std::fmt::Write;
+
+// ---------------------------------------------------------------------------
+// Command response
+// ---------------------------------------------------------------------------
+
+/// Result of handling a built-in command.
+///
+/// Carries the text to send and, for platforms that support it (Telegram),
+/// an optional inline keyboard to attach to the message.
+#[derive(Debug, Clone)]
+pub struct CommandResponse {
+    /// Text body of the response.
+    pub text: String,
+    /// Optional inline keyboard (ignored by platforms that don't support it).
+    pub keyboard: Option<InlineKeyboardMarkup>,
+}
 
 // ---------------------------------------------------------------------------
 // Command matching
@@ -37,11 +54,80 @@ pub fn matches_command(text: &str, command: &str) -> bool {
 /// If `text` matches a known built-in command, returns `Some(response)`.
 /// Otherwise returns `None`, signalling the caller to forward the message
 /// through the normal bus path.
-pub fn try_handle_command(text: &str) -> Option<String> {
+pub fn try_handle_command(text: &str) -> Option<CommandResponse> {
     if matches_command(text, "validate") {
-        Some(handle_validate())
+        Some(CommandResponse {
+            text: handle_validate(),
+            keyboard: None,
+        })
+    } else if matches_command(text, "menu") {
+        Some(handle_menu())
     } else {
         None
+    }
+}
+
+// ---------------------------------------------------------------------------
+// /menu implementation
+// ---------------------------------------------------------------------------
+
+/// Build the main-menu inline keyboard.
+///
+/// Buttons use `menu:<action>` callback_data format so the
+/// `CallbackRouter` can dispatch them.
+pub fn menu_keyboard() -> InlineKeyboardMarkup {
+    InlineKeyboardBuilder::new()
+        .button("Status", "menu:status")
+        .button("Help", "menu:help")
+        .new_row()
+        .button("Validate Config", "menu:validate")
+        .button("Cancel", "menu:cancel")
+        .build()
+}
+
+/// Handle the `/menu` command — returns a greeting with an inline keyboard.
+fn handle_menu() -> CommandResponse {
+    CommandResponse {
+        text: "What would you like to do?".to_string(),
+        keyboard: Some(menu_keyboard()),
+    }
+}
+
+/// Handle a menu button callback.
+///
+/// Returns the text to display and whether to replace the keyboard.
+pub fn handle_menu_callback(action: &str) -> (String, Option<InlineKeyboardMarkup>) {
+    match action {
+        "status" => {
+            let config = load_config(None);
+            let text = match config {
+                Ok(c) => {
+                    let mut out = String::new();
+                    let name = c.name.as_deref().unwrap_or("unnamed");
+                    let _ = writeln!(out, "Agent: {} | Name: {}", c.agent.model, name);
+                    let _ = writeln!(out, "Streaming: {}", c.agent.streaming);
+                    let _ = writeln!(out, "Max tokens: {}", c.agent.max_tokens);
+                    let _ = writeln!(out, "Temperature: {}", c.agent.temperature);
+                    out
+                }
+                Err(e) => format!("Failed to load config: {e}"),
+            };
+            (text, Some(menu_keyboard()))
+        }
+        "help" => (
+            "Available commands:\n\
+             /menu — Show this menu\n\
+             /validate — Check configuration\n\
+             /start — Start a conversation"
+                .to_string(),
+            Some(menu_keyboard()),
+        ),
+        "validate" => (handle_validate(), Some(menu_keyboard())),
+        "cancel" => ("Menu closed.".to_string(), None),
+        _ => (
+            format!("Unknown action: {action}"),
+            Some(menu_keyboard()),
+        ),
     }
 }
 
@@ -260,8 +346,24 @@ mod tests {
     fn test_try_handle_command_validate() {
         let result = try_handle_command("/validate");
         assert!(result.is_some());
-        let text = result.unwrap();
-        assert!(text.contains("Configuration"));
+        let resp = result.unwrap();
+        assert!(resp.text.contains("Configuration"));
+        assert!(resp.keyboard.is_none());
+    }
+
+    #[test]
+    fn test_try_handle_command_menu() {
+        let result = try_handle_command("/menu");
+        assert!(result.is_some());
+        let resp = result.unwrap();
+        assert_eq!(resp.text, "What would you like to do?");
+        assert!(resp.keyboard.is_some());
+        let kb = resp.keyboard.unwrap();
+        assert_eq!(kb.inline_keyboard.len(), 2);
+        assert_eq!(kb.inline_keyboard[0][0].text, "Status");
+        assert_eq!(kb.inline_keyboard[0][1].text, "Help");
+        assert_eq!(kb.inline_keyboard[1][0].text, "Validate Config");
+        assert_eq!(kb.inline_keyboard[1][1].text, "Cancel");
     }
 
     #[test]
@@ -422,5 +524,59 @@ providers:
         let _dir = with_temp_config(yaml);
         let result = handle_validate();
         assert!(result.contains("Channels: (none)") || result.contains("Channel"));
+    }
+
+    // -- /menu tests ---------------------------------------------------------
+
+    #[test]
+    fn test_menu_keyboard_structure() {
+        let kb = menu_keyboard();
+        assert_eq!(kb.inline_keyboard.len(), 2);
+        // Row 1: Status, Help
+        assert_eq!(kb.inline_keyboard[0].len(), 2);
+        assert_eq!(kb.inline_keyboard[0][0].callback_data, Some("menu:status".to_string()));
+        assert_eq!(kb.inline_keyboard[0][1].callback_data, Some("menu:help".to_string()));
+        // Row 2: Validate Config, Cancel
+        assert_eq!(kb.inline_keyboard[1].len(), 2);
+        assert_eq!(kb.inline_keyboard[1][0].callback_data, Some("menu:validate".to_string()));
+        assert_eq!(kb.inline_keyboard[1][1].callback_data, Some("menu:cancel".to_string()));
+    }
+
+    #[test]
+    fn test_handle_menu_callback_status() {
+        let _dir = with_temp_config("providers:\n  openai:\n    api_key: sk-test\n");
+        let (text, kb) = handle_menu_callback("status");
+        assert!(text.contains("Agent:"));
+        assert!(kb.is_some());
+    }
+
+    #[test]
+    fn test_handle_menu_callback_help() {
+        let (text, kb) = handle_menu_callback("help");
+        assert!(text.contains("/menu"));
+        assert!(text.contains("/validate"));
+        assert!(kb.is_some());
+    }
+
+    #[test]
+    fn test_handle_menu_callback_validate() {
+        let _dir = with_temp_config("providers:\n  openai:\n    api_key: sk-test\n");
+        let (text, kb) = handle_menu_callback("validate");
+        assert!(text.contains("Configuration"));
+        assert!(kb.is_some());
+    }
+
+    #[test]
+    fn test_handle_menu_callback_cancel() {
+        let (text, kb) = handle_menu_callback("cancel");
+        assert_eq!(text, "Menu closed.");
+        assert!(kb.is_none());
+    }
+
+    #[test]
+    fn test_handle_menu_callback_unknown() {
+        let (text, kb) = handle_menu_callback("nonexistent");
+        assert!(text.contains("Unknown action"));
+        assert!(kb.is_some());
     }
 }

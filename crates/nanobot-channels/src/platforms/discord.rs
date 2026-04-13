@@ -770,7 +770,7 @@ impl DiscordChannel {
                                                         &rest.api_base,
                                                         &rest.auth_header,
                                                         &msg_data.channel_id,
-                                                        &response,
+                                                        &response.text,
                                                     )
                                                     .await;
                                                     Self::send_read_receipt(

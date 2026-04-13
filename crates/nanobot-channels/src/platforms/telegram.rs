@@ -652,22 +652,42 @@ impl TelegramChannel {
 
     /// Send a text reply directly via the Telegram Bot API (bypassing the bus).
     ///
-    /// Used for built-in commands like `/validate` that must work even when
-    /// the LLM provider is down.  Non-critical: failures are logged only.
+    /// Used for built-in commands like `/validate` and `/menu` that must work
+    /// even when the LLM provider is down.  Non-critical: failures are logged
+    /// only.  Optionally attaches an inline keyboard.
     async fn send_direct_reply(
         client: &reqwest::Client,
         base_url: &str,
         chat_id: i64,
         text: &str,
+        keyboard: Option<&InlineKeyboardMarkup>,
     ) {
-        let body = SendMessageBody {
-            chat_id,
-            text: text.to_string(),
-            reply_to_message_id: None,
-        };
-        let url = format!("{}/sendMessage", base_url);
-        if let Err(e) = client.post(&url).json(&body).send().await {
-            warn!("Failed to send direct reply: {e}");
+        if let Some(kb) = keyboard {
+            #[derive(Debug, Serialize)]
+            struct ReplyWithKeyboard {
+                chat_id: i64,
+                text: String,
+                reply_markup: InlineKeyboardMarkup,
+            }
+            let body = ReplyWithKeyboard {
+                chat_id,
+                text: text.to_string(),
+                reply_markup: kb.clone(),
+            };
+            let url = format!("{}/sendMessage", base_url);
+            if let Err(e) = client.post(&url).json(&body).send().await {
+                warn!("Failed to send direct reply with keyboard: {e}");
+            }
+        } else {
+            let body = SendMessageBody {
+                chat_id,
+                text: text.to_string(),
+                reply_to_message_id: None,
+            };
+            let url = format!("{}/sendMessage", base_url);
+            if let Err(e) = client.post(&url).json(&body).send().await {
+                warn!("Failed to send direct reply: {e}");
+            }
         }
     }
 
@@ -750,7 +770,8 @@ impl TelegramChannel {
                             &client,
                             &base_url,
                             msg.chat.id,
-                            &response,
+                            &response.text,
+                            response.keyboard.as_ref(),
                         )
                         .await;
                         Self::send_read_receipt(
@@ -1124,6 +1145,31 @@ impl TelegramChannel {
         }
     }
 
+    /// Register built-in callback handlers for inline keyboard buttons.
+    ///
+    /// Currently handles the `menu` prefix used by `/menu` command.
+    fn register_default_handlers(router: &Arc<tokio::sync::Mutex<CallbackRouter>>) {
+        let mut r = router.blocking_lock();
+        if r.has_handler("menu") {
+            return; // Already registered (e.g. by user code).
+        }
+        r.register("menu", |ctx| {
+            let action = ctx.action.action.clone();
+            async move {
+                let (text, keyboard) = crate::commands::handle_menu_callback(&action);
+                match keyboard {
+                    Some(kb) => CallbackResponse::EditMessage { text, keyboard: Some(kb) },
+                    None => CallbackResponse::EditMessage {
+                        text,
+                        keyboard: Some(
+                            InlineKeyboardBuilder::new().build(), // empty keyboard = remove
+                        ),
+                    },
+                }
+            }
+        });
+    }
+
     /// Get a reference-counted handle to the callback router.
     ///
     /// Use this to register handlers before calling `connect()`.
@@ -1166,6 +1212,9 @@ impl BaseChannel for TelegramChannel {
 
         self.running.store(true, Ordering::Relaxed);
         self.connected = true;
+
+        // Register built-in callback handlers (e.g. /menu button routing).
+        Self::register_default_handlers(&self.router);
 
         // Spawn the background polling task.
         if let Some(handler) = self.message_handler.clone() {

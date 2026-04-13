@@ -7,6 +7,7 @@ use tracing::debug;
 
 // ─── WebSearchTool ────────────────────────────────────────────
 
+/// Tool for performing web searches via configured search providers.
 pub struct WebSearchTool {
     provider: SearchProvider,
 }
@@ -175,6 +176,7 @@ impl WebSearchTool {
 
 // ─── WebFetchTool ────────────────────────────────────────────
 
+/// Tool for fetching and extracting text content from web URLs.
 pub struct WebFetchTool;
 
 impl WebFetchTool {

@@ -7,6 +7,7 @@ use tokio::io::AsyncWriteExt;
 
 // ─── ReadFileTool ────────────────────────────────────────────
 
+/// Tool for reading file contents from the filesystem.
 pub struct ReadFileTool;
 
 impl ReadFileTool {
@@ -73,6 +74,7 @@ impl Tool for ReadFileTool {
 
 // ─── WriteFileTool ────────────────────────────────────────────
 
+/// Tool for writing content to files on the filesystem.
 pub struct WriteFileTool;
 
 impl WriteFileTool {
@@ -153,6 +155,7 @@ impl Tool for WriteFileTool {
 
 // ─── EditFileTool ────────────────────────────────────────────
 
+/// Tool for making targeted string replacements in files.
 pub struct EditFileTool;
 
 impl EditFileTool {
@@ -236,6 +239,7 @@ impl Tool for EditFileTool {
 
 // ─── ListDirTool ────────────────────────────────────────────
 
+/// Tool for listing directory contents.
 pub struct ListDirTool;
 
 impl ListDirTool {

@@ -7,6 +7,7 @@ use std::path::Path;
 
 // ─── GrepTool ────────────────────────────────────────────
 
+/// Tool for searching file contents with regex patterns.
 pub struct GrepTool;
 
 impl GrepTool {
@@ -152,6 +153,7 @@ fn grep_dir(
 
 // ─── GlobTool ────────────────────────────────────────────
 
+/// Tool for finding files by name pattern (glob).
 pub struct GlobTool;
 
 impl GlobTool {

@@ -3,6 +3,7 @@
 //! Channel system — base trait, manager, registry, and platform implementations.
 
 pub mod base;
+pub mod commands;
 pub mod manager;
 pub mod platforms;
 pub mod registry;

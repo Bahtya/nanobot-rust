@@ -650,6 +650,27 @@ impl TelegramChannel {
         }
     }
 
+    /// Send a text reply directly via the Telegram Bot API (bypassing the bus).
+    ///
+    /// Used for built-in commands like `/validate` that must work even when
+    /// the LLM provider is down.  Non-critical: failures are logged only.
+    async fn send_direct_reply(
+        client: &reqwest::Client,
+        base_url: &str,
+        chat_id: i64,
+        text: &str,
+    ) {
+        let body = SendMessageBody {
+            chat_id,
+            text: text.to_string(),
+            reply_to_message_id: None,
+        };
+        let url = format!("{}/sendMessage", base_url);
+        if let Err(e) = client.post(&url).json(&body).send().await {
+            warn!("Failed to send direct reply: {e}");
+        }
+    }
+
     /// Poll `getUpdates` in a loop until `running` is cleared.
     ///
     /// Uses exponential backoff on transient errors (max 60s).
@@ -722,20 +743,39 @@ impl TelegramChannel {
                 offset = Some(update.update_id + 1);
 
                 if let Some(msg) = update.message {
-                    match Self::dispatch_message(&handler, &msg).await {
-                        Ok(true) => {
-                            // Message dispatched — send 👀 read receipt.
-                            Self::send_read_receipt(
-                                &client,
-                                &base_url,
-                                msg.chat.id,
-                                msg.message_id,
-                            )
-                            .await;
-                        }
-                        Ok(false) => {} // Skipped (no text/photo).
-                        Err(e) => {
-                            error!("Failed to dispatch Telegram message: {e}");
+                    let text = msg.text.as_deref().unwrap_or("");
+                    if let Some(response) = crate::commands::try_handle_command(text) {
+                        // Built-in command matched — reply directly, skip bus.
+                        Self::send_direct_reply(
+                            &client,
+                            &base_url,
+                            msg.chat.id,
+                            &response,
+                        )
+                        .await;
+                        Self::send_read_receipt(
+                            &client,
+                            &base_url,
+                            msg.chat.id,
+                            msg.message_id,
+                        )
+                        .await;
+                    } else {
+                        match Self::dispatch_message(&handler, &msg).await {
+                            Ok(true) => {
+                                // Message dispatched — send 👀 read receipt.
+                                Self::send_read_receipt(
+                                    &client,
+                                    &base_url,
+                                    msg.chat.id,
+                                    msg.message_id,
+                                )
+                                .await;
+                            }
+                            Ok(false) => {} // Skipped (no text/photo).
+                            Err(e) => {
+                                error!("Failed to dispatch Telegram message: {e}");
+                            }
                         }
                     }
                 } else if let Some(cq) = update.callback_query {

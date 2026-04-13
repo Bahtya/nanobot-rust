@@ -25,6 +25,8 @@ url = { workspace = true }
 dashmap = { workspace = true }
 parking_lot = { workspace = true }
 
+notify = { version = "6", default-features = false, features = ["macos_fsevent"] }
+
 [dev-dependencies]
 tokio = { workspace = true }
 tempfile = { workspace = true }

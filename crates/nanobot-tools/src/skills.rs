@@ -76,6 +76,14 @@ pub struct Skill {
     #[serde(default)]
     pub tags: Vec<String>,
 
+    /// Semantic version string (e.g. `"1.2.3"`), parsed from frontmatter `version`.
+    #[serde(default)]
+    pub version: Option<String>,
+
+    /// Declared dependency skill names, parsed from frontmatter `dependencies`.
+    #[serde(default)]
+    pub dependencies: Vec<String>,
+
     /// Source file path (relative to skills root).
     #[serde(skip)]
     pub source_path: PathBuf,
@@ -302,6 +310,11 @@ impl SkillStore {
 
         let parameters = parse_parameters(&frontmatter);
         let tags = yaml_string_array(&frontmatter, "tags");
+        let version = frontmatter
+            .get("version")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let dependencies = yaml_string_array(&frontmatter, "dependencies");
         let modified_at = file_mtime(path);
 
         Ok(Skill {
@@ -311,6 +324,8 @@ impl SkillStore {
             instructions: body.trim().to_string(),
             parameters,
             tags,
+            version,
+            dependencies,
             source_path: path.to_path_buf(),
             relative_path: relative.to_path_buf(),
             modified_at,

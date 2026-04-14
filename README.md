@@ -7,7 +7,7 @@
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![Tests](https://img.shields.io/badge/tests-745%20passing-brightgreen)](./)
 [![License](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
-[![Crates](https://img.shields.io/badge/crates-12-purple)](./crates)
+[![Crates](https://img.shields.io/badge/crates-13-purple)](./crates)
 [![Clippy](https://img.shields.io/badge/clippy-0%20warnings-success)](./)
 
 Fast, streaming-first, and production-ready. Connect Telegram, Discord, and
@@ -29,6 +29,7 @@ OpenAI-compatible clients to any LLM provider through a unified agent loop.
 - **Skill files** — markdown-based skill definitions with hot-reload
 - **Provider resilience** — automatic retry with exponential backoff on 429s
 - **SSRF protection** — network allowlist/denylist and URL validation
+- **Native daemon mode** — start/stop/restart/status with PID file, signal handling, file logging
 
 ## Architecture
 
@@ -36,7 +37,8 @@ OpenAI-compatible clients to any LLM provider through a unified agent loop.
                           ┌──────────────────────────────┐
                           │         CLI (clap)           │
                           │  agent · gateway · serve ·   │
-                          │  heartbeat · setup · status  │
+                          │  daemon · heartbeat · setup · │
+                          │  status                      │
                           └──────────────┬───────────────┘
                                          │
                  ┌───────────────────────┼───────────────────────┐
@@ -87,7 +89,7 @@ OpenAI-compatible clients to any LLM provider through a unified agent loop.
   ── Foundation Layer ──────────────────────────────────
   nanobot-core · nanobot-config · nanobot-bus
   nanobot-session · nanobot-security · nanobot-providers
-  nanobot-cron · nanobot-heartbeat
+  nanobot-cron · nanobot-heartbeat · nanobot-daemon
 ```
 
 ## Quick Start
@@ -122,6 +124,18 @@ nanobot-rs heartbeat
 
 # Show system status
 nanobot-rs status
+
+# Start as daemon (background, PID file)
+nanobot-rs daemon start
+
+# Check status
+nanobot-rs daemon status
+
+# Stop gracefully (SIGTERM)
+nanobot-rs daemon stop
+
+# Restart (stop + start)
+nanobot-rs daemon restart
 ```
 
 Environment variable `NANOBOT_RS_HOME` overrides the default config directory
@@ -161,6 +175,12 @@ security:
       - "10.0.0.0/8"
       - "172.16.0.0/12"
       - "192.168.0.0/16"
+
+daemon:
+  enabled: false          # auto-daemonize on gateway/serve start
+  pid_file: ~/.nanobot-rs/nanobot-rs.pid
+  log_dir: ~/.nanobot-rs/logs
+  grace_period_secs: 30
 ```
 
 ## CLI Commands
@@ -178,6 +198,7 @@ security:
 | `config migrate` | Migrate Python nanobot config to nanobot-rs format |
 | `setup` | Interactive configuration wizard |
 | `status` | Show current configuration and system status |
+| `daemon start/stop/restart/status` | Native daemon management with PID file and signal handling |
 
 ## Crates
 
@@ -195,6 +216,7 @@ security:
 | [`nanobot-heartbeat`](./crates/nanobot-heartbeat) | Health check registry, periodic task monitoring, auto-restart |
 | [`nanobot-channels`](./crates/nanobot-channels) | Platform adapters — Telegram, Discord — via `ChannelManager` |
 | [`nanobot-api`](./crates/nanobot-api) | OpenAI-compatible HTTP API server (Axum) |
+| [`nanobot-daemon`](./crates/nanobot-daemon) | Unix daemon: double-fork, PID file (flock), signal handling, file logging |
 
 ## Stats
 
@@ -203,7 +225,7 @@ security:
 | Rust source files | 97 |
 | Lines of Rust code | 72,566 |
 | Tests | 745 passing |
-| Crates | 12 |
+| Crates | 13 |
 | Clippy warnings | 0 |
 
 ## Development

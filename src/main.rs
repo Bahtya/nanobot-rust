@@ -185,7 +185,18 @@ async fn main() -> Result<()> {
                 DaemonSubcommand::Restart => commands::daemon::DaemonAction::Restart,
                 DaemonSubcommand::Status => commands::daemon::DaemonAction::Status,
             };
-            commands::daemon::handle_daemon_command(action, config)?;
+            match action {
+                commands::daemon::DaemonAction::Start => {
+                    // daemonize, create PID file, then start gateway
+                    let _pid_file = commands::daemon::handle_daemon_command(action, config.clone())?
+                        .expect("Start always returns Some(PidFile)");
+                    // After daemonize, start the gateway in the daemon process
+                    commands::gateway::run(config, vec![]).await?;
+                }
+                _ => {
+                    commands::daemon::handle_daemon_command(action, config)?;
+                }
+            }
         }
     }
 

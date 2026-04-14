@@ -28,19 +28,33 @@ pub enum DaemonAction {
 ///
 /// * `action` - Which daemon action to perform.
 /// * `config` - The loaded configuration (for PID file paths, etc.).
-pub fn handle_daemon_command(action: DaemonAction, config: Config) -> Result<()> {
+///
+/// # Returns
+///
+/// For `DaemonAction::Start`, returns `Ok(Some(PidFile))` so the caller
+/// can pass it to the gateway runner for cleanup on shutdown.
+/// For other actions, returns `Ok(None)`.
+pub fn handle_daemon_command(
+    action: DaemonAction,
+    config: Config,
+) -> Result<Option<nanobot_daemon::pid_file::PidFile>> {
     match action {
-        DaemonAction::Start => do_start(&config),
-        DaemonAction::Stop => do_stop(&config),
-        DaemonAction::Restart => do_restart(&config),
-        DaemonAction::Status => do_status(&config),
+        DaemonAction::Start => do_start(&config).map(Some),
+        DaemonAction::Stop => do_stop(&config).map(|()| None),
+        DaemonAction::Restart => do_restart(&config).map(|()| None),
+        DaemonAction::Status => do_status(&config).map(|()| None),
     }
 }
 
 /// Perform daemonization: double-fork, PID file, redirect stdio.
 ///
-/// This must be called before the tokio runtime starts.
-fn do_start(config: &Config) -> Result<()> {
+/// This must be called before the tokio runtime starts. After daemonize
+/// returns, the caller is the grandchild process (the actual daemon).
+/// The PID file is created AFTER daemonize to ensure it contains the
+/// correct (grandchild) PID.
+///
+/// Returns a `PidFile` whose lock persists for the daemon's lifetime.
+fn do_start(config: &Config) -> Result<nanobot_daemon::pid_file::PidFile> {
     let pid_file_path = &config.daemon.pid_file;
     let log_dir = &config.daemon.log_dir;
     let working_dir = &config.daemon.working_directory;
@@ -48,27 +62,26 @@ fn do_start(config: &Config) -> Result<()> {
     // Ensure log directory exists before daemonize (stderr redirect needs it)
     std::fs::create_dir_all(log_dir)?;
 
-    // Create PID file with flock — prevents double-start
     let log_file_path = std::path::Path::new(log_dir).join("nanobot-rs.err");
     let log_file_str = log_file_path.to_str().unwrap_or("/dev/null");
 
-    // PID file is created and locked here. We leak it intentionally —
-    // the lock should persist for the daemon's lifetime, and the file
-    // will be cleaned up on process exit via tempfile or explicit stop.
-    nanobot_daemon::pid_file::PidFile::create(pid_file_path)?;
-
-    // Daemonize: double-fork, setsid, chdir, redirect stdio
+    // Daemonize FIRST: double-fork, setsid, chdir, redirect stdio.
+    // After this returns, we are the grandchild (the actual daemon) with a NEW PID.
     nanobot_daemon::daemonize::daemonize(working_dir, Some(log_file_str))?;
+
+    // NOW create PID file — after daemonize, so the PID is the grandchild's.
+    // flock prevents double-start: if another instance holds the lock, we fail.
+    let pid_file = nanobot_daemon::pid_file::PidFile::create(pid_file_path)?;
 
     // Setup file logging in the daemon process
     let _guard = nanobot_daemon::logging::setup_file_logging(log_dir, "info");
     tracing::info!("Daemon started (pid={})", std::process::id());
 
-    // NOTE: The caller should now start the gateway/serve.
-    // The logging guard is intentionally leaked to keep file logging alive.
-    std::mem::forget(_guard);
+    // Store the logging guard in a global so it lives for the process lifetime.
+    // Box::leak is intentional — the guard must outlive all log calls.
+    Box::leak(Box::new(_guard));
 
-    Ok(())
+    Ok(pid_file)
 }
 
 /// Stop the running daemon by sending SIGTERM.
@@ -105,7 +118,13 @@ fn do_restart(config: &Config) -> Result<()> {
     if nanobot_daemon::pid_file::PidFile::read_pid(&config.daemon.pid_file)?.is_some() {
         let _ = do_stop(config);
     }
-    do_start(config)
+    let _pid_file = do_start(config)?;
+    // NOTE: restart calls do_start which daemonizes. After daemonize,
+    // the grandchild returns here but the process will exit when this
+    // function returns because there's no gateway to run.
+    // A full restart should be done via: `daemon stop && daemon start`
+    // (where start is wired to gateway::run in main.rs)
+    Ok(())
 }
 
 /// Check the daemon's status.

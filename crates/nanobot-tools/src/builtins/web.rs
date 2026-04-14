@@ -21,6 +21,7 @@ enum SearchProvider {
 }
 
 impl WebSearchTool {
+    /// Create a new web search tool, auto-detecting the provider from env vars.
     pub fn new() -> Self {
         let provider = if std::env::var("BRAVE_API_KEY").is_ok() {
             SearchProvider::Brave
@@ -256,10 +257,10 @@ impl Tool for WebFetchTool {
 
 /// Very basic HTML to text conversion.
 fn html_to_text(html: &str) -> String {
-    let re = regex::Regex::new(r"<[^>]+>").unwrap();
+    let re = regex::Regex::new(r"<[^>]+>").expect("static regex is valid");
     let text = re.replace_all(html, "");
     // Collapse whitespace
-    let ws = regex::Regex::new(r"\s+").unwrap();
+    let ws = regex::Regex::new(r"\s+").expect("static regex is valid");
     ws.replace_all(&text, " ").trim().to_string()
 }
 

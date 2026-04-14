@@ -42,7 +42,7 @@ pub fn load_config(config_path: Option<&Path>) -> Result<Config> {
 ///
 /// Matches the Python `_resolve_config_env_vars()` behavior.
 pub fn expand_env_vars(input: &str) -> String {
-    let re = Regex::new(r"\$\{([^}]+)\}").unwrap();
+    let re = Regex::new(r"\$\{([^}]+)\}").expect("static regex is valid");
     re.replace_all(input, |caps: &regex::Captures| {
         let expr = &caps[1];
         if let Some((var, default)) = expr.split_once(":-") {

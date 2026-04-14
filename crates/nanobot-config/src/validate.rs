@@ -241,14 +241,15 @@ pub fn validate_raw_env_vars(raw_yaml: &str) -> Vec<ValidationFinding> {
     let mut findings = Vec::new();
 
     // Match ${VAR} without :-default
-    let re = regex::Regex::new(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}").unwrap();
+    let re = regex::Regex::new(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
+        .expect("static regex is valid");
     for cap in re.captures_iter(raw_yaml) {
         let var_name = &cap[1];
         let has_default = cap.get(2).is_some();
 
         if !has_default && std::env::var(var_name).is_err() {
             // Find which line contains this variable for a useful path hint
-            let full_match = cap.get(0).unwrap().as_str();
+            let full_match = cap.get(0).expect("capture group 0 always exists").as_str();
             for (line_num, line) in raw_yaml.lines().enumerate() {
                 if line.contains(full_match) {
                     // Try to extract the YAML key from the line

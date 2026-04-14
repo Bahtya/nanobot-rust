@@ -39,10 +39,12 @@ impl CompositeHook {
         Self { hooks: Vec::new() }
     }
 
+    /// Add a hook to the composite chain.
     pub fn add(&mut self, hook: Arc<dyn AgentHook>) {
         self.hooks.push(hook);
     }
 
+    /// Emit an event to all registered hooks in order.
     pub async fn emit(&self, context: &HookContext) {
         for hook in &self.hooks {
             match hook.on_event(context).await {

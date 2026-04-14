@@ -15,26 +15,31 @@ pub struct ToolRegistry {
 }
 
 impl ToolRegistry {
+    /// Create an empty tool registry.
     pub fn new() -> Self {
         Self {
             tools: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
+    /// Register a tool by its name.
     pub fn register(&self, tool: impl Tool + 'static) {
         let name = tool.name().to_string();
         debug!("Registering tool: {}", name);
         self.tools.write().insert(name, Arc::new(tool));
     }
 
+    /// Unregister a tool by name.
     pub fn unregister(&self, name: &str) {
         self.tools.write().remove(name);
     }
 
+    /// Look up a tool by name.
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
         self.tools.read().get(name).cloned()
     }
 
+    /// Execute a tool by name with the given JSON arguments.
     pub async fn execute(&self, name: &str, args: Value) -> Result<String, ToolError> {
         let tool = self
             .get(name)
@@ -50,6 +55,7 @@ impl ToolRegistry {
         tool.execute(args).await
     }
 
+    /// Return function definitions for all available tools.
     pub fn get_definitions(&self) -> Vec<FunctionDefinition> {
         let tools = self.tools.read();
         tools
@@ -59,6 +65,7 @@ impl ToolRegistry {
             .collect()
     }
 
+    /// Return function definitions for tools matching a specific toolset.
     pub fn get_definitions_for_toolset(&self, toolset: &str) -> Vec<FunctionDefinition> {
         let tools = self.tools.read();
         tools
@@ -68,14 +75,17 @@ impl ToolRegistry {
             .collect()
     }
 
+    /// Return the names of all registered tools.
     pub fn tool_names(&self) -> Vec<String> {
         self.tools.read().keys().cloned().collect()
     }
 
+    /// Return the number of registered tools.
     pub fn len(&self) -> usize {
         self.tools.read().len()
     }
 
+    /// Return true if no tools are registered.
     pub fn is_empty(&self) -> bool {
         self.tools.read().is_empty()
     }

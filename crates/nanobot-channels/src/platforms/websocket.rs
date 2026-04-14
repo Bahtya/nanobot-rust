@@ -148,7 +148,7 @@ impl WebSocketChannel {
 
         info!(
             "WebSocket server listening on {}",
-            listener.local_addr().unwrap()
+            listener.local_addr().expect("listener was just bound")
         );
 
         while running.load(Ordering::Relaxed) {

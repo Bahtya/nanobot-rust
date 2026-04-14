@@ -1853,6 +1853,8 @@ impl TelegramChannel {
 // ---------------------------------------------------------------------------
 
 /// Reconstruct the original callback_data string from a parsed CallbackContext.
+// TODO: Will be used by inline keyboard navigation in production code (currently only in tests).
+#[allow(dead_code)]
 pub(crate) fn rebuild_callback_data(ctx: &CallbackContext) -> String {
     match &ctx.action.payload {
         Some(p) => format!(

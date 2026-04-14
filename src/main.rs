@@ -126,13 +126,12 @@ enum DaemonSubcommand {
     Status,
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // For daemon start, skip terminal tracing init — the daemon module
-    // will set up file-based logging after daemonize. For all other
-    // commands (including daemon stop/status), use terminal tracing.
+    // For daemon start, we must fork BEFORE starting the tokio runtime.
+    // fork() only copies the calling thread — tokio worker threads are lost.
+    // All other commands need the runtime, so we defer its creation.
     let is_daemon_start = matches!(
         &cli.command,
         Commands::Daemon {
@@ -154,16 +153,20 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Commands::Agent { message } => {
-            commands::agent::run(config, message).await?;
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(commands::agent::run(config, message))?;
         }
         Commands::Gateway { channels } => {
-            commands::gateway::run(config, channels).await?;
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(commands::gateway::run(config, channels))?;
         }
         Commands::Serve { port } => {
-            commands::serve::run(config, port).await?;
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(commands::serve::run(config, port))?;
         }
         Commands::Heartbeat => {
-            commands::heartbeat::run(config).await?;
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(commands::heartbeat::run(config))?;
         }
         Commands::Health => {
             commands::health::check(&config)?;
@@ -199,11 +202,12 @@ async fn main() -> Result<()> {
             };
             match action {
                 commands::daemon::DaemonAction::Start => {
-                    // daemonize, create PID file, then start gateway
+                    // Fork happens HERE — before any tokio runtime exists.
                     let _pid_file = commands::daemon::handle_daemon_command(action, config.clone())?
                         .expect("Start always returns Some(PidFile)");
-                    // After daemonize, start the gateway in the daemon process
-                    commands::gateway::run(config, vec![]).await?;
+                    // Now start tokio runtime in the daemon process
+                    let rt = tokio::runtime::Runtime::new()?;
+                    rt.block_on(commands::gateway::run(config, vec![]))?;
                 }
                 _ => {
                     commands::daemon::handle_daemon_command(action, config)?;

@@ -7,7 +7,8 @@
 //!
 //! [`RetryPolicy`] controls which errors are retryable and how retries behave:
 //! - **429 (rate limit)**: exponential backoff with jitter
-//! - **500/502/503 (server errors)**: retry with backoff
+//! - **503 (service unavailable)**: dedicated aggressive retry (5 attempts, 30s cap)
+//! - **500/502 (server errors)**: retry with backoff
 //! - **401/403 (auth errors)**: never retried
 //!
 //! ## Circuit breaker
@@ -57,6 +58,16 @@ pub struct RetryPolicy {
     /// HTTP status codes that should trigger a retry.
     /// Defaults to `[429, 500, 502, 503]`.
     pub retryable_status_codes: Vec<u16>,
+    /// Maximum retries for 503 Service Unavailable errors.
+    ///
+    /// More aggressive than `max_retries` (5 vs 3) because 503 errors are
+    /// typically transient service outages that resolve quickly.
+    pub max_retries_503: u32,
+    /// Maximum delay cap for 503 retries.
+    ///
+    /// Lower than `max_delay` (30s vs 60s) because 503 outages are typically
+    /// short-lived and we want faster retry cycles.
+    pub max_delay_503: Duration,
 }
 
 impl Default for RetryPolicy {
@@ -67,6 +78,8 @@ impl Default for RetryPolicy {
             max_delay: DEFAULT_MAX_DELAY,
             jitter: true,
             retryable_status_codes: vec![429, 500, 502, 503],
+            max_retries_503: 5,
+            max_delay_503: Duration::from_secs(30),
         }
     }
 }
@@ -80,6 +93,8 @@ impl RetryPolicy {
             max_delay: DEFAULT_MAX_DELAY,
             jitter: false,
             retryable_status_codes: vec![],
+            max_retries_503: 0,
+            max_delay_503: Duration::from_secs(30),
         }
     }
 
@@ -113,6 +128,18 @@ impl RetryPolicy {
         self
     }
 
+    /// Set the maximum retries for 503 errors.
+    pub fn with_max_retries_503(mut self, max: u32) -> Self {
+        self.max_retries_503 = max;
+        self
+    }
+
+    /// Set the maximum delay cap for 503 retries.
+    pub fn with_max_delay_503(mut self, delay: Duration) -> Self {
+        self.max_delay_503 = delay;
+        self
+    }
+
     /// Whether a given HTTP status code should trigger a retry.
     pub fn is_retryable(&self, status: u16) -> bool {
         self.retryable_status_codes.contains(&status)
@@ -135,6 +162,10 @@ pub struct RetryConfig {
     pub initial_backoff: Duration,
     /// Whether to retry on server errors (5xx).
     pub retry_on_server_error: bool,
+    /// Maximum retries for 503 errors (default 5, more aggressive than general).
+    pub max_retries_503: u32,
+    /// Maximum delay cap for 503 retries (default 30s).
+    pub max_delay_503: Duration,
 }
 
 impl Default for RetryConfig {
@@ -143,6 +174,8 @@ impl Default for RetryConfig {
             max_retries: DEFAULT_MAX_RETRIES,
             initial_backoff: DEFAULT_BASE_DELAY,
             retry_on_server_error: true,
+            max_retries_503: 5,
+            max_delay_503: Duration::from_secs(30),
         }
     }
 }
@@ -154,6 +187,8 @@ impl RetryConfig {
             max_retries: 0,
             initial_backoff: DEFAULT_BASE_DELAY,
             retry_on_server_error: false,
+            max_retries_503: 0,
+            max_delay_503: Duration::from_secs(30),
         }
     }
 
@@ -171,6 +206,8 @@ impl From<RetryPolicy> for RetryConfig {
             max_retries: policy.max_retries,
             initial_backoff: policy.base_delay,
             retry_on_server_error,
+            max_retries_503: policy.max_retries_503,
+            max_delay_503: policy.max_delay_503,
         }
     }
 }
@@ -369,6 +406,14 @@ impl CircuitBreaker {
         self.failure_count.store(0, Ordering::Release);
         self.success_count.store(0, Ordering::Release);
     }
+
+    /// Set the `opened_at_ms` timestamp for testing purposes.
+    ///
+    /// Allows simulating the passage of time to test OPEN → HALF_OPEN transitions
+    /// without waiting for the real `reset_timeout`.
+    pub fn set_opened_at_for_test(&self, millis: u64) {
+        self.opened_at_ms.store(millis, Ordering::Release);
+    }
 }
 
 impl std::fmt::Debug for CircuitBreaker {
@@ -461,14 +506,22 @@ where
         match op(attempt).await {
             Ok(val) => return Ok(val),
             Err(err) => {
-                let retries_left = config.max_retries.saturating_sub(attempt);
+                // 503 gets dedicated, more aggressive retry parameters.
+                let is_503 = extract_status_code(&err.to_string()) == Some(503);
+                let (max_retries_for_err, max_delay_for_err) = if is_503 {
+                    (config.max_retries_503, config.max_delay_503)
+                } else {
+                    (config.max_retries, max_delay)
+                };
+
+                let retries_left = max_retries_for_err.saturating_sub(attempt);
                 if retries_left == 0 || !is_retryable_err(&err, config.retry_on_server_error) {
                     return Err(err);
                 }
-                let delay = backoff_duration(config.initial_backoff, attempt, max_delay);
+                let delay = backoff_duration(config.initial_backoff, attempt, max_delay_for_err);
                 warn!(
                     attempt = attempt + 1,
-                    max_retries = config.max_retries,
+                    max_retries = max_retries_for_err,
                     ?delay,
                     "Retrying after error: {}",
                     err
@@ -517,20 +570,28 @@ where
                     cb.record_failure();
                 }
 
-                let retries_left = policy.max_retries.saturating_sub(attempt);
+                // 503 gets dedicated, more aggressive retry parameters.
+                let is_503 = extract_status_code(&err.to_string()) == Some(503);
+                let (max_retries_for_err, max_delay_for_err) = if is_503 {
+                    (policy.max_retries_503, policy.max_delay_503)
+                } else {
+                    (policy.max_retries, policy.max_delay)
+                };
+
+                let retries_left = max_retries_for_err.saturating_sub(attempt);
                 if retries_left == 0 || !is_retryable_err_policy(&err, policy) {
                     return Err(err);
                 }
 
                 let delay = if policy.jitter {
-                    backoff_with_jitter(policy.base_delay, attempt, policy.max_delay)
+                    backoff_with_jitter(policy.base_delay, attempt, max_delay_for_err)
                 } else {
-                    backoff_duration(policy.base_delay, attempt, policy.max_delay)
+                    backoff_duration(policy.base_delay, attempt, max_delay_for_err)
                 };
 
                 warn!(
                     attempt = attempt + 1,
-                    max_retries = policy.max_retries,
+                    max_retries = max_retries_for_err,
                     ?delay,
                     "Retrying after error: {}",
                     err
@@ -605,6 +666,8 @@ mod tests {
         assert!(!p.is_retryable(401));
         assert!(!p.is_retryable(403));
         assert!(!p.is_retryable(404));
+        assert_eq!(p.max_retries_503, 5);
+        assert_eq!(p.max_delay_503, Duration::from_secs(30));
     }
 
     #[test]
@@ -645,6 +708,8 @@ mod tests {
         let config = RetryConfig::default();
         assert_eq!(config.max_retries, 3);
         assert!(config.retry_on_server_error);
+        assert_eq!(config.max_retries_503, 5);
+        assert_eq!(config.max_delay_503, Duration::from_secs(30));
     }
 
     #[test]
@@ -1150,5 +1215,237 @@ mod tests {
         assert_eq!(result, "ok");
         assert_eq!(cb.state_name(), "CLOSED");
         assert_eq!(cb.failure_count(), 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // 503-specific retry tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_retry_policy_503_defaults() {
+        let p = RetryPolicy::default();
+        assert_eq!(p.max_retries_503, 5);
+        assert_eq!(p.max_delay_503, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn test_retry_policy_503_builder() {
+        let p = RetryPolicy::default()
+            .with_max_retries_503(10)
+            .with_max_delay_503(Duration::from_secs(15));
+        assert_eq!(p.max_retries_503, 10);
+        assert_eq!(p.max_delay_503, Duration::from_secs(15));
+    }
+
+    #[test]
+    fn test_backoff_503_capped_at_30s() {
+        let base = Duration::from_secs(1);
+        let max_503 = Duration::from_secs(30);
+        // At attempt 5, raw backoff would be 32s, but should be capped at 30s.
+        assert_eq!(backoff_duration(base, 5, max_503), Duration::from_secs(30));
+        // At attempt 4, raw backoff is 16s, under the cap.
+        assert_eq!(backoff_duration(base, 4, max_503), Duration::from_secs(16));
+    }
+
+    #[tokio::test]
+    async fn test_retry_policy_503_uses_dedicated_retries() {
+        // Default policy: max_retries=3, max_retries_503=5.
+        // Fail 4 times with 503 then succeed — uses the 503 budget (would fail with only 3 retries).
+        use std::sync::atomic::{AtomicU32, Ordering};
+        let calls = Arc::new(AtomicU32::new(0));
+        let policy = RetryPolicy::default().with_jitter(false);
+
+        let calls_clone = calls.clone();
+        let result = retry_with_policy(&policy, None, move |_attempt| {
+            let calls = calls_clone.clone();
+            async move {
+                let n = calls.fetch_add(1, Ordering::SeqCst) + 1;
+                if n < 5 {
+                    Err(anyhow::anyhow!("API error (503): service unavailable"))
+                } else {
+                    Ok::<_, anyhow::Error>("ok")
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(result, "ok");
+        assert_eq!(calls.load(Ordering::SeqCst), 5);
+    }
+
+    #[tokio::test]
+    async fn test_retry_policy_503_exhausted_at_5_retries() {
+        // max_retries_503=5 means initial attempt + 5 retries = 6 total calls.
+        use std::sync::atomic::{AtomicU32, Ordering};
+        let calls = Arc::new(AtomicU32::new(0));
+        let policy = RetryPolicy::default().with_jitter(false);
+
+        let calls_clone = calls.clone();
+        let result = retry_with_policy(&policy, None, move |_attempt| {
+            let calls = calls_clone.clone();
+            async move {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Err::<(), _>(anyhow::anyhow!("API error (503): service unavailable"))
+            }
+        })
+        .await;
+        assert!(result.is_err());
+        assert_eq!(calls.load(Ordering::SeqCst), 6);
+    }
+
+    #[tokio::test]
+    async fn test_retry_policy_503_consecutive_recovery() {
+        // Simulate 5 consecutive 503s then recovery on the 6th call.
+        use std::sync::atomic::{AtomicU32, Ordering};
+        let calls = Arc::new(AtomicU32::new(0));
+        let policy = RetryPolicy::default()
+            .with_max_retries_503(6)
+            .with_jitter(false);
+
+        let calls_clone = calls.clone();
+        let result = retry_with_policy(&policy, None, move |_attempt| {
+            let calls = calls_clone.clone();
+            async move {
+                let n = calls.fetch_add(1, Ordering::SeqCst) + 1;
+                if n < 6 {
+                    Err(anyhow::anyhow!("API error (503): service unavailable"))
+                } else {
+                    Ok::<_, anyhow::Error>("recovered")
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(result, "recovered");
+        assert_eq!(calls.load(Ordering::SeqCst), 6);
+    }
+
+    #[tokio::test]
+    async fn test_retry_with_backoff_503_recovery() {
+        // Legacy path: RetryConfig with 503-specific params.
+        use std::sync::atomic::{AtomicU32, Ordering};
+        let calls = Arc::new(AtomicU32::new(0));
+        let config = RetryConfig::default(); // max_retries_503=5
+
+        let calls_clone = calls.clone();
+        let result = retry_with_backoff(&config, move |_attempt| {
+            let calls = calls_clone.clone();
+            async move {
+                let n = calls.fetch_add(1, Ordering::SeqCst) + 1;
+                if n < 5 {
+                    Err(anyhow::anyhow!("API error (503): service unavailable"))
+                } else {
+                    Ok::<_, anyhow::Error>("ok")
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(result, "ok");
+        assert_eq!(calls.load(Ordering::SeqCst), 5);
+    }
+
+    #[tokio::test]
+    async fn test_retry_with_backoff_503_exhausted() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        let calls = Arc::new(AtomicU32::new(0));
+        let config = RetryConfig::default();
+
+        let calls_clone = calls.clone();
+        let result = retry_with_backoff(&config, move |_attempt| {
+            let calls = calls_clone.clone();
+            async move {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Err::<(), _>(anyhow::anyhow!("API error (503): service unavailable"))
+            }
+        })
+        .await;
+        assert!(result.is_err());
+        // max_retries_503=5 → initial + 5 retries = 6 total calls
+        assert_eq!(calls.load(Ordering::SeqCst), 6);
+    }
+
+    #[tokio::test]
+    async fn test_circuit_breaker_503_opens_and_recovers() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        let calls = Arc::new(AtomicU32::new(0));
+        let cb = CircuitBreaker::new(
+            CircuitBreakerConfig::default()
+                .with_failure_threshold(3)
+                .with_success_threshold(1),
+        );
+        let policy = RetryPolicy::default().with_max_retries(0).with_jitter(false);
+
+        let calls_clone = calls.clone();
+
+        // Fail 3 times with 503 to trip the breaker (no retries, each call = 1 attempt).
+        for _ in 0..3 {
+            let _ = retry_with_policy(&policy, Some(&cb), {
+                let calls = calls_clone.clone();
+                move |_attempt| {
+                    let calls = calls.clone();
+                    async move {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        Err::<(), _>(anyhow::anyhow!("API error (503): service unavailable"))
+                    }
+                }
+            })
+            .await;
+        }
+
+        assert_eq!(cb.state_name(), "OPEN");
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+
+        // Next request should be rejected by circuit breaker (fail-fast).
+        let result = retry_with_policy(&policy, Some(&cb), |_attempt| async {
+            Ok::<_, anyhow::Error>("should not reach")
+        })
+        .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("OPEN"));
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+
+        // Simulate reset_timeout passing.
+        let past = current_millis().saturating_sub(31_000);
+        cb.opened_at_ms.store(past, Ordering::Release);
+
+        // Half-open: probe request succeeds → breaker closes.
+        let result = retry_with_policy(&policy, Some(&cb), {
+            let calls = calls_clone.clone();
+            move |_attempt| {
+                let calls = calls.clone();
+                async move {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok::<_, anyhow::Error>("recovered")
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(result, "recovered");
+        assert_eq!(cb.state_name(), "CLOSED");
+        assert_eq!(calls.load(Ordering::SeqCst), 4);
+    }
+
+    #[tokio::test]
+    async fn test_retry_policy_503_does_not_affect_429_budget() {
+        // Verify that 429 still uses the general max_retries, not the 503 budget.
+        use std::sync::atomic::{AtomicU32, Ordering};
+        let calls = Arc::new(AtomicU32::new(0));
+        let policy = RetryPolicy::default().with_jitter(false);
+        // max_retries=3, max_retries_503=5.
+
+        let calls_clone = calls.clone();
+        let result = retry_with_policy(&policy, None, move |_attempt| {
+            let calls = calls_clone.clone();
+            async move {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Err::<(), _>(anyhow::anyhow!("API error (429): rate limited"))
+            }
+        })
+        .await;
+        assert!(result.is_err());
+        // max_retries=3 → initial + 3 retries = 4 total calls
+        assert_eq!(calls.load(Ordering::SeqCst), 4);
     }
 }

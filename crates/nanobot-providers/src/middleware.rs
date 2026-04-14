@@ -336,6 +336,61 @@ mod tests {
         fn supports_model(&self, _model: &str) -> bool { true }
     }
 
+    /// Mock provider that returns 503 errors for testing 503-specific retry.
+    struct MockProvider503 {
+        call_count: AtomicU32,
+        fail_until: AtomicU32,
+    }
+
+    impl MockProvider503 {
+        fn new() -> Self {
+            Self {
+                call_count: AtomicU32::new(0),
+                fail_until: AtomicU32::new(0),
+            }
+        }
+
+        fn fail_n_times(&self, n: u32) {
+            self.fail_until.store(n, Ordering::SeqCst);
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl LlmProvider for MockProvider503 {
+        fn name(&self) -> &str { "mock_503" }
+
+        async fn complete(&self, _req: CompletionRequest) -> anyhow::Result<CompletionResponse> {
+            let n = self.call_count.fetch_add(1, Ordering::SeqCst);
+            let fail_until = self.fail_until.load(Ordering::SeqCst);
+            if n < fail_until {
+                anyhow::bail!("API error (503): service unavailable");
+            }
+            Ok(CompletionResponse {
+                content: Some(format!("response-{}", n)),
+                tool_calls: None,
+                usage: Some(Usage {
+                    prompt_tokens: Some(10),
+                    completion_tokens: Some(5),
+                    total_tokens: Some(15),
+                }),
+                finish_reason: Some("stop".to_string()),
+            })
+        }
+
+        async fn complete_stream(&self, req: CompletionRequest) -> anyhow::Result<BoxStream> {
+            let resp = self.complete(req).await?;
+            let chunk = CompletionChunk {
+                delta: resp.content,
+                tool_call_deltas: None,
+                usage: resp.usage,
+                done: true,
+            };
+            Ok(Box::pin(futures::stream::once(async move { Ok(chunk) })))
+        }
+
+        fn supports_model(&self, _model: &str) -> bool { true }
+    }
+
     // -------------------------------------------------------------------
     // MiddlewareConfig tests
     // -------------------------------------------------------------------
@@ -604,5 +659,85 @@ mod tests {
         let config = MiddlewareConfig::from_retry_policy(policy);
         assert_eq!(config.retry.max_retries, 5);
         assert!(config.circuit_breaker.is_some());
+    }
+
+    // -------------------------------------------------------------------
+    // 503-specific middleware tests
+    // -------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_middleware_retry_on_503() {
+        let mock = Arc::new(MockProvider503::new());
+        mock.fail_n_times(4); // Fail 4 times, succeed on 5th (uses 503 budget of 5)
+        let config = MiddlewareConfig::with_retry(RetryConfig::default());
+        let middleware = ProviderMiddleware::from_arc(mock.clone(), config);
+
+        let result = middleware.complete(make_request()).await.unwrap();
+        assert_eq!(result.content, Some("response-4".to_string()));
+        assert_eq!(mock.call_count.load(Ordering::SeqCst), 5);
+    }
+
+    #[tokio::test]
+    async fn test_middleware_circuit_breaker_503_trips() {
+        let mock = Arc::new(MockProvider503::new());
+        mock.fail_n_times(100); // Always fail
+        let cb = Arc::new(CircuitBreaker::new(
+            CircuitBreakerConfig::default().with_failure_threshold(3),
+        ));
+        let config = MiddlewareConfig {
+            retry: Arc::new(RetryConfig::no_retries()),
+            rate_limiter: Arc::new(crate::rate_limit::UnlimitedLimiter),
+            circuit_breaker: Some(cb.clone()),
+        };
+        let middleware = ProviderMiddleware::from_arc(mock.clone(), config);
+
+        // Fail 3 times to trip the breaker with 503 errors.
+        for _ in 0..3 {
+            let _ = middleware.complete(make_request()).await;
+        }
+        assert_eq!(cb.state_name(), "OPEN");
+        assert_eq!(mock.call_count.load(Ordering::SeqCst), 3);
+
+        // Next request should be rejected by circuit breaker (fail-fast).
+        let result = middleware.complete(make_request()).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("OPEN"));
+        assert_eq!(mock.call_count.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn test_middleware_circuit_breaker_503_recovery() {
+        let mock = Arc::new(MockProvider503::new());
+        mock.fail_n_times(3); // Fail 3 times then succeed
+        let cb = Arc::new(CircuitBreaker::new(
+            CircuitBreakerConfig::default()
+                .with_failure_threshold(3)
+                .with_success_threshold(1),
+        ));
+        let config = MiddlewareConfig {
+            retry: Arc::new(RetryConfig::no_retries()),
+            rate_limiter: Arc::new(crate::rate_limit::UnlimitedLimiter),
+            circuit_breaker: Some(cb.clone()),
+        };
+        let middleware = ProviderMiddleware::from_arc(mock.clone(), config);
+
+        // Fail 3 times to trip the breaker.
+        for _ in 0..3 {
+            let _ = middleware.complete(make_request()).await;
+        }
+        assert_eq!(cb.state_name(), "OPEN");
+
+        // Simulate reset_timeout passing.
+        let past = (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64)
+            .saturating_sub(31_000);
+        cb.set_opened_at_for_test(past);
+
+        // Next request succeeds → breaker closes.
+        let result = middleware.complete(make_request()).await.unwrap();
+        assert!(result.content.is_some());
+        assert_eq!(cb.state_name(), "CLOSED");
     }
 }

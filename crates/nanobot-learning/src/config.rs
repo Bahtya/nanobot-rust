@@ -72,14 +72,12 @@ impl LearningConfig {
 
     /// Returns the effective log directory, falling back to the default.
     pub fn effective_log_dir(&self) -> PathBuf {
-        self.event_log_path
-            .clone()
-            .unwrap_or_else(|| {
-                dirs::home_dir()
-                    .unwrap_or_else(|| PathBuf::from("."))
-                    .join(".nanobot-rs")
-                    .join("learning")
-            })
+        self.event_log_path.clone().unwrap_or_else(|| {
+            dirs::home_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join(".nanobot-rs")
+                .join("learning")
+        })
     }
 
     /// Validates the configuration.

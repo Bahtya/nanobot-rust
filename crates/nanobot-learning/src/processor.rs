@@ -119,9 +119,7 @@ impl LearningEventHandler for BasicEventProcessor {
 
         match event {
             LearningEvent::ToolSucceeded {
-                tool,
-                duration_ms,
-                ..
+                tool, duration_ms, ..
             } => {
                 let tool_stats = stats.tools.entry(tool.clone()).or_default();
                 tool_stats.success_count += 1;
@@ -303,10 +301,9 @@ mod tests {
         let actions = proc
             .handle(&tool_failed("web", ErrorClassification::Environment, 0))
             .await;
-        assert!(actions.iter().any(|a| matches!(
-            a,
-            LearningAction::RecordInsight { .. }
-        )));
+        assert!(actions
+            .iter()
+            .any(|a| matches!(a, LearningAction::RecordInsight { .. })));
     }
 
     #[tokio::test]
@@ -315,10 +312,9 @@ mod tests {
         let actions = proc
             .handle(&tool_failed("db", ErrorClassification::ToolConfig, 3))
             .await;
-        assert!(actions.iter().any(|a| matches!(
-            a,
-            LearningAction::RecordInsight { .. }
-        )));
+        assert!(actions
+            .iter()
+            .any(|a| matches!(a, LearningAction::RecordInsight { .. })));
     }
 
     #[tokio::test]
@@ -347,13 +343,17 @@ mod tests {
     async fn skill_confidence_adjustment() {
         let proc = BasicEventProcessor::new();
 
-        let actions = proc.handle(&skill_used("deploy", 0.8, SkillOutcome::Helpful)).await;
+        let actions = proc
+            .handle(&skill_used("deploy", 0.8, SkillOutcome::Helpful))
+            .await;
         assert!(actions.iter().any(|a| matches!(
             a,
             LearningAction::AdjustConfidence { delta, .. } if *delta > 0.0
         )));
 
-        let actions = proc.handle(&skill_used("deploy", 0.8, SkillOutcome::Harmful)).await;
+        let actions = proc
+            .handle(&skill_used("deploy", 0.8, SkillOutcome::Harmful))
+            .await;
         assert!(actions.iter().any(|a| matches!(
             a,
             LearningAction::AdjustConfidence { delta, .. } if *delta < 0.0

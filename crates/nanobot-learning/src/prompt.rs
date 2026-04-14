@@ -10,22 +10,13 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum PromptSection {
     /// Memory context injected from the memory store.
-    Memory {
-        content: String,
-    },
+    Memory { content: String },
     /// Skill descriptions and instructions.
-    Skills {
-        content: String,
-    },
+    Skills { content: String },
     /// Base system prompt.
-    System {
-        content: String,
-    },
+    System { content: String },
     /// Custom section with a label.
-    Custom {
-        label: String,
-        content: String,
-    },
+    Custom { label: String, content: String },
 }
 
 impl PromptSection {

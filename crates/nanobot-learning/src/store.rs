@@ -277,7 +277,10 @@ mod tests {
         assert_eq!(store.count().await.expect("empty count"), 0);
 
         for _ in 0..7 {
-            store.append(&make_event("x", Utc::now())).await.expect("append");
+            store
+                .append(&make_event("x", Utc::now()))
+                .await
+                .expect("append");
         }
         assert_eq!(store.count().await.expect("count"), 7);
     }

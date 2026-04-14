@@ -125,30 +125,15 @@ pub enum LearningAction {
     /// No action needed.
     NoOp,
     /// Adjust a skill's confidence score.
-    AdjustConfidence {
-        skill: String,
-        delta: f64,
-    },
+    AdjustConfidence { skill: String, delta: f64 },
     /// Propose creating a new skill.
-    ProposeSkill {
-        name: String,
-        reason: String,
-    },
+    ProposeSkill { name: String, reason: String },
     /// Propose patching an existing skill.
-    PatchSkill {
-        skill: String,
-        description: String,
-    },
+    PatchSkill { skill: String, description: String },
     /// Deprecate a skill.
-    DeprecateSkill {
-        skill: String,
-        reason: String,
-    },
+    DeprecateSkill { skill: String, reason: String },
     /// Record an insight to long-term memory.
-    RecordInsight {
-        insight: String,
-        category: String,
-    },
+    RecordInsight { insight: String, category: String },
 }
 
 /// Async event bus for learning events using tokio broadcast.

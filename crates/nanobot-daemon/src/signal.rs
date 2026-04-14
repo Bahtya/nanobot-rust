@@ -106,11 +106,12 @@ pub fn send_sigterm_and_wait(pid: i32, timeout_secs: u64) -> Result<()> {
     // waitpid on a non-child returns ECHILD, which we treat as "done".
     let nix_pid = Pid::from_raw(pid);
     while std::time::Instant::now() < deadline {
-        let exited = match nix::sys::wait::waitpid(nix_pid, Some(nix::sys::wait::WaitPidFlag::WNOHANG)) {
-            Ok(_) => true,
-            Err(nix::errno::Errno::ECHILD) => true,
-            Err(e) => anyhow::bail!("waitpid error: {e}"),
-        };
+        let exited =
+            match nix::sys::wait::waitpid(nix_pid, Some(nix::sys::wait::WaitPidFlag::WNOHANG)) {
+                Ok(_) => true,
+                Err(nix::errno::Errno::ECHILD) => true,
+                Err(e) => anyhow::bail!("waitpid error: {e}"),
+            };
         if exited {
             return Ok(());
         }

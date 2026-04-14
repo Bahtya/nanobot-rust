@@ -15,5 +15,5 @@ pub mod store;
 pub use config::LearningConfig;
 pub use event::{ErrorClassification, LearningAction, LearningEvent};
 pub use processor::{BasicEventProcessor, LearningEventHandler, ProcessorStats};
-pub use prompt::{PromptSection, PromptAssembler};
+pub use prompt::{PromptAssembler, PromptSection};
 pub use store::EventStore;

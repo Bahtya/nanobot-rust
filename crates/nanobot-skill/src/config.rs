@@ -74,10 +74,11 @@ impl SkillConfig {
                 format!("Failed to read config from {}: {e}", path.display()),
             ))
         })?;
-        let config: Self = toml::from_str(&content).map_err(|e| crate::SkillError::ParseFailed {
-            path: path.display().to_string(),
-            source: e,
-        })?;
+        let config: Self =
+            toml::from_str(&content).map_err(|e| crate::SkillError::ParseFailed {
+                path: path.display().to_string(),
+                source: e,
+            })?;
         Ok(config)
     }
 }

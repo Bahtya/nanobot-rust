@@ -23,10 +23,11 @@ impl SkillCompiler {
     ///
     /// Parses the TOML, validates required fields, and returns a compiled skill.
     pub fn compile_str(&self, name: &str, content: &str) -> SkillResult<CompiledSkill> {
-        let manifest: SkillManifest = toml::from_str(content).map_err(|e| SkillError::ParseFailed {
-            path: name.to_string(),
-            source: e,
-        })?;
+        let manifest: SkillManifest =
+            toml::from_str(content).map_err(|e| SkillError::ParseFailed {
+                path: name.to_string(),
+                source: e,
+            })?;
 
         self.validate_manifest(&manifest)?;
         Ok(CompiledSkill::new(manifest))
@@ -87,7 +88,7 @@ category = "devops"
     #[test]
     fn test_compile_invalid_toml() {
         let compiler = SkillCompiler::new();
-        let result = compiler.compile_str("bad", "not valid [[[" );
+        let result = compiler.compile_str("bad", "not valid [[[");
         assert!(result.is_err());
         match result.unwrap_err() {
             SkillError::ParseFailed { path, .. } => assert_eq!(path, "bad"),
@@ -117,7 +118,10 @@ description = "desc"
 triggers = []
 "#;
         let result = compiler.compile_str("test", toml);
-        assert!(matches!(result.unwrap_err(), SkillError::ValidationFailed { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            SkillError::ValidationFailed { .. }
+        ));
     }
 
     #[test]

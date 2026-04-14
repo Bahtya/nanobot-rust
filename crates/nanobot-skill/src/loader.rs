@@ -82,9 +82,8 @@ impl SkillLoader {
         }
 
         let mut loaded = Vec::new();
-        let entries = std::fs::read_dir(dir).map_err(|e| {
-            SkillError::DirectoryNotFound(format!("{}: {e}", dir.display()))
-        })?;
+        let entries = std::fs::read_dir(dir)
+            .map_err(|e| SkillError::DirectoryNotFound(format!("{}: {e}", dir.display())))?;
 
         for entry in entries {
             let entry = entry?;
@@ -200,7 +199,10 @@ mod tests {
         let loader = SkillLoader::new(SkillConfig::default().with_skills_dir("/nonexistent"));
         let registry = SkillRegistry::new();
         let result = loader.load_all(&registry).await;
-        assert!(matches!(result.unwrap_err(), SkillError::DirectoryNotFound(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            SkillError::DirectoryNotFound(_)
+        ));
     }
 
     #[test]

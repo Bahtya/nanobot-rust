@@ -95,12 +95,20 @@ impl SkillRegistry {
             }
         }
 
-        matches.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        matches.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         matches
     }
 
     /// Update the confidence of a registered skill.
-    pub async fn update_confidence(&self, name: &str, event: crate::skill::ConfidenceEvent) -> SkillResult<()> {
+    pub async fn update_confidence(
+        &self,
+        name: &str,
+        event: crate::skill::ConfidenceEvent,
+    ) -> SkillResult<()> {
         let skills = self.skills.read().await;
         let skill = skills
             .get(name)
@@ -177,7 +185,10 @@ mod tests {
     #[tokio::test]
     async fn test_skill_names() {
         let registry = SkillRegistry::new();
-        registry.register(make_skill("alpha", &["a"])).await.unwrap();
+        registry
+            .register(make_skill("alpha", &["a"]))
+            .await
+            .unwrap();
         registry.register(make_skill("beta", &["b"])).await.unwrap();
         let mut names = registry.skill_names().await;
         names.sort();
@@ -223,7 +234,10 @@ mod tests {
     #[tokio::test]
     async fn test_match_skills_no_hits() {
         let registry = SkillRegistry::new();
-        registry.register(make_skill("deploy", &["deploy"])).await.unwrap();
+        registry
+            .register(make_skill("deploy", &["deploy"]))
+            .await
+            .unwrap();
         let matches = registry.match_skills("run tests").await;
         assert!(matches.is_empty());
     }

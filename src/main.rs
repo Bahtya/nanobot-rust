@@ -74,6 +74,12 @@ enum Commands {
 
     /// Show current configuration and status.
     Status,
+
+    /// Daemon management commands (Unix only).
+    Daemon {
+        #[command(subcommand)]
+        subcommand: DaemonSubcommand,
+    },
 }
 
 #[derive(Subcommand)]

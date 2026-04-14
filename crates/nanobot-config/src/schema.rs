@@ -65,6 +65,10 @@ pub struct Config {
     /// API server configuration.
     #[serde(default)]
     pub api: ApiConfig,
+
+    /// Daemon mode configuration.
+    #[serde(default)]
+    pub daemon: DaemonConfig,
 }
 
 impl Default for Config {
@@ -84,6 +88,7 @@ impl Default for Config {
             custom_providers: Vec::new(),
             mcp_servers: HashMap::new(),
             api: ApiConfig::default(),
+            daemon: DaemonConfig::default(),
         }
     }
 }
@@ -590,6 +595,81 @@ impl Default for ApiConfig {
     }
 }
 
+/// Daemon mode configuration.
+///
+/// Controls native Unix daemon behavior: background process with PID file,
+/// signal handling, and file-based logging.
+///
+/// ```yaml
+/// daemon:
+///   enabled: false
+///   pid_file: ~/.nanobot-rs/nanobot-rs.pid
+///   log_dir: ~/.nanobot-rs/logs
+///   working_directory: /
+///   grace_period_secs: 30
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct DaemonConfig {
+    /// Whether daemon mode is enabled.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Path to the PID file.
+    #[serde(default = "default_daemon_pid_file")]
+    pub pid_file: String,
+
+    /// Directory for log files.
+    #[serde(default = "default_daemon_log_dir")]
+    pub log_dir: String,
+
+    /// Working directory after daemonizing.
+    #[serde(default = "default_daemon_working_directory")]
+    pub working_directory: String,
+
+    /// Grace period in seconds for in-flight work during shutdown.
+    #[serde(default = "default_daemon_grace_period")]
+    pub grace_period_secs: u64,
+}
+
+fn default_daemon_pid_file() -> String {
+    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
+    home.join(".nanobot-rs")
+        .join("nanobot-rs.pid")
+        .to_str()
+        .unwrap_or("/tmp/nanobot-rs.pid")
+        .to_string()
+}
+
+fn default_daemon_log_dir() -> String {
+    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
+    home.join(".nanobot-rs")
+        .join("logs")
+        .to_str()
+        .unwrap_or("/tmp/nanobot-rs-logs")
+        .to_string()
+}
+
+fn default_daemon_working_directory() -> String {
+    "/".to_string()
+}
+
+const fn default_daemon_grace_period() -> u64 {
+    30
+}
+
+impl Default for DaemonConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            pid_file: default_daemon_pid_file(),
+            log_dir: default_daemon_log_dir(),
+            working_directory: default_daemon_working_directory(),
+            grace_period_secs: default_daemon_grace_period(),
+        }
+    }
+}
+
 /// Custom provider configuration for non-standard endpoints.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -925,5 +1005,45 @@ cron:
         let config: Config = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.agent.model, "gpt-4o");
         assert!(config.agent.streaming);
+    }
+
+    #[test]
+    fn test_daemon_config_default() {
+        let dc = DaemonConfig::default();
+        assert!(!dc.enabled);
+        assert!(dc.pid_file.contains("nanobot-rs.pid"));
+        assert!(dc.log_dir.contains("logs"));
+        assert_eq!(dc.working_directory, "/");
+        assert_eq!(dc.grace_period_secs, 30);
+    }
+
+    #[test]
+    fn test_daemon_config_parse() {
+        let yaml = r#"
+daemon:
+  enabled: true
+  pid_file: /var/run/nanobot.pid
+  log_dir: /var/log/nanobot
+  working_directory: /opt
+  grace_period_secs: 60
+"#;
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        assert!(config.daemon.enabled);
+        assert_eq!(config.daemon.pid_file, "/var/run/nanobot.pid");
+        assert_eq!(config.daemon.log_dir, "/var/log/nanobot");
+        assert_eq!(config.daemon.working_directory, "/opt");
+        assert_eq!(config.daemon.grace_period_secs, 60);
+    }
+
+    #[test]
+    fn test_daemon_config_yaml_roundtrip() {
+        let dc = DaemonConfig::default();
+        let yaml = serde_yaml::to_string(&dc).unwrap();
+        let parsed: DaemonConfig = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(parsed.enabled, dc.enabled);
+        assert_eq!(parsed.pid_file, dc.pid_file);
+        assert_eq!(parsed.log_dir, dc.log_dir);
+        assert_eq!(parsed.working_directory, dc.working_directory);
+        assert_eq!(parsed.grace_period_secs, dc.grace_period_secs);
     }
 }

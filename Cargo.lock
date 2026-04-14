@@ -1297,6 +1297,7 @@ name = "nanobot-daemon"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "libc",
  "nanobot-config",
  "nix",
  "tempfile",

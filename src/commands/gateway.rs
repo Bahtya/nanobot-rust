@@ -172,7 +172,6 @@ pub async fn run(config: Config, channels: Vec<String>) -> Result<()> {
     // ── Wait for shutdown signal ──────────────────────────────
     #[cfg(target_family = "unix")]
     {
-        let grace_period = config.daemon.grace_period_secs;
         loop {
             let sig = nanobot_daemon::signal::wait_for_signal().await;
             match sig {
@@ -191,7 +190,6 @@ pub async fn run(config: Config, channels: Vec<String>) -> Result<()> {
                 }
             }
         }
-        let _ = grace_period; // Used by daemon stop's send_sigterm_and_wait
     }
 
     #[cfg(not(target_family = "unix"))]

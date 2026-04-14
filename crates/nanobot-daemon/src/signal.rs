@@ -71,9 +71,25 @@ pub fn send_sigterm(pid: i32) -> Result<()> {
         .context(format!("failed to send SIGTERM to pid {pid}"))
 }
 
+/// Install a no-op SIGHUP handler using `sigaction`.
+///
+/// This must be called **before** the tokio runtime is created to close the
+/// window where the default SIGHUP handler (terminate) is active between fork
+/// completion and `wait_for_signal()` being called.
+///
+/// When tokio's `signal(SignalKind::hangup())` is later called in
+/// `wait_for_signal()`, it overrides `SIG_IGN` with its own handler.
+pub fn install_early_sighup_handler() {
+    let mut sa: libc::sigaction = unsafe { std::mem::zeroed() };
+    sa.sa_sigaction = libc::SIG_IGN;
+    unsafe {
+        libc::sigaction(libc::SIGHUP, &sa, std::ptr::null_mut());
+    }
+}
+
 /// Send SIGTERM to a process and wait for it to exit.
 ///
-/// Polls `/proc/{pid}` every 100ms for up to `timeout_secs` seconds.
+/// Polls with `waitpid(WNOHANG)` every 100ms for up to `timeout_secs` seconds.
 /// Returns `Ok(())` if the process exited, or an error if it's still
 /// running after the timeout.
 ///
@@ -84,14 +100,21 @@ pub fn send_sigterm(pid: i32) -> Result<()> {
 pub fn send_sigterm_and_wait(pid: i32, timeout_secs: u64) -> Result<()> {
     send_sigterm(pid)?;
 
-    let check_interval = std::time::Duration::from_millis(100);
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
 
+    // Poll with waitpid(WNOHANG) — no /proc filesystem access needed.
+    // waitpid on a non-child returns ECHILD, which we treat as "done".
+    let nix_pid = Pid::from_raw(pid);
     while std::time::Instant::now() < deadline {
-        if !crate::pid_file::is_process_running(pid) {
+        let exited = match nix::sys::wait::waitpid(nix_pid, Some(nix::sys::wait::WaitPidFlag::WNOHANG)) {
+            Ok(_) => true,
+            Err(nix::errno::Errno::ECHILD) => true,
+            Err(e) => anyhow::bail!("waitpid error: {e}"),
+        };
+        if exited {
             return Ok(());
         }
-        std::thread::sleep(check_interval);
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
 
     anyhow::bail!("process {pid} did not exit within {timeout_secs}s")

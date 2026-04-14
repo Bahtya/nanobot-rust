@@ -598,11 +598,11 @@ impl Default for ApiConfig {
 /// Daemon mode configuration.
 ///
 /// Controls native Unix daemon behavior: background process with PID file,
-/// signal handling, and file-based logging.
+/// signal handling, and file-based logging. Activated via `nanobot-rs daemon start`
+/// on the CLI — there is no config-file toggle.
 ///
 /// ```yaml
 /// daemon:
-///   enabled: false
 ///   pid_file: ~/.nanobot-rs/nanobot-rs.pid
 ///   log_dir: ~/.nanobot-rs/logs
 ///   working_directory: /
@@ -611,10 +611,6 @@ impl Default for ApiConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct DaemonConfig {
-    /// Whether daemon mode is enabled.
-    #[serde(default)]
-    pub enabled: bool,
-
     /// Path to the PID file.
     #[serde(default = "default_daemon_pid_file")]
     pub pid_file: String,
@@ -661,7 +657,6 @@ const fn default_daemon_grace_period() -> u64 {
 impl Default for DaemonConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
             pid_file: default_daemon_pid_file(),
             log_dir: default_daemon_log_dir(),
             working_directory: default_daemon_working_directory(),
@@ -1013,7 +1008,6 @@ cron:
     #[test]
     fn test_daemon_config_default() {
         let dc = DaemonConfig::default();
-        assert!(!dc.enabled);
         assert!(dc.pid_file.contains("nanobot-rs.pid"));
         assert!(dc.log_dir.contains("logs"));
         assert_eq!(dc.working_directory, "/");
@@ -1024,14 +1018,12 @@ cron:
     fn test_daemon_config_parse() {
         let yaml = r#"
 daemon:
-  enabled: true
   pid_file: /var/run/nanobot.pid
   log_dir: /var/log/nanobot
   working_directory: /opt
   grace_period_secs: 60
 "#;
         let config: Config = serde_yaml::from_str(yaml).unwrap();
-        assert!(config.daemon.enabled);
         assert_eq!(config.daemon.pid_file, "/var/run/nanobot.pid");
         assert_eq!(config.daemon.log_dir, "/var/log/nanobot");
         assert_eq!(config.daemon.working_directory, "/opt");
@@ -1043,7 +1035,6 @@ daemon:
         let dc = DaemonConfig::default();
         let yaml = serde_yaml::to_string(&dc).unwrap();
         let parsed: DaemonConfig = serde_yaml::from_str(&yaml).unwrap();
-        assert_eq!(parsed.enabled, dc.enabled);
         assert_eq!(parsed.pid_file, dc.pid_file);
         assert_eq!(parsed.log_dir, dc.log_dir);
         assert_eq!(parsed.working_directory, dc.working_directory);

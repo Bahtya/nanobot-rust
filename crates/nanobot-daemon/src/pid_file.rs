@@ -9,7 +9,7 @@
 use anyhow::Context;
 use nix::fcntl::{Flock, FlockArg};
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, Write};
 use std::path::Path;
 
 /// A PID file with an exclusive `flock` held for the lifetime of this struct.
@@ -59,7 +59,7 @@ impl PidFile {
             .context("open PID file")?;
 
         // Acquire exclusive, non-blocking lock using the new Flock API
-        let lock =
+        let mut lock =
             Flock::lock(file, FlockArg::LockExclusiveNonblock).map_err(|(_file, errno)| {
                 anyhow::anyhow!(
                     "failed to lock PID file ({errno}) — another instance may be running"
@@ -70,6 +70,7 @@ impl PidFile {
         let pid = std::process::id();
         write!(&*lock, "{pid}").context("write PID to file")?;
         lock.sync_all().context("sync PID file")?;
+        lock.rewind().context("rewind PID file after write")?;
 
         tracing::info!("PID file created and locked: {path} (pid={pid})");
 

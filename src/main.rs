@@ -205,6 +205,11 @@ fn main() -> Result<()> {
                     // Fork happens HERE — before any tokio runtime exists.
                     let handles = commands::daemon::handle_daemon_command(action, config.clone())?
                         .expect("Start always returns Some(DaemonHandles)");
+
+                    // Install SIGHUP ignore handler before tokio runtime — closes the
+                    // window where default SIGHUP would kill the daemon during startup
+                    nanobot_daemon::signal::install_early_sighup_handler();
+
                     // Now start tokio runtime in the daemon process
                     let rt = tokio::runtime::Runtime::new()?;
                     let result = rt.block_on(commands::gateway::run(config, vec![]));

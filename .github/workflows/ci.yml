@@ -21,35 +21,74 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all -- --check
 
-  test:
-    name: Test & Clippy
+  clippy:
+    name: Clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-          toolchain: "1.75"
 
-      - name: Cache cargo registry
-        uses: actions/cache@v4
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-cargo-clippy-
 
-      - name: Build
-        run: cargo build --workspace
+      - run: cargo clippy --workspace -- -D warnings
 
-      - name: Test
-        run: cargo test --workspace
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: Clippy
-        run: cargo clippy --workspace -- -D warnings
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-
+
+      - run: cargo build --workspace
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-test-
+
+      - run: cargo test --workspace
+
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
   merge-conflict-check:
     name: Merge Conflict Check
@@ -79,7 +118,7 @@ jobs:
 
           if [ -n "$conflicts" ]; then
             echo "::error::Merge conflicts detected"
-            conflict_list=$(echo "$conflicts" | sed 's/^/  - /')
+            conflict_list="  - ${conflicts//$'\n'/$'\n'  - }"
             gh pr comment "$PR_NUMBER" --body ":warning: **Merge conflicts detected with \`${BASE_REF}\`**
 
             Conflicting files:

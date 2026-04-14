@@ -130,12 +130,24 @@ enum DaemonSubcommand {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&cli.log_level)),
-        )
-        .init();
+    // For daemon start, skip terminal tracing init — the daemon module
+    // will set up file-based logging after daemonize. For all other
+    // commands (including daemon stop/status), use terminal tracing.
+    let is_daemon_start = matches!(
+        &cli.command,
+        Commands::Daemon {
+            subcommand: DaemonSubcommand::Start
+        }
+    );
+
+    if !is_daemon_start {
+        tracing_subscriber::fmt()
+            .with_env_filter(
+                EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| EnvFilter::new(&cli.log_level)),
+            )
+            .init();
+    }
 
     // Load configuration
     let config = nanobot_config::load_config(cli.config.as_deref())?;

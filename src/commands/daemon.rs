@@ -74,7 +74,7 @@ fn do_start(config: &Config) -> Result<nanobot_daemon::pid_file::PidFile> {
     let pid_file = nanobot_daemon::pid_file::PidFile::create(pid_file_path)?;
 
     // Setup file logging in the daemon process
-    let _guard = nanobot_daemon::logging::setup_file_logging(log_dir, "info");
+    let _guard = nanobot_daemon::logging::setup_file_logging(log_dir, "info")?;
     tracing::info!("Daemon started (pid={})", std::process::id());
 
     // Store the logging guard in a global so it lives for the process lifetime.
@@ -112,18 +112,41 @@ fn do_stop(config: &Config) -> Result<()> {
     Ok(())
 }
 
-/// Restart: stop the existing daemon, then start a new one.
+/// Restart: stop the existing daemon, then re-exec `daemon start`.
+///
+/// Cannot call `do_start` directly because the gateway launch logic lives
+/// in `main.rs`. Instead, we re-exec ourselves with the `daemon start`
+/// subcommand so the new process follows the full startup path.
 fn do_restart(config: &Config) -> Result<()> {
     // Try to stop — ignore errors if not running
     if nanobot_daemon::pid_file::PidFile::read_pid(&config.daemon.pid_file)?.is_some() {
         let _ = do_stop(config);
     }
-    let _pid_file = do_start(config)?;
-    // NOTE: restart calls do_start which daemonizes. After daemonize,
-    // the grandchild returns here but the process will exit when this
-    // function returns because there's no gateway to run.
-    // A full restart should be done via: `daemon stop && daemon start`
-    // (where start is wired to gateway::run in main.rs)
+
+    // Re-exec ourselves: `nanobot-rs -c <config> daemon start`
+    let exe = std::env::current_exe()?;
+    // Look for -c argument in our own args
+    let args: Vec<String> = std::env::args().collect();
+    let mut cmd = std::process::Command::new(&exe);
+    let mut found_config = false;
+    for i in 1..args.len() {
+        if args[i] == "-c" || args[i] == "--config" {
+            if i + 1 < args.len() {
+                cmd.arg("-c").arg(&args[i + 1]);
+                found_config = true;
+            }
+        } else if args[i - 1] != "-c" && args[i - 1] != "--config" {
+            // Skip the old subcommand args
+        }
+    }
+    if !found_config {
+        // Try default config path
+        cmd.arg("-c").arg("/root/.nanobot-rs/config.yaml");
+    }
+    cmd.arg("daemon").arg("start");
+
+    let child = cmd.spawn()?;
+    println!("Restarted daemon (new process pid={})", child.id());
     Ok(())
 }
 

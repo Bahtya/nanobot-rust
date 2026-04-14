@@ -77,7 +77,7 @@ fn parse_schedule(schedule: &str) -> Option<serde_json::Value> {
         }
         // Also try date-only
         if let Ok(d) = chrono::NaiveDate::parse_from_str(rest.trim(), "%Y-%m-%d") {
-            let dt = d.and_hms_opt(0, 0, 0).unwrap();
+            let dt = d.and_hms_opt(0, 0, 0).expect("midnight is always valid");
             let ms = dt.and_utc().timestamp_millis();
             return Some(json!({"kind": "at", "at_ms": ms}));
         }

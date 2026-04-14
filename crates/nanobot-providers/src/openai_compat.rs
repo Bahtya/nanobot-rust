@@ -171,17 +171,16 @@ impl OpenAiCompatProvider {
                     let line = buffer[..pos].trim_end().to_string();
                     buffer = buffer[pos + 1..].to_string();
 
-                    if line.is_empty()
-                        || (!line.starts_with("data: ") && !line.starts_with("data:"))
-                    {
+                    if line.is_empty() {
                         continue;
                     }
-                    let data_str = if line.starts_with("data: ") {
-                        line.strip_prefix("data: ").unwrap()
-                    } else {
-                        line.strip_prefix("data:").unwrap()
+                    let data_str = line
+                        .strip_prefix("data: ")
+                        .or_else(|| line.strip_prefix("data:"));
+                    let data_str = match data_str {
+                        Some(d) => d.trim(),
+                        None => continue,
                     };
-                    let data_str = data_str.trim();
 
                     if data_str == "[DONE]" {
                         let tool_call_deltas = build_openai_tool_call_deltas(&tc_acc);

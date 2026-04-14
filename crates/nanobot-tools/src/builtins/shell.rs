@@ -34,6 +34,7 @@ impl ExecTool {
         self
     }
 
+    /// Set whether the tool runs in sandboxed mode.
     pub fn sandboxed(mut self, sandboxed: bool) -> Self {
         self.sandboxed = sandboxed;
         self

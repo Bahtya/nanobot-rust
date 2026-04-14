@@ -33,6 +33,7 @@ fn parse_session_key(key: &str) -> Option<(&str, &str)> {
 }
 
 impl ChannelManager {
+    /// Create a new channel manager with the given registry and message bus.
     pub fn new(registry: ChannelRegistry, bus: MessageBus) -> Self {
         Self {
             registry: Arc::new(registry),

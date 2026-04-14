@@ -677,15 +677,17 @@ pub fn extract_compaction_notes(session: &mut Session, old_messages: &[nanobot_s
             "Discussed: {}",
             topics.join("; ")
         );
-        NotesManager::save_structured_note(
+        if let Err(e) = NotesManager::save_structured_note(
             session,
             "_compaction_summary".to_string(),
             summary,
             NoteFormat::Summary,
             vec!["_system".to_string()],
-        )
-        .unwrap();
-        count += 1;
+        ) {
+            warn!("Failed to save compaction summary note: {e}");
+        } else {
+            count += 1;
+        }
     }
 
     // 2) Action items — lines containing "need to", "should", "TODO", "must"
@@ -704,15 +706,17 @@ pub fn extract_compaction_notes(session: &mut Session, old_messages: &[nanobot_s
         .collect();
 
     if !action_items.is_empty() {
-        NotesManager::save_structured_note(
+        if let Err(e) = NotesManager::save_structured_note(
             session,
             "_compaction_actions".to_string(),
             action_items.join("\n"),
             NoteFormat::ActionItems,
             vec!["_system".to_string()],
-        )
-        .unwrap();
-        count += 1;
+        ) {
+            warn!("Failed to save compaction actions note: {e}");
+        } else {
+            count += 1;
+        }
     }
 
     // 3) Decisions — lines containing "decided", "chose", "will use", "agreed"
@@ -731,15 +735,17 @@ pub fn extract_compaction_notes(session: &mut Session, old_messages: &[nanobot_s
         .collect();
 
     if !decisions.is_empty() {
-        NotesManager::save_structured_note(
+        if let Err(e) = NotesManager::save_structured_note(
             session,
             "_compaction_decisions".to_string(),
             decisions.join("\n"),
             NoteFormat::Decisions,
             vec!["_system".to_string()],
-        )
-        .unwrap();
-        count += 1;
+        ) {
+            warn!("Failed to save compaction decisions note: {e}");
+        } else {
+            count += 1;
+        }
     }
 
     // 4) Open questions — user messages ending with "?"
@@ -753,15 +759,17 @@ pub fn extract_compaction_notes(session: &mut Session, old_messages: &[nanobot_s
         .collect();
 
     if !questions.is_empty() {
-        NotesManager::save_structured_note(
+        if let Err(e) = NotesManager::save_structured_note(
             session,
             "_compaction_questions".to_string(),
             questions.join("\n"),
             NoteFormat::OpenQuestions,
             vec!["_system".to_string()],
-        )
-        .unwrap();
-        count += 1;
+        ) {
+            warn!("Failed to save compaction questions note: {e}");
+        } else {
+            count += 1;
+        }
     }
 
     if count > 0 {

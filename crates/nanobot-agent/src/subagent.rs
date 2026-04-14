@@ -688,7 +688,7 @@ impl SubAgentManager {
 
         // Spawn initial batch up to max_concurrent
         while spawned < config.max_concurrent && task_iter.peek().is_some() {
-            let task = task_iter.next().unwrap();
+            let task = task_iter.next().expect("peek guaranteed a value");
             let runner = self.build_runner(&task, &filtered_tools, config);
             let timeout = per_task_timeout;
             let _task_id = task.id.clone();
@@ -741,7 +741,7 @@ impl SubAgentManager {
 
             // Spawn next task if available
             if task_iter.peek().is_some() {
-                let task = task_iter.next().unwrap();
+                let task = task_iter.next().expect("peek guaranteed a value");
                 let runner = self.build_runner(&task, &filtered_tools, config);
                 let timeout = per_task_timeout;
                 join_set.spawn(run_single_task(task, runner, timeout));

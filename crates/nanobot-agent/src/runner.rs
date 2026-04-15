@@ -299,8 +299,16 @@ impl AgentRunner {
             let tools = self.tools.clone();
 
             let handle = tokio::spawn(async move {
-                let args: Value =
-                    serde_json::from_str(&args_str).unwrap_or(Value::Object(Default::default()));
+                let args: Value = match serde_json::from_str(&args_str) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        return format!(
+                            "Tool argument error for '{}': failed to parse arguments: {}. \
+                             Raw arguments: {:?}",
+                            tool_name, e, args_str
+                        );
+                    }
+                };
 
                 match tools.execute(&tool_name, args).await {
                     Ok(result) => result,

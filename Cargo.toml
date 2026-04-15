@@ -16,6 +16,7 @@ members = [
     "crates/nanobot-daemon",
     "crates/nanobot-memory",
     "crates/nanobot-skill",
+    "crates/nanobot-learning",
 ]
 
 [workspace.package]

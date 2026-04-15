@@ -11,8 +11,13 @@ use dashmap::DashMap;
 use nanobot_core::{SessionSource, DEFAULT_SESSION_HISTORY_LIMIT};
 use parking_lot::Mutex;
 use std::path::PathBuf;
+use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::{debug, error, info, warn};
+
+type PersistHook = dyn Fn(&Session) -> Result<()> + Send + Sync;
+
+const PERSIST_QUEUE_CAPACITY: usize = 256;
 
 /// Manages session lifecycle with in-memory cache and persistent storage.
 #[derive(Clone)]
@@ -28,34 +33,49 @@ pub struct SessionManager {
 
     /// Maximum messages per session before truncation.
     max_history: usize,
+
+    /// Background persistence queue.
+    persist_tx: Arc<SyncSender<Session>>,
+
+    /// Optional persistence hook for tests and fault injection.
+    persist_hook: Arc<Mutex<Option<Arc<PersistHook>>>>,
 }
 
 impl SessionManager {
     /// Create a new SessionManager with the given data directory.
     pub fn new(data_dir: PathBuf) -> Result<Self> {
-        let session_dir = data_dir.join("sessions");
-        let notes_dir = data_dir.join("notes");
-        let store = SessionStore::new(session_dir)?;
-        let note_store = NoteStore::new(notes_dir)?;
-        Ok(Self {
-            sessions: Arc::new(DashMap::new()),
-            store: Arc::new(Mutex::new(store)),
-            note_store: Arc::new(Mutex::new(note_store)),
-            max_history: DEFAULT_SESSION_HISTORY_LIMIT,
-        })
+        Self::build(data_dir, DEFAULT_SESSION_HISTORY_LIMIT)
     }
 
     /// Create with a custom max history size.
     pub fn with_max_history(data_dir: PathBuf, max_history: usize) -> Result<Self> {
+        Self::build(data_dir, max_history)
+    }
+
+    fn build(data_dir: PathBuf, max_history: usize) -> Result<Self> {
         let session_dir = data_dir.join("sessions");
         let notes_dir = data_dir.join("notes");
         let store = SessionStore::new(session_dir)?;
         let note_store = NoteStore::new(notes_dir)?;
+        let store = Arc::new(Mutex::new(store));
+        let note_store = Arc::new(Mutex::new(note_store));
+        let persist_hook = Arc::new(Mutex::new(None));
+        let (persist_tx, persist_rx) = mpsc::sync_channel(PERSIST_QUEUE_CAPACITY);
+
+        Self::spawn_persist_worker(
+            store.clone(),
+            note_store.clone(),
+            persist_hook.clone(),
+            persist_rx,
+        );
+
         Ok(Self {
             sessions: Arc::new(DashMap::new()),
-            store: Arc::new(Mutex::new(store)),
-            note_store: Arc::new(Mutex::new(note_store)),
+            store,
+            note_store,
             max_history,
+            persist_tx: Arc::new(persist_tx),
+            persist_hook,
         })
     }
 
@@ -96,30 +116,32 @@ impl SessionManager {
 
     /// Update a session in the cache and persist to disk.
     pub fn save_session(&self, session: &Session) -> Result<()> {
-        // Truncate if needed
-        let mut session = session.clone();
-        if session.messages.len() > self.max_history {
-            info!(
-                "Truncating session {} from {} to {} messages",
-                session.key,
-                session.messages.len(),
-                self.max_history
-            );
-            session.truncate(self.max_history);
+        let session = self.prepare_session_for_save(session);
+        self.persist_snapshot(&session)
+    }
+
+    /// Update the cache immediately and queue a background persistence write.
+    ///
+    /// Disk write failures are logged by the background worker and do not
+    /// propagate to the caller.
+    pub fn save_session_async(&self, session: &Session) {
+        let session = self.prepare_session_for_save(session);
+
+        match self.persist_tx.try_send(session) {
+            Ok(()) => {}
+            Err(TrySendError::Full(session)) => {
+                warn!(
+                    session_key = %session.key,
+                    "Persistence queue full; dropping background save"
+                );
+            }
+            Err(TrySendError::Disconnected(session)) => {
+                error!(
+                    session_key = %session.key,
+                    "Persistence queue disconnected; dropping background save"
+                );
+            }
         }
-
-        // Persist messages + notes to JSONL
-        self.store.lock().save(&session)?;
-
-        // Also persist notes to dedicated note store
-        self.note_store
-            .lock()
-            .save_notes(&session.key, &session.notes)?;
-
-        // Update cache
-        self.sessions.insert(session.key.clone(), session);
-
-        Ok(())
     }
 
     /// Append a single entry and update the cache.
@@ -160,13 +182,20 @@ impl SessionManager {
 
     /// Persist all dirty sessions to disk.
     pub fn flush_all(&self) -> Result<()> {
-        let store = self.store.lock();
-        let note_store = self.note_store.lock();
         for entry in self.sessions.iter() {
-            store.save(entry.value())?;
-            note_store.save_notes(entry.key(), &entry.value().notes)?;
+            self.persist_snapshot(entry.value())?;
         }
         Ok(())
+    }
+
+    /// Override persistence behavior for tests or fault injection.
+    #[allow(clippy::type_complexity)]
+    pub fn with_persist_hook(
+        self,
+        hook: Arc<dyn Fn(&Session) -> Result<()> + Send + Sync>,
+    ) -> Self {
+        *self.persist_hook.lock() = Some(hook);
+        self
     }
 
     /// Get the number of active sessions.
@@ -236,11 +265,85 @@ impl SessionManager {
 
         results
     }
+
+    fn prepare_session_for_save(&self, session: &Session) -> Session {
+        let mut session = session.clone();
+        if session.messages.len() > self.max_history {
+            info!(
+                "Truncating session {} from {} to {} messages",
+                session.key,
+                session.messages.len(),
+                self.max_history
+            );
+            session.truncate(self.max_history);
+        }
+
+        self.sessions.insert(session.key.clone(), session.clone());
+        session
+    }
+
+    fn persist_snapshot(&self, session: &Session) -> Result<()> {
+        Self::persist_snapshot_inner(&self.store, &self.note_store, &self.persist_hook, session)
+    }
+
+    fn persist_snapshot_inner(
+        store: &Arc<Mutex<SessionStore>>,
+        note_store: &Arc<Mutex<NoteStore>>,
+        persist_hook: &Arc<Mutex<Option<Arc<PersistHook>>>>,
+        session: &Session,
+    ) -> Result<()> {
+        if let Some(hook) = persist_hook.lock().clone() {
+            hook(session)?;
+        }
+
+        store.lock().save(session)?;
+        note_store.lock().save_notes(&session.key, &session.notes)?;
+        Ok(())
+    }
+
+    fn spawn_persist_worker(
+        store: Arc<Mutex<SessionStore>>,
+        note_store: Arc<Mutex<NoteStore>>,
+        persist_hook: Arc<Mutex<Option<Arc<PersistHook>>>>,
+        persist_rx: Receiver<Session>,
+    ) {
+        let _ = std::thread::Builder::new()
+            .name("nanobot-session-persist".to_string())
+            .spawn(move || {
+                while let Ok(session) = persist_rx.recv() {
+                    if let Err(e) =
+                        Self::persist_snapshot_inner(&store, &note_store, &persist_hook, &session)
+                    {
+                        error!(
+                            session_key = %session.key,
+                            "Background session persistence failed: {e}"
+                        );
+                    }
+                }
+
+                debug!("Session persistence worker stopped");
+            });
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::anyhow;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::{Duration, Instant};
+
+    fn wait_for(condition: impl Fn() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            if condition() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(condition(), "condition was not met before timeout");
+    }
 
     #[test]
     fn test_session_lifecycle() {
@@ -316,6 +419,51 @@ mod tests {
 
         let loaded = mgr.get_or_create("test:trunc", None);
         assert_eq!(loaded.messages.len(), 3);
+    }
+
+    #[test]
+    fn test_save_session_async_persists_in_background() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = SessionManager::new(tmp.path().to_path_buf()).unwrap();
+
+        let mut session = mgr.get_or_create("test:async", None);
+        session.add_user_message("Hello".to_string());
+
+        mgr.save_session_async(&session);
+
+        wait_for(|| {
+            mgr.store
+                .lock()
+                .load("test:async")
+                .unwrap()
+                .is_some_and(|loaded| loaded.messages.len() == 1)
+        });
+    }
+
+    #[test]
+    fn test_save_session_async_logs_failures_without_updating_disk() {
+        let tmp = tempfile::tempdir().unwrap();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mgr = SessionManager::new(tmp.path().to_path_buf())
+            .unwrap()
+            .with_persist_hook({
+                let calls = calls.clone();
+                Arc::new(move |_| {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Err(anyhow!("mock disk error"))
+                })
+            });
+
+        let mut session = mgr.get_or_create("test:async_fail", None);
+        session.add_user_message("Hello".to_string());
+
+        mgr.save_session_async(&session);
+
+        wait_for(|| calls.load(Ordering::SeqCst) > 0);
+
+        let cached = mgr.get_or_create("test:async_fail", None);
+        assert_eq!(cached.messages.len(), 1);
+        assert!(mgr.store.lock().load("test:async_fail").unwrap().is_none());
     }
 
     #[test]

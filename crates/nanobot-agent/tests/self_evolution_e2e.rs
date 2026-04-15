@@ -298,7 +298,11 @@ async fn make_skill_registry() -> Arc<SkillRegistry> {
     let registry = SkillRegistry::new();
     let skill = CompiledSkill::new(
         SkillManifestBuilder::new("deploy-k8s", "1.0.0", "Deploy application to Kubernetes")
-            .triggers(vec!["deploy".to_string(), "k8s".to_string(), "kubernetes".to_string()])
+            .triggers(vec![
+                "deploy".to_string(),
+                "k8s".to_string(),
+                "kubernetes".to_string(),
+            ])
             .steps(vec![
                 "Check kubeconfig context".to_string(),
                 "Apply manifests with kubectl".to_string(),
@@ -492,7 +496,12 @@ async fn test_self_evolution_full_loop() {
 
     for _ in 0..10 {
         match learning_rx.try_recv() {
-            Ok(LearningEvent::MemoryAccessed { query, hit, results_count, .. }) => {
+            Ok(LearningEvent::MemoryAccessed {
+                query,
+                hit,
+                results_count,
+                ..
+            }) => {
                 saw_memory_accessed = true;
                 assert!(
                     query.contains("deploy"),
@@ -506,7 +515,12 @@ async fn test_self_evolution_full_loop() {
                     results_count
                 );
             }
-            Ok(LearningEvent::SkillUsed { skill_name, match_score, outcome, .. }) => {
+            Ok(LearningEvent::SkillUsed {
+                skill_name,
+                match_score,
+                outcome,
+                ..
+            }) => {
                 saw_skill_used = true;
                 assert_eq!(skill_name, "deploy-k8s");
                 assert!(
@@ -530,10 +544,7 @@ async fn test_self_evolution_full_loop() {
         "expected MemoryAccessed learning event"
     );
     assert!(saw_skill_used, "expected SkillUsed learning event");
-    assert!(
-        saw_tool_succeeded,
-        "expected ToolSucceeded learning event"
-    );
+    assert!(saw_tool_succeeded, "expected ToolSucceeded learning event");
 
     // ── Verify LLM was called (twice: tool call + final response) ──
     assert!(
@@ -630,7 +641,10 @@ async fn test_self_evolution_no_memory() {
         }
     }
 
-    assert!(saw_skill_used, "expected SkillUsed event even without memory");
+    assert!(
+        saw_skill_used,
+        "expected SkillUsed event even without memory"
+    );
     assert!(
         !saw_memory_accessed,
         "should NOT emit MemoryAccessed when no memory store"
@@ -654,7 +668,10 @@ async fn test_self_evolution_provider_error() {
         fn name(&self) -> &str {
             "failing"
         }
-        async fn complete(&self, _request: CompletionRequest) -> anyhow::Result<CompletionResponse> {
+        async fn complete(
+            &self,
+            _request: CompletionRequest,
+        ) -> anyhow::Result<CompletionResponse> {
             anyhow::bail!("Provider unavailable")
         }
         async fn complete_stream(&self, _request: CompletionRequest) -> anyhow::Result<BoxStream> {
@@ -718,7 +735,11 @@ async fn test_self_evolution_provider_error() {
     let mut saw_tool_failed = false;
     for _ in 0..5 {
         match learning_rx.try_recv() {
-            Ok(LearningEvent::ToolFailed { tool, error_message, .. }) => {
+            Ok(LearningEvent::ToolFailed {
+                tool,
+                error_message,
+                ..
+            }) => {
                 saw_tool_failed = true;
                 assert_eq!(tool, "agent_loop");
                 assert!(
@@ -861,13 +882,11 @@ async fn test_self_evolution_prompt_assembler_custom_separator() {
 
     let memory_store = Arc::new(MockMemoryStore::new());
     memory_store
-        .prepopulate(vec![
-            MemoryEntry::new(
-                "deploy to k8s using dark mode theme",
-                MemoryCategory::Preference,
-            )
-            .with_confidence(0.9),
-        ])
+        .prepopulate(vec![MemoryEntry::new(
+            "deploy to k8s using dark mode theme",
+            MemoryCategory::Preference,
+        )
+        .with_confidence(0.9)])
         .await;
 
     let skill_registry = make_skill_registry().await;
@@ -905,10 +924,7 @@ async fn test_self_evolution_prompt_assembler_custom_separator() {
         "should have captured system prompt"
     );
     let prompt = system_prompt.unwrap();
-    assert!(
-        !prompt.is_empty(),
-        "system prompt should not be empty"
-    );
+    assert!(!prompt.is_empty(), "system prompt should not be empty");
 
     agent_handle.abort();
 }

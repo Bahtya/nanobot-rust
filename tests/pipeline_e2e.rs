@@ -19,7 +19,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
-use tokio::time::{timeout, Duration};
+use tokio::time::{sleep, timeout, Duration, Instant};
 
 // ─── Mock Provider ──────────────────────────────────────────────────────────
 
@@ -204,6 +204,27 @@ fn make_inbound(content: &str) -> nanobot_bus::events::InboundMessage {
 }
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(10);
+
+async fn wait_for_session_message_count(
+    session_dir: std::path::PathBuf,
+    session_key: &str,
+    expected_len: usize,
+) {
+    let deadline = Instant::now() + TEST_TIMEOUT;
+    loop {
+        let mgr = SessionManager::new(session_dir.clone()).unwrap();
+        let session = mgr.get_or_create(session_key, None);
+        if session.messages.len() >= expected_len {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "Expected >= {expected_len} session entries, got {}",
+            session.messages.len()
+        );
+        sleep(Duration::from_millis(25)).await;
+    }
+}
 
 fn make_provider_registry(provider: MockProvider) -> ProviderRegistry {
     let mut reg = ProviderRegistry::new();
@@ -474,6 +495,8 @@ async fn test_pipeline_multi_turn_context_persistence() {
     assert_eq!(out3.content, "Turn 3: Goodbye!");
 
     // Verify session persistence: reload session from disk and check message count
+    wait_for_session_message_count(session_dir.clone(), "telegram:chat_100", 6).await;
+
     let reloaded_mgr = SessionManager::new(session_dir).unwrap();
     let session = reloaded_mgr.get_or_create("telegram:chat_100", None);
 

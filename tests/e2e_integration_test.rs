@@ -20,7 +20,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
-use tokio::time::{timeout, Duration};
+use tokio::time::{sleep, timeout, Duration, Instant};
 
 // ─── Mock Provider ──────────────────────────────────────────────────────────
 
@@ -187,6 +187,27 @@ fn make_inbound(content: &str) -> InboundMessage {
 }
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(10);
+
+async fn wait_for_session_message_count(
+    session_dir: std::path::PathBuf,
+    session_key: &str,
+    expected_len: usize,
+) {
+    let deadline = Instant::now() + TEST_TIMEOUT;
+    loop {
+        let mgr = SessionManager::new(session_dir.clone()).unwrap();
+        let session = mgr.get_or_create(session_key, None);
+        if session.messages.len() >= expected_len {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "Expected >= {expected_len} session entries, got {}",
+            session.messages.len()
+        );
+        sleep(Duration::from_millis(25)).await;
+    }
+}
 
 /// Helper: create a provider registry with a mock provider set as default.
 fn make_provider_registry(provider: MockProvider) -> ProviderRegistry {
@@ -460,6 +481,8 @@ async fn test_e2e_session_persistence() {
     assert_eq!(out2.content, "Second response.");
 
     // Verify session has at least 4 entries: user1, assistant1, user2, assistant2
+    wait_for_session_message_count(session_dir.clone(), "telegram:chat_100", 4).await;
+
     let mgr2 = SessionManager::new(session_dir).unwrap();
     let session = mgr2.get_or_create("telegram:chat_100", None);
     assert!(

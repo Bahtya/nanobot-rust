@@ -8,13 +8,14 @@
 
 use async_trait::async_trait;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::fs;
 use tokio::sync::RwLock;
 
 use crate::config::MemoryConfig;
 use crate::error::{MemoryError, Result};
 use crate::store::MemoryStore;
-use crate::types::{EntryId, MemoryEntry, MemoryQuery, ScoredEntry};
+use crate::types::{EntryId, MemoryCategory, MemoryEntry, MemoryQuery, ScoredEntry};
 
 /// L1 hot memory store — fast in-memory access with file persistence.
 ///
@@ -28,6 +29,8 @@ pub struct HotStore {
     path: std::path::PathBuf,
     /// Maximum number of entries allowed.
     max_entries: usize,
+    /// Number of entries evicted by LRU policy.
+    eviction_count: AtomicU64,
 }
 
 impl HotStore {
@@ -37,6 +40,7 @@ impl HotStore {
             entries: RwLock::new(HashMap::new()),
             path: config.hot_store_path.clone(),
             max_entries: config.max_entries,
+            eviction_count: AtomicU64::new(0),
         };
         store.load_from_disk().await?;
         Ok(store)
@@ -81,6 +85,29 @@ impl HotStore {
         fs::rename(&temp_path, &self.path).await?;
         Ok(())
     }
+
+    /// Find and return the ID of the least-recently-used non-critical entry.
+    ///
+    /// Returns `None` if all entries are pinned (Critical category).
+    fn evict_lru(entries: &HashMap<EntryId, MemoryEntry>) -> Option<EntryId> {
+        entries
+            .iter()
+            .filter(|(_, e)| e.category != MemoryCategory::Critical)
+            .min_by_key(|(_, e)| e.updated_at)
+            .map(|(id, e)| {
+                tracing::debug!(
+                    "Evicted LRU entry {} (last_accessed: {})",
+                    id,
+                    e.updated_at
+                );
+                id.clone()
+            })
+    }
+
+    /// Return the total number of entries evicted since store creation.
+    pub fn eviction_count(&self) -> u64 {
+        self.eviction_count.load(Ordering::Relaxed)
+    }
 }
 
 #[async_trait]
@@ -89,10 +116,15 @@ impl MemoryStore for HotStore {
         {
             let mut entries = self.entries.write().await;
             if entries.len() >= self.max_entries && !entries.contains_key(&entry.id) {
-                return Err(MemoryError::CapacityExceeded {
-                    max: self.max_entries,
-                    current: entries.len(),
-                });
+                if let Some(evict_id) = Self::evict_lru(&entries) {
+                    entries.remove(&evict_id);
+                    self.eviction_count.fetch_add(1, Ordering::Relaxed);
+                } else {
+                    return Err(MemoryError::CapacityExceeded {
+                        max: self.max_entries,
+                        current: entries.len(),
+                    });
+                }
             }
             entries.insert(entry.id.clone(), entry);
         }
@@ -218,12 +250,23 @@ mod tests {
     use super::*;
     use crate::config::MemoryConfig;
     use crate::types::MemoryCategory;
+    use chrono::{Duration, Utc};
 
     async fn make_test_store() -> (HotStore, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let config = MemoryConfig::for_test(dir.path());
         let store = HotStore::new(&config).await.unwrap();
         (store, dir)
+    }
+
+    fn test_entry_with_age(
+        content: &str,
+        category: MemoryCategory,
+        age: Duration,
+    ) -> MemoryEntry {
+        let mut entry = MemoryEntry::new(content, category);
+        entry.updated_at = Utc::now() - age;
+        entry
     }
 
     #[tokio::test]
@@ -412,12 +455,135 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_capacity_limit() {
+    async fn test_capacity_limit_evicts_lru_entry() {
         let dir = tempfile::tempdir().unwrap();
         let mut config = MemoryConfig::for_test(dir.path());
         config.max_entries = 2;
 
         let store = HotStore::new(&config).await.unwrap();
+
+        let oldest = test_entry_with_age("a", MemoryCategory::Fact, Duration::seconds(100));
+        let oldest_id = oldest.id.clone();
+        store.store(oldest).await.unwrap();
+
+        let middle = MemoryEntry::new("b", MemoryCategory::Fact);
+        let middle_id = middle.id.clone();
+        store.store(middle).await.unwrap();
+
+        let newest = MemoryEntry::new("c", MemoryCategory::Fact);
+        let newest_id = newest.id.clone();
+        store.store(newest).await.unwrap();
+
+        assert!(store.recall(&oldest_id).await.unwrap().is_none());
+        assert!(store.recall(&middle_id).await.unwrap().is_some());
+        assert!(store.recall(&newest_id).await.unwrap().is_some());
+        assert_eq!(store.len().await, 2);
+        assert_eq!(store.eviction_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_capacity_limit_with_all_critical_entries_returns_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = MemoryConfig::for_test(dir.path());
+        config.max_entries = 2;
+
+        let store = HotStore::new(&config).await.unwrap();
+
+        store
+            .store(MemoryEntry::new("critical_a", MemoryCategory::Critical))
+            .await
+            .unwrap();
+        store
+            .store(MemoryEntry::new("critical_b", MemoryCategory::Critical))
+            .await
+            .unwrap();
+
+        let result = store
+            .store(MemoryEntry::new("new", MemoryCategory::Fact))
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("capacity"));
+        assert_eq!(store.eviction_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_capacity_limit_preserves_critical_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = MemoryConfig::for_test(dir.path());
+        config.max_entries = 3;
+
+        let store = HotStore::new(&config).await.unwrap();
+
+        let entry_old =
+            test_entry_with_age("old_normal", MemoryCategory::Fact, Duration::seconds(200));
+        store.store(entry_old).await.unwrap();
+
+        store
+            .store(MemoryEntry::new("critical_entry", MemoryCategory::Critical))
+            .await
+            .unwrap();
+        store
+            .store(MemoryEntry::new("recent_normal", MemoryCategory::Fact))
+            .await
+            .unwrap();
+
+        store
+            .store(MemoryEntry::new("newest", MemoryCategory::Fact))
+            .await
+            .unwrap();
+
+        let results = store
+            .search(&MemoryQuery::new().with_text("critical_entry"))
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].entry.category, MemoryCategory::Critical);
+
+        let results = store
+            .search(&MemoryQuery::new().with_text("old_normal"))
+            .await
+            .unwrap();
+        assert!(results.is_empty());
+        assert_eq!(store.eviction_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_lru_touch_prevents_eviction() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = MemoryConfig::for_test(dir.path());
+        config.max_entries = 2;
+
+        let store = HotStore::new(&config).await.unwrap();
+
+        let entry_a =
+            test_entry_with_age("entry_a", MemoryCategory::Fact, Duration::seconds(100));
+        let id_a = entry_a.id.clone();
+        store.store(entry_a).await.unwrap();
+
+        let entry_b = MemoryEntry::new("entry_b", MemoryCategory::Fact);
+        let id_b = entry_b.id.clone();
+        store.store(entry_b).await.unwrap();
+
+        store.recall(&id_a).await.unwrap();
+
+        store
+            .store(MemoryEntry::new("entry_c", MemoryCategory::Fact))
+            .await
+            .unwrap();
+
+        assert!(store.recall(&id_a).await.unwrap().is_some());
+        assert!(store.recall(&id_b).await.unwrap().is_none());
+        assert_eq!(store.eviction_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_eviction_count_tracks_multiple() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = MemoryConfig::for_test(dir.path());
+        config.max_entries = 2;
+
+        let store = HotStore::new(&config).await.unwrap();
+
         store
             .store(MemoryEntry::new("a", MemoryCategory::Fact))
             .await
@@ -427,11 +593,24 @@ mod tests {
             .await
             .unwrap();
 
-        let result = store
+        // Evict 3 entries total
+        store
             .store(MemoryEntry::new("c", MemoryCategory::Fact))
-            .await;
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("capacity"));
+            .await
+            .unwrap();
+        assert_eq!(store.eviction_count(), 1);
+
+        store
+            .store(MemoryEntry::new("d", MemoryCategory::Fact))
+            .await
+            .unwrap();
+        assert_eq!(store.eviction_count(), 2);
+
+        store
+            .store(MemoryEntry::new("e", MemoryCategory::Fact))
+            .await
+            .unwrap();
+        assert_eq!(store.eviction_count(), 3);
     }
 
     #[tokio::test]

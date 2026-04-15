@@ -33,6 +33,8 @@ pub enum MemoryCategory {
     ErrorLesson,
     /// Workflow patterns and habits.
     WorkflowPattern,
+    /// Pinned entries that are exempt from LRU eviction.
+    Critical,
 }
 
 impl std::fmt::Display for MemoryCategory {
@@ -47,6 +49,7 @@ impl std::fmt::Display for MemoryCategory {
             Self::ToolDiscovery => write!(f, "tool_discovery"),
             Self::ErrorLesson => write!(f, "error_lesson"),
             Self::WorkflowPattern => write!(f, "workflow_pattern"),
+            Self::Critical => write!(f, "critical"),
         }
     }
 }
@@ -243,6 +246,7 @@ mod tests {
             MemoryCategory::ToolDiscovery,
             MemoryCategory::ErrorLesson,
             MemoryCategory::WorkflowPattern,
+            MemoryCategory::Critical,
         ];
         for cat in categories {
             let json = serde_json::to_string(&cat).unwrap();

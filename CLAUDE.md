@@ -51,23 +51,27 @@ CLI subcommands: `agent`, `gateway`, `serve`, `heartbeat`, `health`, `setup`, `s
 - **LanceDB over SQLite FTS5**: Semantic vector search replaces keyword full-text search for memory/sessions.
 - **TOML over YAML**: Rust-native parsing for skill manifests and config.
 
-## Sprint 3: Self-Evolution MVP
+## Sprint 3: Self-Evolution MVP ✅ DONE
 
-**Goal**: Implement Hermes Agent's self-evolution features in Rust — memory, skills, learning events.
+Merged to main. 3 new crates: nanobot-memory (50 tests), nanobot-skill (68 tests), nanobot-learning (34 tests).
 
-**3 parallel agents → 3 new crates:**
+## Sprint 4: Integration — Wire Self-Evolution into AgentLoop
 
-| Agent | Branch | New Crate | Scope | Issue |
-|-------|--------|-----------|-------|-------|
-| cc-evolve-memory | feat/evolve-memory | nanobot-memory | MemoryStore, HotStore, WarmStore(LanceDB) | #6 |
-| cc-evolve-skill | feat/evolve-skill | nanobot-skill | Skill trait, TOML manifest, SkillRegistry | #7 |
-| cc-evolve-learn | feat/evolve-learn | nanobot-learning | LearningEvent, EventBus, prompt assembly | #8 |
+**Goal**: Connect memory, skill, learning crates to the agent loop so self-evolution actually runs.
 
-**Key decisions** (from Six Hats analysis):
-- Memory is the foundation (ROI ★★★★★) → build first
-- Skills are the flywheel (auto-patch = exponential improvement)
-- LanceDB replaces Hermes's SQLite FTS5 for semantic memory search
-- Learning events enable the feedback loop (tool success/failure → skill refinement)
+**2 parallel agents (memory+skill first, learning depends on both):**
+
+| Agent | Branch | Task | Scope | Issue |
+|-------|--------|------|-------|-------|
+| cc-s4-memory | feat/s4-memory-wire | MemoryStore recall/store in AgentLoop | nanobot-agent, nanobot-memory, gateway | #12 |
+| cc-s4-skill | feat/s4-skill-wire | SkillRegistry matching + prompt injection | nanobot-agent, nanobot-skill, gateway | #13 |
+| cc-s4-learn | feat/s4-learning-wire | LearningEvent emission + PromptAssembler (AFTER #12+#13) | nanobot-agent, nanobot-learning, gateway | #14 |
+
+**Integration points** (all in `crates/nanobot-agent/src/`):
+- AgentLoop::new() — accept MemoryStore, SkillRegistry, EventBus as params
+- Before LLM call — recall memory + match skills → inject into prompt
+- After tool execution — emit LearningEvent → processors update confidence
+- gateway.rs — create instances, wire into AgentLoop
 
 ## Research References (Six Hats Analysis)
 

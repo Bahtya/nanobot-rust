@@ -148,6 +148,10 @@ fn main() -> Result<()> {
             .init();
     }
 
+    if matches!(&cli.command, Commands::Setup) {
+        return commands::setup::run(nanobot_config::Config::default());
+    }
+
     // Load configuration
     let config = nanobot_config::load_config(cli.config.as_deref())?;
 
@@ -187,9 +191,7 @@ fn main() -> Result<()> {
                 commands::config::migrate(&from, dry_run)?;
             }
         },
-        Commands::Setup => {
-            commands::setup::run(config)?;
-        }
+        Commands::Setup => unreachable!("setup is handled before config loading"),
         Commands::Status => {
             commands::status::run(&config)?;
         }

@@ -120,6 +120,10 @@ impl Tool for CronTool {
         })
     }
 
+    fn is_mutating(&self) -> bool {
+        true
+    }
+
     async fn execute(&self, args: Value) -> Result<String, ToolError> {
         let action = args["action"]
             .as_str()

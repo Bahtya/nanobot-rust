@@ -99,6 +99,10 @@ impl Tool for WriteFileTool {
         "Write content to a file. Creates parent directories if needed."
     }
 
+    fn is_mutating(&self) -> bool {
+        true
+    }
+
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",
@@ -178,6 +182,10 @@ impl Tool for EditFileTool {
 
     fn description(&self) -> &str {
         "Edit a file by replacing exact text matches. Use for making targeted changes to existing files."
+    }
+
+    fn is_mutating(&self) -> bool {
+        true
     }
 
     fn parameters_schema(&self) -> Value {

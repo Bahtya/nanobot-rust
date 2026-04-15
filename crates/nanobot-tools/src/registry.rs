@@ -80,6 +80,14 @@ impl ToolRegistry {
         self.tools.read().keys().cloned().collect()
     }
 
+    /// Check whether a tool is mutating by name.
+    ///
+    /// Returns `false` if the tool is not found (safe default for
+    /// unknown tools — they are treated as read-only and run in parallel).
+    pub fn is_mutating(&self, name: &str) -> bool {
+        self.tools.read().get(name).map(|t| t.is_mutating()).unwrap_or(false)
+    }
+
     /// Return the number of registered tools.
     pub fn len(&self) -> usize {
         self.tools.read().len()
@@ -335,5 +343,80 @@ mod tests {
         // Unregistering nonexistent should not panic
         registry.unregister("nonexistent");
         assert_eq!(registry.len(), 1);
+    }
+
+    // ── is_mutating tests ──────────────────────────────────────────
+
+    struct MutatingMockTool {
+        tool_name: &'static str,
+        mutating: bool,
+    }
+
+    #[async_trait]
+    impl Tool for MutatingMockTool {
+        fn name(&self) -> &str {
+            self.tool_name
+        }
+        fn description(&self) -> &str {
+            "mock mutating tool"
+        }
+        fn parameters_schema(&self) -> Value {
+            serde_json::json!({"type": "object", "properties": {}})
+        }
+        fn is_mutating(&self) -> bool {
+            self.mutating
+        }
+        async fn execute(&self, _args: Value) -> Result<String, ToolError> {
+            Ok("mock result".to_string())
+        }
+    }
+
+    #[test]
+    fn test_registry_is_mutating_default_false() {
+        let registry = ToolRegistry::new();
+        registry.register(MockTool::new("readonly"));
+        assert!(!registry.is_mutating("readonly"));
+    }
+
+    #[test]
+    fn test_registry_is_mutating_explicit_true() {
+        let registry = ToolRegistry::new();
+        registry.register(MutatingMockTool {
+            tool_name: "writer",
+            mutating: true,
+        });
+        assert!(registry.is_mutating("writer"));
+    }
+
+    #[test]
+    fn test_registry_is_mutating_explicit_false() {
+        let registry = ToolRegistry::new();
+        registry.register(MutatingMockTool {
+            tool_name: "reader",
+            mutating: false,
+        });
+        assert!(!registry.is_mutating("reader"));
+    }
+
+    #[test]
+    fn test_registry_is_mutating_unknown_tool() {
+        let registry = ToolRegistry::new();
+        // Unknown tool should default to false (not mutating)
+        assert!(!registry.is_mutating("nonexistent"));
+    }
+
+    #[test]
+    fn test_registry_is_mutating_mixed() {
+        let registry = ToolRegistry::new();
+        registry.register(MutatingMockTool {
+            tool_name: "write",
+            mutating: true,
+        });
+        registry.register(MutatingMockTool {
+            tool_name: "read",
+            mutating: false,
+        });
+        assert!(registry.is_mutating("write"));
+        assert!(!registry.is_mutating("read"));
     }
 }

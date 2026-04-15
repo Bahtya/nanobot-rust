@@ -253,6 +253,10 @@ impl Tool for ExecTool {
         "default"
     }
 
+    fn is_mutating(&self) -> bool {
+        true
+    }
+
     async fn execute(&self, args: Value) -> Result<String, ToolError> {
         let command = args["command"]
             .as_str()

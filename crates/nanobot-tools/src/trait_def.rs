@@ -50,6 +50,16 @@ pub trait Tool: Send + Sync {
         true
     }
 
+    /// Whether this tool mutates external state (files, shell, etc.).
+    ///
+    /// Mutating tools are serialized so only one runs at a time, preventing
+    /// race conditions when the LLM issues multiple state-changing calls
+    /// concurrently. Read-only tools (search, read, grep) return `false`
+    /// and run in parallel.
+    fn is_mutating(&self) -> bool {
+        false
+    }
+
     /// Required environment variables for this tool.
     fn required_env_vars(&self) -> Vec<&str> {
         vec![]
@@ -148,6 +158,28 @@ mod tests {
 
         let not_available = ToolError::NotAvailable("missing key".to_string());
         assert!(not_available.to_string().contains("missing key"));
+    }
+
+    #[test]
+    fn test_tool_is_mutating_default_is_false() {
+        struct DefaultTool;
+        #[async_trait]
+        impl Tool for DefaultTool {
+            fn name(&self) -> &str {
+                "default"
+            }
+            fn description(&self) -> &str {
+                "default tool"
+            }
+            fn parameters_schema(&self) -> Value {
+                serde_json::json!({"type": "object"})
+            }
+            async fn execute(&self, _args: Value) -> Result<String, ToolError> {
+                Ok("ok".to_string())
+            }
+        }
+        let tool = DefaultTool;
+        assert!(!tool.is_mutating());
     }
 
     #[test]

@@ -67,6 +67,10 @@ impl Tool for MessageTool {
         })
     }
 
+    fn is_mutating(&self) -> bool {
+        true
+    }
+
     async fn execute(&self, args: Value) -> Result<String, ToolError> {
         let content = args["content"]
             .as_str()

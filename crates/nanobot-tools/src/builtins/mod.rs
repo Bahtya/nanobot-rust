@@ -37,3 +37,45 @@ pub fn register_all_with_config(registry: &ToolRegistry, config: BuiltinsConfig)
     registry.register(cron::CronTool::new());
     registry.register(spawn::SpawnTool::new());
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_builtin_mutating_classification() {
+        let registry = ToolRegistry::new();
+        register_all(&registry);
+
+        // Mutating tools
+        assert!(registry.is_mutating("exec"), "exec should be mutating");
+        assert!(registry.is_mutating("write_file"), "write_file should be mutating");
+        assert!(registry.is_mutating("edit_file"), "edit_file should be mutating");
+        assert!(registry.is_mutating("cron"), "cron should be mutating");
+        assert!(registry.is_mutating("spawn"), "spawn should be mutating");
+        assert!(
+            registry.is_mutating("send_message"),
+            "send_message should be mutating"
+        );
+
+        // Read-only tools
+        assert!(
+            !registry.is_mutating("read_file"),
+            "read_file should NOT be mutating"
+        );
+        assert!(
+            !registry.is_mutating("list_dir"),
+            "list_dir should NOT be mutating"
+        );
+        assert!(
+            !registry.is_mutating("web_search"),
+            "web_search should NOT be mutating"
+        );
+        assert!(
+            !registry.is_mutating("web_fetch"),
+            "web_fetch should NOT be mutating"
+        );
+        assert!(!registry.is_mutating("grep"), "grep should NOT be mutating");
+        assert!(!registry.is_mutating("glob"), "glob should NOT be mutating");
+    }
+}

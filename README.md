@@ -4,14 +4,14 @@
 
 **A multi-platform AI agent framework built in Rust**
 
+[![CI](https://github.com/Bahtya/nanobot-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/Bahtya/nanobot-rust/actions/workflows/ci.yml)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange?logo=rust&logoColor=white)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/tests-745%20passing-brightgreen)](./)
-[![License](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
-[![Crates](https://img.shields.io/badge/crates-13-purple)](./crates)
-[![Clippy](https://img.shields.io/badge/clippy-0%20warnings-success)](./)
+[![License](https://img.shields.io/badge/license-MIT-blue)](https://github.com/Bahtya/nanobot-rust/blob/main/LICENSE)
+[![Crates](https://img.shields.io/badge/crates-16-purple)](./crates)
 
 Fast, streaming-first, and production-ready. Connect Telegram, Discord, and
-OpenAI-compatible clients to any LLM provider through a unified agent loop.
+OpenAI-compatible clients to any LLM provider through a unified agent loop
+with built-in memory, skills, and self-evolution.
 
 </div>
 
@@ -26,9 +26,11 @@ OpenAI-compatible clients to any LLM provider through a unified agent loop.
 - **Sub-agent spawning** — parallel agent tasks via tokio JoinSet
 - **Cron scheduling** — tick-based scheduler with JSON state persistence
 - **Health checks** — registry-based checks with auto-restart and exponential backoff
-- **Skill files** — markdown-based skill definitions with hot-reload
+- **Skill system** — TOML manifests, hot-reload, `SkillCompiler`, runtime skill injection
+- **Tiered memory** — `MemoryStore` trait with HotStore (L1 in-memory) and WarmStore (L2 LanceDB vectors)
+- **Learning & evolution** — `LearningEvent` bus, event processors, prompt assembly from observations
 - **Provider resilience** — automatic retry with exponential backoff on 429s
-- **SSRF protection** — network allowlist/denylist and URL validation
+- **SSRF protection** — network allowlist/denylist, URL validation, sandboxed exec
 - **Native daemon mode** — double-fork daemonization, PID file with flock, signal handling (SIGTERM/SIGINT/SIGHUP), graceful shutdown with log flushing, log rotation (daily)
 
 ## Architecture
@@ -86,10 +88,14 @@ OpenAI-compatible clients to any LLM provider through a unified agent loop.
                   │   User Response │
                   └─────────────────┘
 
-  ── Foundation Layer ──────────────────────────────────
+  ── Evolution Layer ────────────────────────────────────
+  LearningEvent → EventBus → Processors → (SkillCreate / MemoryUpdate / PromptAdjust)
+
+  ── Foundation Layer ───────────────────────────────────
   nanobot-core · nanobot-config · nanobot-bus
   nanobot-session · nanobot-security · nanobot-providers
   nanobot-cron · nanobot-heartbeat · nanobot-daemon
+  nanobot-memory · nanobot-skill · nanobot-learning
 ```
 
 ## Quick Start
@@ -217,16 +223,18 @@ daemon:
 | [`nanobot-channels`](./crates/nanobot-channels) | Platform adapters — Telegram, Discord — via `ChannelManager` |
 | [`nanobot-api`](./crates/nanobot-api) | OpenAI-compatible HTTP API server (Axum) |
 | [`nanobot-daemon`](./crates/nanobot-daemon) | Unix daemon: double-fork, PID file (flock), signal handling, file logging |
+| [`nanobot-memory`](./crates/nanobot-memory) | `MemoryStore` trait, HotStore (L1 in-memory), WarmStore/LanceDB (L2 vectors) |
+| [`nanobot-skill`](./crates/nanobot-skill) | `Skill` trait, TOML manifests, `SkillRegistry`, `SkillCompiler` |
+| [`nanobot-learning`](./crates/nanobot-learning) | `LearningEvent` bus, event processors, prompt assembly |
 
 ## Stats
 
 | Metric | Value |
 |--------|-------|
-| Rust source files | 97 |
-| Lines of Rust code | 72,566 |
-| Tests | 745 passing |
-| Crates | 13 |
-| Clippy warnings | 0 |
+| Rust source files | 126 |
+| Lines of Rust code | ~62,800 |
+| Crates | 16 |
+| Minimum Rust version | 1.75 |
 
 ## Development
 
@@ -247,6 +255,25 @@ cargo fmt --all --check
 cargo check
 ```
 
+## Design Principles
+
+- **Thin harness, fat skills** — Harness handles the loop, files, context, and safety. Complexity lives in skill files.
+- **Latent vs deterministic** — Judgment goes to the model; parsing and validation stay in code. Never mix the two.
+- **Context engineering** — JIT loading, compaction, and structured notes to stay within the context window.
+- **Fewer, better tools** — Consolidated operations with token-efficient returns and poka-yoke defaults.
+- **LanceDB over SQLite FTS5** — Semantic vector search for memory and session recall.
+- **TOML over YAML** — Rust-native parsing for skill manifests and configuration.
+
+## Contributing
+
+1. Fork the repository and create a feature branch.
+2. Ensure `cargo test --workspace` and `cargo clippy --workspace` pass with zero warnings.
+3. Add tests for any new functionality — assertions must be deterministic (no LLM output in test expectations).
+4. Add `///` doc comments on all `pub` functions.
+5. Open a pull request against `main`.
+
+CI runs format checks, clippy, build, tests, and a security audit on every push.
+
 ## License
 
-[MIT](./LICENSE)
+This project is licensed under the [MIT License](https://github.com/Bahtya/nanobot-rust/blob/main/LICENSE).

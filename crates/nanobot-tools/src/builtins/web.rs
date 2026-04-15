@@ -2,8 +2,11 @@
 
 use crate::trait_def::{Tool, ToolError};
 use async_trait::async_trait;
+use nanobot_security::{SsrfGuard, DEFAULT_MAX_REDIRECTS};
+use reqwest::header::LOCATION;
 use serde_json::{json, Value};
 use tracing::debug;
+use url::Url;
 
 // ─── WebSearchTool ────────────────────────────────────────────
 
@@ -178,11 +181,18 @@ impl WebSearchTool {
 // ─── WebFetchTool ────────────────────────────────────────────
 
 /// Tool for fetching and extracting text content from web URLs.
-pub struct WebFetchTool;
+pub struct WebFetchTool {
+    ssrf_guard: SsrfGuard,
+    max_redirects: usize,
+}
 
 impl WebFetchTool {
+    /// Create a new web fetch tool with SSRF protection enabled.
     pub fn new() -> Self {
-        Self
+        Self {
+            ssrf_guard: SsrfGuard::new(),
+            max_redirects: DEFAULT_MAX_REDIRECTS,
+        }
     }
 }
 
@@ -220,38 +230,74 @@ impl Tool for WebFetchTool {
 
         debug!("Fetching URL: {}", url);
 
+        let mut current_url =
+            Url::parse(url).map_err(|e| ToolError::Validation(format!("Invalid URL: {}", e)))?;
+
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| ToolError::Execution(e.to_string()))?;
 
-        let resp = client
-            .get(url)
-            .header("User-Agent", "nanobot/0.1.0")
-            .send()
-            .await
-            .map_err(|e| ToolError::Execution(format!("Failed to fetch URL: {}", e)))?;
+        for _ in 0..=self.max_redirects {
+            self.ssrf_guard
+                .validate_url(current_url.as_str())
+                .await
+                .map_err(|e| ToolError::PermissionDenied(e.to_string()))?;
 
-        if !resp.status().is_success() {
-            return Err(ToolError::Execution(format!("HTTP {}", resp.status())));
+            let resp = client
+                .get(current_url.clone())
+                .header("User-Agent", "nanobot/0.1.0")
+                .send()
+                .await
+                .map_err(|e| ToolError::Execution(format!("Failed to fetch URL: {}", e)))?;
+
+            if resp.status().is_redirection() {
+                let location = resp
+                    .headers()
+                    .get(LOCATION)
+                    .ok_or_else(|| {
+                        ToolError::Execution(
+                            "Redirect response missing Location header".to_string(),
+                        )
+                    })?
+                    .to_str()
+                    .map_err(|e| {
+                        ToolError::Execution(format!("Invalid redirect Location: {}", e))
+                    })?;
+
+                current_url = current_url
+                    .join(location)
+                    .map_err(|e| ToolError::Execution(format!("Invalid redirect URL: {}", e)))?;
+                continue;
+            }
+
+            if !resp.status().is_success() {
+                return Err(ToolError::Execution(format!("HTTP {}", resp.status())));
+            }
+
+            let html = resp
+                .text()
+                .await
+                .map_err(|e| ToolError::Execution(format!("Failed to read response: {}", e)))?;
+
+            // Simple HTML to text extraction (strip tags)
+            let text = html_to_text(&html);
+
+            // Truncate if too long
+            let text = if text.len() > 50_000 {
+                format!("{}...\n(content truncated)", &text[..50_000])
+            } else {
+                text
+            };
+
+            return Ok(text);
         }
 
-        let html = resp
-            .text()
-            .await
-            .map_err(|e| ToolError::Execution(format!("Failed to read response: {}", e)))?;
-
-        // Simple HTML to text extraction (strip tags)
-        let text = html_to_text(&html);
-
-        // Truncate if too long
-        let text = if text.len() > 50_000 {
-            format!("{}...\n(content truncated)", &text[..50_000])
-        } else {
-            text
-        };
-
-        Ok(text)
+        Err(ToolError::Execution(format!(
+            "Too many redirects (max {})",
+            self.max_redirects
+        )))
     }
 }
 
@@ -305,5 +351,16 @@ mod tests {
 
         let plain = "no html tags";
         assert_eq!(html_to_text(plain), "no html tags");
+    }
+
+    #[tokio::test]
+    async fn test_web_fetch_blocks_private_ip_urls() {
+        let tool = WebFetchTool::new();
+        let result = tool.execute(json!({"url": "http://127.0.0.1:8080"})).await;
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ToolError::PermissionDenied(_)
+        ));
     }
 }

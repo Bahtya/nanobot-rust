@@ -1709,7 +1709,7 @@ mod tests {
         loader.load_all().unwrap();
         assert_eq!(loader.cache_size(), 2);
 
-        let removed = loader.invalidate_by_name("a");
+        let _removed = loader.invalidate_by_name("a");
         // invalidate_by_name doesn't return, but the effect should be visible
         assert!(loader.get("a").is_none());
         assert!(loader.get("b").is_some());
@@ -2348,7 +2348,7 @@ mod tests {
         // Give watcher time to detect change.
         std::thread::sleep(std::time::Duration::from_millis(500));
 
-        let reloaded = loader.reload_changed().unwrap();
+        let _reloaded = loader.reload_changed().unwrap();
         assert!(
             !reloaded.is_empty() || loader.get("watched").unwrap().instructions == "Updated.",
             "Expected reload after modification"

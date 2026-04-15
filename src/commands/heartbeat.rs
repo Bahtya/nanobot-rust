@@ -9,7 +9,7 @@ use nanobot_tools::builtins;
 use tracing::info;
 
 /// Run the heartbeat service.
-pub async fn run(config: Config) -> Result<()> {
+pub async fn run(config: Config, dangerous: bool) -> Result<()> {
     info!("Starting nanobot heartbeat service...");
 
     let home = nanobot_config::paths::get_nanobot_home()?;
@@ -19,7 +19,7 @@ pub async fn run(config: Config) -> Result<()> {
     info!("Providers: {:?}", provider_registry.provider_names());
 
     let tool_registry = nanobot_tools::ToolRegistry::new();
-    builtins::register_all(&tool_registry);
+    builtins::register_all_with_config(&tool_registry, builtins::BuiltinsConfig { dangerous });
     info!("Tools: {:?}", tool_registry.tool_names());
 
     let heartbeat = HeartbeatService::with_registries(

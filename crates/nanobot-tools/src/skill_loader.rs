@@ -2348,7 +2348,7 @@ mod tests {
         // Give watcher time to detect change.
         std::thread::sleep(std::time::Duration::from_millis(500));
 
-        let _reloaded = loader.reload_changed().unwrap();
+        let reloaded = loader.reload_changed().unwrap();
         assert!(
             !reloaded.is_empty() || loader.get("watched").unwrap().instructions == "Updated.",
             "Expected reload after modification"

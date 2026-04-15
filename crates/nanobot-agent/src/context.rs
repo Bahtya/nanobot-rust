@@ -255,7 +255,9 @@ mod tests {
         }
         tools.register(DummyTool);
 
-        let prompt = builder.build_system_prompt(&msg, &session, &tools, None).unwrap();
+        let prompt = builder
+            .build_system_prompt(&msg, &session, &tools, None)
+            .unwrap();
         assert!(prompt.contains("## Available Tools"));
         assert!(prompt.contains("dummy_tool"));
     }
@@ -269,7 +271,9 @@ mod tests {
         let session = Session::new("test:key".to_string());
         let tools = ToolRegistry::new();
 
-        let prompt = builder.build_system_prompt(&msg, &session, &tools, None).unwrap();
+        let prompt = builder
+            .build_system_prompt(&msg, &session, &tools, None)
+            .unwrap();
         assert!(prompt.contains("CustomBot"));
     }
 
@@ -282,7 +286,9 @@ mod tests {
         let session = Session::new("test:key".to_string());
         let tools = ToolRegistry::new();
 
-        let prompt = builder.build_system_prompt(&msg, &session, &tools, None).unwrap();
+        let prompt = builder
+            .build_system_prompt(&msg, &session, &tools, None)
+            .unwrap();
         assert!(prompt.contains("## Additional Instructions"));
         assert!(prompt.contains("Always respond in French"));
     }
@@ -370,7 +376,9 @@ mod tests {
         let session = Session::new("test:key".to_string());
         let tools = ToolRegistry::new();
 
-        let prompt = builder.build_system_prompt(&msg, &session, &tools, None).unwrap();
+        let prompt = builder
+            .build_system_prompt(&msg, &session, &tools, None)
+            .unwrap();
         assert!(prompt.contains("## Skills"));
         assert!(prompt.contains("deploy-k8s"));
         assert!(prompt.contains("Apply manifests"));
@@ -385,7 +393,9 @@ mod tests {
         let session = Session::new("test:key".to_string());
         let tools = ToolRegistry::new();
 
-        let prompt = builder.build_system_prompt(&msg, &session, &tools, None).unwrap();
+        let prompt = builder
+            .build_system_prompt(&msg, &session, &tools, None)
+            .unwrap();
         // Empty skill section should not appear
         assert!(!prompt.contains("## Skills"));
     }
@@ -398,7 +408,9 @@ mod tests {
         let session = Session::new("test:key".to_string());
         let tools = ToolRegistry::new();
 
-        let prompt = builder.build_system_prompt(&msg, &session, &tools, None).unwrap();
+        let prompt = builder
+            .build_system_prompt(&msg, &session, &tools, None)
+            .unwrap();
         // No skill section injected
         assert!(!prompt.contains("## Skills"));
     }

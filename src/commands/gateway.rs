@@ -57,11 +57,7 @@ async fn init_skill_registry(home: &Path) -> Arc<SkillRegistry> {
             }
         }
         Err(e) => {
-            tracing::warn!(
-                "Failed to load skills from {}: {}",
-                skills_dir.display(),
-                e
-            );
+            tracing::warn!("Failed to load skills from {}: {}", skills_dir.display(), e);
         }
     }
 
@@ -132,7 +128,10 @@ pub async fn run(config: Config, channels: Vec<String>) -> Result<()> {
                 al = al.with_memory_store(Arc::new(hot_store));
             }
             Err(e) => {
-                tracing::warn!("Failed to initialize memory store, continuing without memory: {}", e);
+                tracing::warn!(
+                    "Failed to initialize memory store, continuing without memory: {}",
+                    e
+                );
             }
         }
 

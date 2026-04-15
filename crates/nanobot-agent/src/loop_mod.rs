@@ -21,7 +21,7 @@ use nanobot_bus::events::{AgentEvent, InboundMessage, OutboundMessage, StreamChu
 use nanobot_bus::MessageBus;
 use nanobot_config::Config;
 use nanobot_heartbeat::HeartbeatService;
-use nanobot_learning::event::{LearningEvent, LearningEventBus, SkillOutcome, ErrorClassification};
+use nanobot_learning::event::{ErrorClassification, LearningEvent, LearningEventBus, SkillOutcome};
 use nanobot_learning::prompt::PromptAssembler;
 use nanobot_memory::types::{MemoryCategory, MemoryEntry, MemoryQuery};
 use nanobot_memory::MemoryStore as AsyncMemoryStore;
@@ -196,7 +196,7 @@ impl AgentLoop {
             }
         }
 
-        self.session_manager.save_session(&session)?;
+        self.session_manager.save_session_async(&session);
 
         // Recall relevant memories from the memory store (if configured).
         let recalled_memory = self.recall_memories(&msg.content).await;
@@ -226,7 +226,9 @@ impl AgentLoop {
                     }
                 }
 
-                let skill_sections = self.build_skill_sections_from_matches(registry, &matches).await;
+                let skill_sections = self
+                    .build_skill_sections_from_matches(registry, &matches)
+                    .await;
                 if !skill_sections.is_empty() {
                     context_builder = context_builder.with_skills(skill_sections);
                 }
@@ -238,7 +240,6 @@ impl AgentLoop {
                 &self.tool_registry,
                 recalled_memory.as_deref(),
             )?
-
         };
 
         // Set up event callback for this session
@@ -307,7 +308,7 @@ impl AgentLoop {
                     info!("Notes compacted for session {}", session_key);
                 }
 
-                self.session_manager.save_session(&session)?;
+                self.session_manager.save_session_async(&session);
 
                 // Store conversation memory (non-blocking — failures are logged, not propagated)
                 self.store_conversation_memory(&msg.content, &result.content)
@@ -424,9 +425,7 @@ impl AgentLoop {
                 for scored in &results {
                     lines.push(format!(
                         "- {} [{}] (confidence: {:.2})",
-                        scored.entry.content,
-                        scored.entry.category,
-                        scored.entry.confidence
+                        scored.entry.content, scored.entry.category, scored.entry.confidence
                     ));
                 }
                 // Emit MemoryAccessed (hit)
@@ -493,13 +492,10 @@ impl AgentLoop {
     /// matched skill's steps and pitfalls to build a prompt section. Returns
     /// an empty string if no skills match.
     #[cfg(test)]
-    async fn build_skill_sections(
-        &self,
-        registry: &SkillRegistry,
-        query: &str,
-    ) -> String {
+    async fn build_skill_sections(&self, registry: &SkillRegistry, query: &str) -> String {
         let matches = registry.match_skills(query).await;
-        self.build_skill_sections_from_matches(registry, &matches).await
+        self.build_skill_sections_from_matches(registry, &matches)
+            .await
     }
 
     /// Build the prompt section from pre-matched skills.
@@ -523,7 +519,10 @@ impl AgentLoop {
                 let skill = skill_guard.read();
                 let manifest = skill.manifest();
 
-                parts.push(format!("\n### {} ({})\n", manifest.name, manifest.description));
+                parts.push(format!(
+                    "\n### {} ({})\n",
+                    manifest.name, manifest.description
+                ));
 
                 if !manifest.steps.is_empty() {
                     parts.push("**Steps:**".to_string());
@@ -763,6 +762,11 @@ impl HeartbeatHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::stream;
+    use nanobot_core::{MessageType, Platform};
+    use nanobot_providers::base::{BoxStream, CompletionChunk};
+    use nanobot_providers::{CompletionRequest, CompletionResponse, LlmProvider};
+    use std::collections::HashMap;
 
     fn make_agent_loop() -> AgentLoop {
         let config = Config::default();
@@ -777,6 +781,67 @@ mod tests {
             session_manager,
             provider_registry,
             tool_registry,
+        )
+    }
+
+    struct MockProvider {
+        response: String,
+    }
+
+    #[async_trait::async_trait]
+    impl LlmProvider for MockProvider {
+        fn name(&self) -> &str {
+            "mock"
+        }
+
+        async fn complete(
+            &self,
+            _request: CompletionRequest,
+        ) -> anyhow::Result<CompletionResponse> {
+            Ok(CompletionResponse {
+                content: Some(self.response.clone()),
+                tool_calls: None,
+                usage: None,
+                finish_reason: Some("stop".to_string()),
+            })
+        }
+
+        async fn complete_stream(&self, _request: CompletionRequest) -> anyhow::Result<BoxStream> {
+            Ok(Box::pin(stream::iter(vec![Ok(CompletionChunk {
+                delta: Some(self.response.clone()),
+                tool_call_deltas: None,
+                usage: None,
+                done: true,
+            })])))
+        }
+
+        fn supports_model(&self, _model: &str) -> bool {
+            true
+        }
+    }
+
+    fn make_agent_loop_with_provider(response: &str) -> AgentLoop {
+        let mut config = Config::default();
+        config.agent.model = "mock-model".to_string();
+
+        let bus = MessageBus::new();
+        let session_dir = tempfile::tempdir().unwrap();
+        let session_manager = SessionManager::new(session_dir.path().to_path_buf()).unwrap();
+        let mut provider_registry = ProviderRegistry::new();
+        provider_registry.register(
+            "mock",
+            MockProvider {
+                response: response.to_string(),
+            },
+        );
+        provider_registry.set_default("mock");
+
+        AgentLoop::new(
+            config,
+            bus,
+            session_manager,
+            provider_registry,
+            ToolRegistry::new(),
         )
     }
 
@@ -887,6 +952,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_process_message_publishes_reply_when_persistence_fails() {
+        let al = make_agent_loop_with_provider("reply delivered");
+        let al = AgentLoop {
+            session_manager: Arc::new(
+                (*al.session_manager)
+                    .clone()
+                    .with_persist_hook(Arc::new(|_| Err(anyhow::anyhow!("mock disk error")))),
+            ),
+            ..al
+        };
+        let mut outbound_rx = al.bus.consume_outbound().await.unwrap();
+
+        let msg = InboundMessage {
+            channel: Platform::Telegram,
+            sender_id: "user-1".to_string(),
+            chat_id: "chat-1".to_string(),
+            content: "hello".to_string(),
+            media: vec![],
+            metadata: HashMap::new(),
+            source: None,
+            message_type: MessageType::Text,
+            message_id: Some("msg-1".to_string()),
+            reply_to: None,
+            timestamp: chrono::Local::now(),
+        };
+
+        al.process_message(msg).await.unwrap();
+
+        let outbound = tokio::time::timeout(std::time::Duration::from_secs(5), outbound_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(outbound.chat_id, "chat-1");
+        assert_eq!(outbound.reply_to.as_deref(), Some("msg-1"));
+        assert_eq!(outbound.content, "reply delivered");
+    }
+
+    #[tokio::test]
     async fn test_spawn_heartbeat_registers_checks() {
         let mut config = Config::default();
         config.heartbeat.enabled = true;
@@ -975,9 +1079,9 @@ mod tests {
 
     // ── Memory integration tests ────────────────────────────────
 
+    use nanobot_memory::types::ScoredEntry;
     use nanobot_memory::HotStore;
     use nanobot_memory::MemoryError;
-    use nanobot_memory::types::ScoredEntry;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     /// Mock memory store for deterministic testing.
@@ -1220,9 +1324,7 @@ mod tests {
             .await
             .unwrap();
         store
-            .store(
-                MemoryEntry::new("Project uses Rust", MemoryCategory::Fact).with_confidence(0.8),
-            )
+            .store(MemoryEntry::new("Project uses Rust", MemoryCategory::Fact).with_confidence(0.8))
             .await
             .unwrap();
 
@@ -1290,14 +1392,19 @@ mod tests {
         let skill = CompiledSkill::new(
             SkillManifestBuilder::new("deploy-k8s", "1.0.0", "Deploy to Kubernetes")
                 .triggers(vec!["deploy".to_string(), "k8s".to_string()])
-                .steps(vec!["Apply manifests".to_string(), "Verify rollout".to_string()])
+                .steps(vec![
+                    "Apply manifests".to_string(),
+                    "Verify rollout".to_string(),
+                ])
                 .pitfalls(vec!["Do not deploy on Fridays".to_string()])
                 .build(),
         );
         registry.register(skill).await.unwrap();
 
         let al = make_agent_loop();
-        let sections = al.build_skill_sections(&registry, "please deploy to k8s").await;
+        let sections = al
+            .build_skill_sections(&registry, "please deploy to k8s")
+            .await;
 
         assert!(sections.contains("deploy-k8s"));
         assert!(sections.contains("Apply manifests"));
@@ -1319,7 +1426,9 @@ mod tests {
         registry.register(skill).await.unwrap();
 
         let al = make_agent_loop();
-        let sections = al.build_skill_sections(&registry, "what is the weather today").await;
+        let sections = al
+            .build_skill_sections(&registry, "what is the weather today")
+            .await;
 
         assert!(sections.is_empty());
     }
@@ -1330,21 +1439,29 @@ mod tests {
         use nanobot_skill::skill::CompiledSkill;
 
         let registry = SkillRegistry::new();
-        registry.register(CompiledSkill::new(
-            SkillManifestBuilder::new("deploy-k8s", "1.0.0", "Deploy to Kubernetes")
-                .triggers(vec!["deploy".to_string(), "k8s".to_string()])
-                .steps(vec!["Apply k8s manifests".to_string()])
-                .build(),
-        )).await.unwrap();
-        registry.register(CompiledSkill::new(
-            SkillManifestBuilder::new("deploy-docker", "1.0.0", "Deploy with Docker")
-                .triggers(vec!["deploy".to_string(), "docker".to_string()])
-                .steps(vec!["Build image".to_string()])
-                .build(),
-        )).await.unwrap();
+        registry
+            .register(CompiledSkill::new(
+                SkillManifestBuilder::new("deploy-k8s", "1.0.0", "Deploy to Kubernetes")
+                    .triggers(vec!["deploy".to_string(), "k8s".to_string()])
+                    .steps(vec!["Apply k8s manifests".to_string()])
+                    .build(),
+            ))
+            .await
+            .unwrap();
+        registry
+            .register(CompiledSkill::new(
+                SkillManifestBuilder::new("deploy-docker", "1.0.0", "Deploy with Docker")
+                    .triggers(vec!["deploy".to_string(), "docker".to_string()])
+                    .steps(vec!["Build image".to_string()])
+                    .build(),
+            ))
+            .await
+            .unwrap();
 
         let al = make_agent_loop();
-        let sections = al.build_skill_sections(&registry, "deploy with docker").await;
+        let sections = al
+            .build_skill_sections(&registry, "deploy with docker")
+            .await;
 
         assert!(sections.contains("deploy-docker"));
         assert!(sections.contains("deploy-k8s"));
@@ -1391,7 +1508,12 @@ mod tests {
         // Verify the event was published
         let event = rx.try_recv().expect("should receive MemoryAccessed event");
         match event {
-            LearningEvent::MemoryAccessed { query, results_count, hit, .. } => {
+            LearningEvent::MemoryAccessed {
+                query,
+                results_count,
+                hit,
+                ..
+            } => {
                 assert!(query.contains("rust"));
                 assert!(results_count > 0);
                 assert!(hit);
@@ -1433,7 +1555,9 @@ mod tests {
         // Verify event was emitted with hit=false
         let event = rx.try_recv().expect("should receive event");
         match event {
-            LearningEvent::MemoryAccessed { hit, results_count, .. } => {
+            LearningEvent::MemoryAccessed {
+                hit, results_count, ..
+            } => {
                 assert!(!hit);
                 assert_eq!(results_count, 0);
             }
@@ -1482,7 +1606,11 @@ mod tests {
 
         let event = rx.try_recv().expect("should receive SkillUsed event");
         match event {
-            LearningEvent::SkillUsed { skill_name, match_score, .. } => {
+            LearningEvent::SkillUsed {
+                skill_name,
+                match_score,
+                ..
+            } => {
                 assert_eq!(skill_name, "deploy-k8s");
                 assert!(match_score > 0.0);
             }

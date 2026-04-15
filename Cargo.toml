@@ -73,7 +73,6 @@ base64 = "0.22"
 url = "2"
 ipnet = "2"
 dirs = "5"
-toml = "0.8"
 
 # ─── Main binary package ────────────────────────────────────
 

@@ -1,0 +1,5637 @@
+# White Hat Factual Inventory
+
+Generated from workspace sources and Cargo test/doctest listing.
+
+## Workspace
+
+Crates: nanobot-agent, nanobot-api, nanobot-bus, nanobot-channels, nanobot-config, nanobot-core, nanobot-cron, nanobot-daemon, nanobot-heartbeat, nanobot-learning, nanobot-memory, nanobot-providers, nanobot-security, nanobot-session, nanobot-skill, nanobot-tools
+
+## 1. Public API Inventory
+
+### nanobot-agent
+
+Count: 163
+
+- `pub enum CompactionStrategy` — `crates/nanobot-agent/src/compaction.rs:17`
+- `pub struct CompactionConfig` — `crates/nanobot-agent/src/compaction.rs:26`
+- `pub fn threshold_tokens(&self) -> usize` — `crates/nanobot-agent/src/compaction.rs:50`
+- `pub fn needs_compaction(&self, session: &Session) -> bool` — `crates/nanobot-agent/src/compaction.rs:55`
+- `pub struct CompactionResult` — `crates/nanobot-agent/src/compaction.rs:72`
+- `pub fn compact_session( session: &mut Session, config: &CompactionConfig, ) -> Result<CompactionResult>` — `crates/nanobot-agent/src/compaction.rs:90`
+- `pub struct ContextBuilder<'a>` — `crates/nanobot-agent/src/context.rs:16`
+- `pub fn new(config: &'a Config) -> Self` — `crates/nanobot-agent/src/context.rs:26`
+- `pub fn with_skills(mut self, sections: String) -> Self` — `crates/nanobot-agent/src/context.rs:35`
+- `pub fn with_prompt_assembler(mut self, assembler: PromptAssembler) -> Self` — `crates/nanobot-agent/src/context.rs:44`
+- `pub fn build_system_prompt( &self, msg: &InboundMessage, session: &Session, tool_registry: &ToolRegistry, recalled_memory: Option<&str>, ) -> Result<String>` — `crates/nanobot-agent/src/context.rs:54`
+- `pub struct ContextBudgetConfig` — `crates/nanobot-agent/src/context_budget.rs:39`
+- `pub fn with_total_tokens(total_tokens: usize) -> Self` — `crates/nanobot-agent/src/context_budget.rs:70`
+- `pub fn validate(&self) -> bool` — `crates/nanobot-agent/src/context_budget.rs:78`
+- `pub struct BudgetAllocation` — `crates/nanobot-agent/src/context_budget.rs:90`
+- `pub struct ContextBudget` — `crates/nanobot-agent/src/context_budget.rs:114`
+- `pub fn new(config: ContextBudgetConfig) -> Self` — `crates/nanobot-agent/src/context_budget.rs:131`
+- `pub fn with_total_tokens(total_tokens: usize) -> Self` — `crates/nanobot-agent/src/context_budget.rs:138`
+- `pub fn allocation(&self) -> &BudgetAllocation` — `crates/nanobot-agent/src/context_budget.rs:143`
+- `pub fn config(&self) -> &ContextBudgetConfig` — `crates/nanobot-agent/src/context_budget.rs:148`
+- `pub fn estimate_tokens(text: &str) -> usize` — `crates/nanobot-agent/src/context_budget.rs:172`
+- `pub fn estimate_messages_tokens(messages: &[SessionEntry]) -> usize` — `crates/nanobot-agent/src/context_budget.rs:177`
+- `pub fn fits_history(&self, messages: &[SessionEntry]) -> bool` — `crates/nanobot-agent/src/context_budget.rs:185`
+- `pub fn fits_system(&self, system_prompt: &str) -> bool` — `crates/nanobot-agent/src/context_budget.rs:191`
+- `pub fn fits_notes(&self, notes_text: &str) -> bool` — `crates/nanobot-agent/src/context_budget.rs:196`
+- `pub struct PruneResult` — `crates/nanobot-agent/src/context_budget.rs:207`
+- `pub fn prune_messages( messages: &[SessionEntry], budget_tokens: usize, keep_recent: usize, ) -> PruneResult` — `crates/nanobot-agent/src/context_budget.rs:235`
+- `pub struct ProviderHealthCheck` — `crates/nanobot-agent/src/heartbeat.rs:23`
+- `pub fn new(registry: nanobot_providers::ProviderRegistry) -> Self` — `crates/nanobot-agent/src/heartbeat.rs:29`
+- `pub struct SessionStoreHealthCheck` — `crates/nanobot-agent/src/heartbeat.rs:87`
+- `pub fn new(manager: nanobot_session::SessionManager) -> Self` — `crates/nanobot-agent/src/heartbeat.rs:93`
+- `pub struct ChannelHealthCheck` — `crates/nanobot-agent/src/heartbeat.rs:131`
+- `pub fn new( channel_names: Vec<String>, connected: Arc<parking_lot::RwLock<std::collections::HashSet<String>>>, ) -> Self` — `crates/nanobot-agent/src/heartbeat.rs:142`
+- `pub fn empty() -> Self` — `crates/nanobot-agent/src/heartbeat.rs:153`
+- `pub struct BusHealthCheck` — `crates/nanobot-agent/src/heartbeat.rs:228`
+- `pub fn new(bus: nanobot_bus::MessageBus) -> Self` — `crates/nanobot-agent/src/heartbeat.rs:234`
+- `pub struct ToolRegistryHealthCheck` — `crates/nanobot-agent/src/heartbeat.rs:268`
+- `pub fn new(registry: nanobot_tools::ToolRegistry) -> Self` — `crates/nanobot-agent/src/heartbeat.rs:274`
+- `pub struct AgentLoopHealthCheck` — `crates/nanobot-agent/src/heartbeat.rs:312`
+- `pub fn new( last_activity: Arc<parking_lot::RwLock<Option<chrono::DateTime<chrono::Local>>>>, max_idle_secs: u64, ) -> Self` — `crates/nanobot-agent/src/heartbeat.rs:324`
+- `pub fn record_activity(&self)` — `crates/nanobot-agent/src/heartbeat.rs:335`
+- `pub struct ConfigStoreHealthCheck` — `crates/nanobot-agent/src/heartbeat.rs:399`
+- `pub fn new(config_path: std::path::PathBuf, data_dir: std::path::PathBuf) -> Self` — `crates/nanobot-agent/src/heartbeat.rs:408`
+- `pub fn from_default_paths() -> Self` — `crates/nanobot-agent/src/heartbeat.rs:418`
+- `pub struct LivenessCheck` — `crates/nanobot-agent/src/heartbeat.rs:495`
+- `pub fn new( last_tick: Arc<parking_lot::RwLock<Option<chrono::DateTime<chrono::Local>>>>, max_stale_secs: u64, ) -> Self` — `crates/nanobot-agent/src/heartbeat.rs:507`
+- `pub fn record_tick(&self)` — `crates/nanobot-agent/src/heartbeat.rs:518`
+- `pub struct ReadinessCheck` — `crates/nanobot-agent/src/heartbeat.rs:582`
+- `pub fn new( required_providers: Vec<String>, registry: nanobot_providers::ProviderRegistry, ) -> Self` — `crates/nanobot-agent/src/heartbeat.rs:594`
+- `pub struct DeepConfigStoreHealthCheck` — `crates/nanobot-agent/src/heartbeat.rs:660`
+- `pub fn new(config_path: std::path::PathBuf, data_dir: std::path::PathBuf) -> Self` — `crates/nanobot-agent/src/heartbeat.rs:667`
+- `pub struct HookContext` — `crates/nanobot-agent/src/hook.rs:13`
+- `pub trait AgentHook: Send + Sync` — `crates/nanobot-agent/src/hook.rs:20`
+- `pub struct CompositeHook` — `crates/nanobot-agent/src/hook.rs:33`
+- `pub fn new() -> Self` — `crates/nanobot-agent/src/hook.rs:38`
+- `pub fn add(&mut self, hook: Arc<dyn AgentHook>)` — `crates/nanobot-agent/src/hook.rs:43`
+- `pub async fn emit(&self, context: &HookContext)` — `crates/nanobot-agent/src/hook.rs:48`
+- `pub struct AgentLoop` — `crates/nanobot-agent/src/loop_mod.rs:39`
+- `pub fn new( config: Config, bus: MessageBus, session_manager: SessionManager, provider_registry: ProviderRegistry, tool_registry: ToolRegistry, ) -> Self` — `crates/nanobot-agent/src/loop_mod.rs:66`
+- `pub async fn run(&self) -> Result<()>` — `crates/nanobot-agent/src/loop_mod.rs:93`
+- `pub async fn process_message(&self, msg: InboundMessage) -> Result<()>` — `crates/nanobot-agent/src/loop_mod.rs:147`
+- `pub async fn stop(&self)` — `crates/nanobot-agent/src/loop_mod.rs:470`
+- `pub fn hooks(&self) -> Arc<RwLock<CompositeHook>>` — `crates/nanobot-agent/src/loop_mod.rs:476`
+- `pub fn connected_channels(&self) -> Arc<parking_lot::RwLock<HashSet<String>>>` — `crates/nanobot-agent/src/loop_mod.rs:481`
+- `pub fn record_activity(&self)` — `crates/nanobot-agent/src/loop_mod.rs:486`
+- `pub fn with_compaction_config(mut self, config: CompactionConfig) -> Self` — `crates/nanobot-agent/src/loop_mod.rs:646`
+- `pub fn with_skill_registry(mut self, registry: Arc<SkillRegistry>) -> Self` — `crates/nanobot-agent/src/loop_mod.rs:655`
+- `pub fn skill_registry(&self) -> Option<&Arc<SkillRegistry>>` — `crates/nanobot-agent/src/loop_mod.rs:661`
+- `pub fn with_subagent_manager(mut self, manager: Arc<SubAgentManager>) -> Self` — `crates/nanobot-agent/src/loop_mod.rs:669`
+- `pub fn with_memory_store(mut self, store: Arc<dyn AsyncMemoryStore>) -> Self` — `crates/nanobot-agent/src/loop_mod.rs:678`
+- `pub fn with_learning_bus(mut self, bus: LearningEventBus) -> Self` — `crates/nanobot-agent/src/loop_mod.rs:688`
+- `pub fn learning_bus(&self) -> Option<&LearningEventBus>` — `crates/nanobot-agent/src/loop_mod.rs:694`
+- `pub fn with_prompt_assembler(mut self, assembler: PromptAssembler) -> Self` — `crates/nanobot-agent/src/loop_mod.rs:703`
+- `pub fn prompt_assembler(&self) -> Option<&PromptAssembler>` — `crates/nanobot-agent/src/loop_mod.rs:709`
+- `pub fn subagent_manager(&self) -> Option<&Arc<SubAgentManager>>` — `crates/nanobot-agent/src/loop_mod.rs:714`
+- `pub struct HeartbeatHandle` — `crates/nanobot-agent/src/loop_mod.rs:747`
+- `pub async fn stop(self)` — `crates/nanobot-agent/src/loop_mod.rs:755`
+- `pub struct MemoryStore` — `crates/nanobot-agent/src/memory.rs:11`
+- `pub fn new(memory_dir: PathBuf) -> Result<Self>` — `crates/nanobot-agent/src/memory.rs:16`
+- `pub fn read_memory(&self) -> Result<String>` — `crates/nanobot-agent/src/memory.rs:24`
+- `pub fn write_memory(&self, content: &str) -> Result<()>` — `crates/nanobot-agent/src/memory.rs:34`
+- `pub fn read_user_memory(&self, user_id: &str) -> Result<String>` — `crates/nanobot-agent/src/memory.rs:41`
+- `pub fn write_user_memory(&self, user_id: &str, content: &str) -> Result<()>` — `crates/nanobot-agent/src/memory.rs:52`
+- `pub fn get_context(&self, user_id: Option<&str>) -> Result<String>` — `crates/nanobot-agent/src/memory.rs:60`
+- `pub struct Consolidator` — `crates/nanobot-agent/src/memory.rs:80`
+- `pub fn new(memory_store: MemoryStore) -> Self` — `crates/nanobot-agent/src/memory.rs:85`
+- `pub async fn consolidate(&self, session_key: &str, summary: &str) -> Result<()>` — `crates/nanobot-agent/src/memory.rs:90`
+- `pub enum NoteFormat` — `crates/nanobot-agent/src/notes.rs:50`
+- `pub fn tag(&self) -> &'static str` — `crates/nanobot-agent/src/notes.rs:63`
+- `pub fn label(&self) -> &'static str` — `crates/nanobot-agent/src/notes.rs:73`
+- `pub fn all() -> &'static [NoteFormat]` — `crates/nanobot-agent/src/notes.rs:83`
+- `pub fn from_tag(tag: &str) -> Option<NoteFormat>` — `crates/nanobot-agent/src/notes.rs:95`
+- `pub struct NoteCompactionConfig` — `crates/nanobot-agent/src/notes.rs:120`
+- `pub fn new(max_notes: usize, keep_recent: usize) -> Self` — `crates/nanobot-agent/src/notes.rs:143`
+- `pub fn needs_compaction(&self, note_count: usize) -> bool` — `crates/nanobot-agent/src/notes.rs:152`
+- `pub struct NotesStore` — `crates/nanobot-agent/src/notes.rs:165`
+- `pub fn new(dir: PathBuf) -> Result<Self>` — `crates/nanobot-agent/src/notes.rs:171`
+- `pub fn save(&self, session_key: &str, notes: &[Note]) -> Result<()>` — `crates/nanobot-agent/src/notes.rs:191`
+- `pub fn load(&self, session_key: &str) -> Vec<Note>` — `crates/nanobot-agent/src/notes.rs:225`
+- `pub fn delete(&self, session_key: &str) -> Result<()>` — `crates/nanobot-agent/src/notes.rs:260`
+- `pub fn list_sessions(&self) -> Result<Vec<String>>` — `crates/nanobot-agent/src/notes.rs:270`
+- `pub struct NotesManager;` — `crates/nanobot-agent/src/notes.rs:300`
+- `pub fn save_note( session: &mut Session, title: String, content: String, tags: Vec<String>, ) -> Result<()>` — `crates/nanobot-agent/src/notes.rs:304`
+- `pub fn load_notes(session: &Session) -> Vec<Note>` — `crates/nanobot-agent/src/notes.rs:316`
+- `pub fn delete_note(session: &mut Session, title: &str) -> Result<bool>` — `crates/nanobot-agent/src/notes.rs:321`
+- `pub fn format_notes_context(session: &Session) -> Option<String>` — `crates/nanobot-agent/src/notes.rs:330`
+- `pub fn notes_by_tag(session: &Session, tag: &str) -> Vec<Note>` — `crates/nanobot-agent/src/notes.rs:335`
+- `pub fn search_notes(session: &Session, query: &str) -> Vec<Note>` — `crates/nanobot-agent/src/notes.rs:340`
+- `pub fn save_structured_note( session: &mut Session, title: String, content: String, format: NoteFormat, extra_tags: Vec<String>, ) -> Result<()>` — `crates/nanobot-agent/src/notes.rs:351`
+- `pub fn notes_by_format(session: &Session, format: NoteFormat) -> Vec<Note>` — `crates/nanobot-agent/src/notes.rs:370`
+- `pub fn format_section(session: &Session, format: NoteFormat) -> Option<String>` — `crates/nanobot-agent/src/notes.rs:381`
+- `pub fn format_structured_context(session: &Session) -> Option<String>` — `crates/nanobot-agent/src/notes.rs:398`
+- `pub fn persist_to_store(store: &NotesStore, session: &Session) -> Result<()>` — `crates/nanobot-agent/src/notes.rs:445`
+- `pub fn restore_from_store(store: &NotesStore, session: &mut Session) -> usize` — `crates/nanobot-agent/src/notes.rs:453`
+- `pub fn extract_notes_from_response(session: &mut Session, response: &str) -> usize` — `crates/nanobot-agent/src/notes.rs:482`
+- `pub fn compact_if_needed(session: &mut Session) -> bool` — `crates/nanobot-agent/src/notes.rs:525`
+- `pub fn compact_with_config(session: &mut Session, config: &NoteCompactionConfig) -> usize` — `crates/nanobot-agent/src/notes.rs:538`
+- `pub fn extract_compaction_notes( session: &mut Session, old_messages: &[nanobot_session::SessionEntry], ) -> usize` — `crates/nanobot-agent/src/notes.rs:657`
+- `pub struct AgentRunner` — `crates/nanobot-agent/src/runner.rs:22`
+- `pub fn new( config: Arc<Config>, providers: Arc<ProviderRegistry>, tools: Arc<ToolRegistry>, ) -> Self` — `crates/nanobot-agent/src/runner.rs:31`
+- `pub fn with_stream_tx(mut self, tx: broadcast::Sender<StreamChunk>) -> Self` — `crates/nanobot-agent/src/runner.rs:46`
+- `pub fn with_event_callback(mut self, cb: EventCallback) -> Self` — `crates/nanobot-agent/src/runner.rs:52`
+- `pub async fn run(&self, system_prompt: String, messages: Vec<Message>) -> Result<RunResult>` — `crates/nanobot-agent/src/runner.rs:75`
+- `pub struct SkillParameter` — `crates/nanobot-agent/src/skills.rs:19`
+- `pub struct Skill` — `crates/nanobot-agent/src/skills.rs:32`
+- `pub struct SkillsLoader` — `crates/nanobot-agent/src/skills.rs:76`
+- `pub fn new(skills_dir: PathBuf) -> Self` — `crates/nanobot-agent/src/skills.rs:84`
+- `pub fn load_all(&mut self) -> Result<Vec<Skill>>` — `crates/nanobot-agent/src/skills.rs:94`
+- `pub fn reload_changed(&mut self) -> Result<Vec<String>>` — `crates/nanobot-agent/src/skills.rs:125`
+- `pub fn skills(&self) -> &HashMap<String, Skill>` — `crates/nanobot-agent/src/skills.rs:174`
+- `pub fn skills_prompt(skills: &[Skill]) -> String` — `crates/nanobot-agent/src/skills.rs:222`
+- `pub fn skills_to_function_definitions( skills: &[Skill], ) -> Vec<nanobot_core::FunctionDefinition>` — `crates/nanobot-agent/src/skills.rs:239`
+- `pub struct SubAgentTask` — `crates/nanobot-agent/src/subagent.rs:31`
+- `pub struct SubAgentResult` — `crates/nanobot-agent/src/subagent.rs:54`
+- `pub struct ParallelSpawnConfig` — `crates/nanobot-agent/src/subagent.rs:79`
+- `pub enum TaskStatus` — `crates/nanobot-agent/src/subagent.rs:127`
+- `pub fn is_terminal(&self) -> bool` — `crates/nanobot-agent/src/subagent.rs:142`
+- `pub struct SpawnSummary` — `crates/nanobot-agent/src/subagent.rs:163`
+- `pub fn to_structured_notes(&self) -> String` — `crates/nanobot-agent/src/subagent.rs:182`
+- `pub struct SubAgentMessage` — `crates/nanobot-agent/src/subagent.rs:213`
+- `pub fn new(from: impl Into<String>, content: impl Into<String>) -> Self` — `crates/nanobot-agent/src/subagent.rs:224`
+- `pub struct SubAgentHandle` — `crates/nanobot-agent/src/subagent.rs:257`
+- `pub async fn status(&self) -> Option<SpawnStatus>` — `crates/nanobot-agent/src/subagent.rs:267`
+- `pub async fn cancel(&self) -> bool` — `crates/nanobot-agent/src/subagent.rs:273`
+- `pub struct SubAgentManagerConfig` — `crates/nanobot-agent/src/subagent.rs:282`
+- `pub struct SubAgentManager` — `crates/nanobot-agent/src/subagent.rs:303`
+- `pub fn new( config: Arc<Config>, providers: Arc<ProviderRegistry>, tools: Arc<ToolRegistry>, ) -> Self` — `crates/nanobot-agent/src/subagent.rs:321`
+- `pub fn with_manager_config( config: Arc<Config>, providers: Arc<ProviderRegistry>, tools: Arc<ToolRegistry>, manager_config: SubAgentManagerConfig, ) -> Self` — `crates/nanobot-agent/src/subagent.rs:336`
+- `pub async fn spawn(&self, name: &str, _description: &str) -> String` — `crates/nanobot-agent/src/subagent.rs:358`
+- `pub async fn complete(&self, id: &str, result: String)` — `crates/nanobot-agent/src/subagent.rs:376`
+- `pub async fn fail(&self, id: &str, error: String)` — `crates/nanobot-agent/src/subagent.rs:394`
+- `pub async fn get_status(&self, id: &str) -> Option<TaskStatus>` — `crates/nanobot-agent/src/subagent.rs:412`
+- `pub async fn list_tasks(&self) -> Vec<(String, String, TaskStatus)>` — `crates/nanobot-agent/src/subagent.rs:418`
+- `pub async fn spawn_single( self: &Arc<Self>, name: &str, prompt: &str, context: Option<String>, timeout_secs: Option<u64>, ) -> Result<SubAgentHandle>` — `crates/nanobot-agent/src/subagent.rs:437`
+- `pub async fn wait_for(&self, id: &str, timeout: Duration) -> Option<TaskStatus>` — `crates/nanobot-agent/src/subagent.rs:576`
+- `pub async fn terminate_all(&self) -> usize` — `crates/nanobot-agent/src/subagent.rs:598`
+- `pub async fn cleanup_completed(&self) -> usize` — `crates/nanobot-agent/src/subagent.rs:628`
+- `pub async fn active_count(&self) -> usize` — `crates/nanobot-agent/src/subagent.rs:636`
+- `pub async fn spawn_parallel( &self, tasks: Vec<SubAgentTask>, config: &ParallelSpawnConfig, ) -> Result<SpawnSummary>` — `crates/nanobot-agent/src/subagent.rs:649`
+- `pub async fn send_message(&self, task_id: &str, from: &str, content: String) -> bool` — `crates/nanobot-agent/src/subagent.rs:801`
+- `pub async fn broadcast_message(&self, from: &str, content: String) -> usize` — `crates/nanobot-agent/src/subagent.rs:818`
+- `pub async fn drain_messages(&self, task_id: &str) -> Vec<SubAgentMessage>` — `crates/nanobot-agent/src/subagent.rs:838`
+- `pub async fn mailbox_len(&self, task_id: &str) -> usize` — `crates/nanobot-agent/src/subagent.rs:848`
+
+### nanobot-api
+
+Count: 13
+
+- `pub struct AppState` — `crates/nanobot-api/src/server.rs:52`
+- `pub struct ApiServer` — `crates/nanobot-api/src/server.rs:66`
+- `pub fn new( config: Config, bus: MessageBus, session_manager: SessionManager, port_override: Option<u16>, ) -> Self` — `crates/nanobot-api/src/server.rs:103`
+- `pub fn with_registries( config: Config, bus: MessageBus, session_manager: SessionManager, provider_registry: ProviderRegistry, tool_registry: ToolRegistry, port_override: Option<u16>, ) -> Self` — `crates/nanobot-api/src/server.rs:128`
+- `pub fn with_api_key(mut self, key: String) -> Self` — `crates/nanobot-api/src/server.rs:152`
+- `pub fn router(&self) -> Router` — `crates/nanobot-api/src/server.rs:158`
+- `pub async fn run(&self) -> anyhow::Result<()>` — `crates/nanobot-api/src/server.rs:191`
+- `pub fn shutdown(&self)` — `crates/nanobot-api/src/server.rs:218`
+- `pub fn set_health_snapshot(&self, snapshot: HealthSnapshot)` — `crates/nanobot-api/src/server.rs:223`
+- `pub fn health_snapshot_lock(&self) -> Arc<parking_lot::RwLock<Option<HealthSnapshot>>>` — `crates/nanobot-api/src/server.rs:228`
+- `pub struct ChatCompletionRequest` — `crates/nanobot-api/src/server.rs:237`
+- `pub struct ApiMessage` — `crates/nanobot-api/src/server.rs:255`
+- `pub struct ChatCompletionResponse` — `crates/nanobot-api/src/server.rs:264`
+
+### nanobot-bus
+
+Count: 20
+
+- `pub struct InboundMessage` — `crates/nanobot-bus/src/events.rs:13`
+- `pub fn session_key(&self) -> String` — `crates/nanobot-bus/src/events.rs:57`
+- `pub struct OutboundMessage` — `crates/nanobot-bus/src/events.rs:71`
+- `pub struct StreamChunk` — `crates/nanobot-bus/src/events.rs:96`
+- `pub enum AgentEvent` — `crates/nanobot-bus/src/events.rs:109`
+- `pub struct MessageBus` — `crates/nanobot-bus/src/queue.rs:16`
+- `pub fn new() -> Self` — `crates/nanobot-bus/src/queue.rs:38`
+- `pub fn with_capacity(capacity: usize) -> Self` — `crates/nanobot-bus/src/queue.rs:43`
+- `pub async fn publish_inbound( &self, msg: InboundMessage, ) -> Result<(), mpsc::error::SendError<InboundMessage>>` — `crates/nanobot-bus/src/queue.rs:60`
+- `pub async fn consume_inbound(&self) -> Option<mpsc::Receiver<InboundMessage>>` — `crates/nanobot-bus/src/queue.rs:68`
+- `pub async fn publish_outbound( &self, msg: OutboundMessage, ) -> Result<(), mpsc::error::SendError<OutboundMessage>>` — `crates/nanobot-bus/src/queue.rs:73`
+- `pub async fn consume_outbound(&self) -> Option<mpsc::Receiver<OutboundMessage>>` — `crates/nanobot-bus/src/queue.rs:81`
+- `pub fn emit_event(&self, event: AgentEvent)` — `crates/nanobot-bus/src/queue.rs:86`
+- `pub fn subscribe_events(&self) -> broadcast::Receiver<AgentEvent>` — `crates/nanobot-bus/src/queue.rs:92`
+- `pub fn event_sender(&self) -> broadcast::Sender<AgentEvent>` — `crates/nanobot-bus/src/queue.rs:97`
+- `pub fn publish_stream_chunk(&self, chunk: StreamChunk)` — `crates/nanobot-bus/src/queue.rs:102`
+- `pub fn subscribe_stream(&self) -> broadcast::Receiver<StreamChunk>` — `crates/nanobot-bus/src/queue.rs:107`
+- `pub fn subscribe_stream_tx(&self) -> broadcast::Sender<StreamChunk>` — `crates/nanobot-bus/src/queue.rs:112`
+- `pub fn inbound_sender(&self) -> mpsc::Sender<InboundMessage>` — `crates/nanobot-bus/src/queue.rs:117`
+- `pub fn outbound_sender(&self) -> mpsc::Sender<OutboundMessage>` — `crates/nanobot-bus/src/queue.rs:122`
+
+### nanobot-channels
+
+Count: 74
+
+- `pub struct SendResult` — `crates/nanobot-channels/src/base.rs:10`
+- `pub struct ChatInfo` — `crates/nanobot-channels/src/base.rs:19`
+- `pub trait BaseChannel: Send + Sync` — `crates/nanobot-channels/src/base.rs:32`
+- `pub struct CommandResponse` — `crates/nanobot-channels/src/commands.rs:26`
+- `pub fn text(text: impl Into<String>) -> Self` — `crates/nanobot-channels/src/commands.rs:35`
+- `pub fn with_keyboard(text: impl Into<String>, keyboard: InlineKeyboardMarkup) -> Self` — `crates/nanobot-channels/src/commands.rs:43`
+- `pub fn matches_command(text: &str, command: &str) -> bool` — `crates/nanobot-channels/src/commands.rs:62`
+- `pub fn try_handle_command(text: &str) -> Option<CommandResponse>` — `crates/nanobot-channels/src/commands.rs:80`
+- `pub fn menu_keyboard() -> InlineKeyboardMarkup` — `crates/nanobot-channels/src/commands.rs:127`
+- `pub fn handle_menu_callback(action: &str) -> (String, Option<InlineKeyboardMarkup>)` — `crates/nanobot-channels/src/commands.rs:148`
+- `pub fn handle_settings_paged(config: &Config, page: usize) -> CommandResponse` — `crates/nanobot-channels/src/commands.rs:382`
+- `pub fn handle_settings_callback(page: usize) -> CommandResponse` — `crates/nanobot-channels/src/commands.rs:408`
+- `pub fn handle_history_page(page: usize) -> CommandResponse` — `crates/nanobot-channels/src/commands.rs:434`
+- `pub fn handle_history(session_keys: &[String], page: usize) -> CommandResponse` — `crates/nanobot-channels/src/commands.rs:565`
+- `pub fn handle_history_callback(session_keys: &[String], page: usize) -> CommandResponse` — `crates/nanobot-channels/src/commands.rs:595`
+- `pub fn handle_reset(session_key: &str) -> String` — `crates/nanobot-channels/src/commands.rs:895`
+- `pub fn handle_callback(data: &str) -> Option<CommandResponse>` — `crates/nanobot-channels/src/commands.rs:925`
+- `pub struct ChannelManager` — `crates/nanobot-channels/src/manager.rs:14`
+- `pub fn new(registry: ChannelRegistry, bus: MessageBus) -> Self` — `crates/nanobot-channels/src/manager.rs:37`
+- `pub async fn start_channel(&self, name: &str) -> Result<()>` — `crates/nanobot-channels/src/manager.rs:47`
+- `pub async fn stop_channel(&self, name: &str) -> Result<()>` — `crates/nanobot-channels/src/manager.rs:68`
+- `pub async fn handle_outbound(&self, msg: OutboundMessage)` — `crates/nanobot-channels/src/manager.rs:78`
+- `pub async fn run_outbound_consumer(&self)` — `crates/nanobot-channels/src/manager.rs:111`
+- `pub async fn stop_all(&self)` — `crates/nanobot-channels/src/manager.rs:130`
+- `pub fn start_typing(&self, session_key: &str)` — `crates/nanobot-channels/src/manager.rs:149`
+- `pub fn stop_typing(&self, session_key: &str)` — `crates/nanobot-channels/src/manager.rs:195`
+- `pub async fn run_typing_on_events(&self)` — `crates/nanobot-channels/src/manager.rs:207`
+- `pub async fn send_reaction_for_chat( &self, platform: &str, chat_id: &str, message_id: &str, emoji: &str, )` — `crates/nanobot-channels/src/manager.rs:240`
+- `pub fn running_channel_names(&self) -> Vec<String>` — `crates/nanobot-channels/src/manager.rs:256`
+- `pub struct DiscordChannel` — `crates/nanobot-channels/src/platforms/discord.rs:291`
+- `pub fn new() -> Self` — `crates/nanobot-channels/src/platforms/discord.rs:333`
+- `pub fn with_token_and_url(token: String, base_url: String) -> Self` — `crates/nanobot-channels/src/platforms/discord.rs:348`
+- `pub fn set_event_sender(&mut self, tx: tokio::sync::broadcast::Sender<AgentEvent>)` — `crates/nanobot-channels/src/platforms/discord.rs:365`
+- `pub async fn edit_message( &self, channel_id: &str, message_id: &str, content: &str, ) -> Result<SendResult>` — `crates/nanobot-channels/src/platforms/discord.rs:1190`
+- `pub async fn delete_message(&self, channel_id: &str, message_id: &str) -> Result<SendResult>` — `crates/nanobot-channels/src/platforms/discord.rs:1243`
+- `pub struct InlineKeyboardButton` — `crates/nanobot-channels/src/platforms/telegram.rs:212`
+- `pub struct InlineKeyboardMarkup` — `crates/nanobot-channels/src/platforms/telegram.rs:222`
+- `pub struct InlineKeyboardBuilder` — `crates/nanobot-channels/src/platforms/telegram.rs:238`
+- `pub fn new() -> Self` — `crates/nanobot-channels/src/platforms/telegram.rs:245`
+- `pub fn button(mut self, text: &str, callback_data: &str) -> Self` — `crates/nanobot-channels/src/platforms/telegram.rs:250`
+- `pub fn url_button(mut self, text: &str, url: &str) -> Self` — `crates/nanobot-channels/src/platforms/telegram.rs:260`
+- `pub fn new_row(mut self) -> Self` — `crates/nanobot-channels/src/platforms/telegram.rs:270`
+- `pub fn row_pair( mut self, left_text: &str, left_data: &str, right_text: &str, right_data: &str, ) -> Self` — `crates/nanobot-channels/src/platforms/telegram.rs:279`
+- `pub fn confirm_cancel(prefix: &str) -> Self` — `crates/nanobot-channels/src/platforms/telegram.rs:302`
+- `pub fn pagination(prefix: &str, page: usize, total_pages: usize) -> Self` — `crates/nanobot-channels/src/platforms/telegram.rs:312`
+- `pub fn build(mut self) -> InlineKeyboardMarkup` — `crates/nanobot-channels/src/platforms/telegram.rs:339`
+- `pub struct CallbackAction` — `crates/nanobot-channels/src/platforms/telegram.rs:358`
+- `pub fn parse(data: &str) -> Option<Self>` — `crates/nanobot-channels/src/platforms/telegram.rs:371`
+- `pub struct CallbackContext` — `crates/nanobot-channels/src/platforms/telegram.rs:397`
+- `pub enum CallbackResponse` — `crates/nanobot-channels/src/platforms/telegram.rs:414`
+- `pub struct CallbackRouter` — `crates/nanobot-channels/src/platforms/telegram.rs:454`
+- `pub fn new() -> Self` — `crates/nanobot-channels/src/platforms/telegram.rs:460`
+- `pub fn register<F, Fut>(&mut self, prefix: &str, handler: F) where F: Fn(CallbackContext) -> Fut + Send + Sync + 'static, Fut: Future<Output = CallbackResponse> + Send + 'static,` — `crates/nanobot-channels/src/platforms/telegram.rs:471`
+- `pub async fn dispatch(&self, ctx: CallbackContext) -> Option<CallbackResponse>` — `crates/nanobot-channels/src/platforms/telegram.rs:486`
+- `pub fn has_handler(&self, prefix: &str) -> bool` — `crates/nanobot-channels/src/platforms/telegram.rs:498`
+- `pub fn handler_count(&self) -> usize` — `crates/nanobot-channels/src/platforms/telegram.rs:503`
+- `pub struct TelegramChannel` — `crates/nanobot-channels/src/platforms/telegram.rs:519`
+- `pub fn new() -> Self` — `crates/nanobot-channels/src/platforms/telegram.rs:566`
+- `pub fn with_token_and_url(token: String, base_url: String) -> Self` — `crates/nanobot-channels/src/platforms/telegram.rs:581`
+- `pub fn router(&self) -> Arc<tokio::sync::Mutex<CallbackRouter>>` — `crates/nanobot-channels/src/platforms/telegram.rs:1257`
+- `pub fn set_session_keys(&self, keys: Vec<String>)` — `crates/nanobot-channels/src/platforms/telegram.rs:1265`
+- `pub async fn edit_message_text( &self, chat_id: &str, message_id: &str, text: &str, reply_markup: Option<serde_json::Value>, ) -> Result<SendResult>` — `crates/nanobot-channels/src/platforms/telegram.rs:1559`
+- `pub async fn edit_message_reply_markup( &self, chat_id: &str, message_id: &str, reply_markup: Option<serde_json::Value>, ) -> Result<SendResult>` — `crates/nanobot-channels/src/platforms/telegram.rs:1647`
+- `pub async fn send_message_with_keyboard( &self, chat_id: &str, text: &str, keyboard: &InlineKeyboardMarkup, reply_to: Option<&str>, ) -> Result<SendResult>` — `crates/nanobot-channels/src/platforms/telegram.rs:1731`
+- `pub async fn answer_callback_query( &self, callback_query_id: &str, text: Option<&str>, show_alert: bool, ) -> Result<()>` — `crates/nanobot-channels/src/platforms/telegram.rs:1815`
+- `pub struct WebSocketChannel` — `crates/nanobot-channels/src/platforms/websocket.rs:98`
+- `pub fn new() -> Self` — `crates/nanobot-channels/src/platforms/websocket.rs:113`
+- `pub fn with_addr(addr: String) -> Self` — `crates/nanobot-channels/src/platforms/websocket.rs:124`
+- `pub fn client_count(&self) -> usize` — `crates/nanobot-channels/src/platforms/websocket.rs:135`
+- `pub struct ChannelRegistry` — `crates/nanobot-channels/src/registry.rs:9`
+- `pub fn new() -> Self` — `crates/nanobot-channels/src/registry.rs:14`
+- `pub fn register( &mut self, name: &str, factory: impl Fn() -> Box<dyn BaseChannel> + Send + Sync + 'static, )` — `crates/nanobot-channels/src/registry.rs:31`
+- `pub fn create_channel(&self, name: &str) -> Result<Box<dyn BaseChannel>>` — `crates/nanobot-channels/src/registry.rs:40`
+- `pub fn channel_names(&self) -> Vec<String>` — `crates/nanobot-channels/src/registry.rs:48`
+
+### nanobot-config
+
+Count: 84
+
+- `pub fn load_config(config_path: Option<&Path>) -> Result<Config>` — `crates/nanobot-config/src/loader.rs:15`
+- `pub fn expand_env_vars(input: &str) -> String` — `crates/nanobot-config/src/loader.rs:44`
+- `pub fn save_config(config: &Config, path: &Path) -> Result<()>` — `crates/nanobot-config/src/loader.rs:58`
+- `pub fn migrate_config(config: &mut Config) -> Result<()>` — `crates/nanobot-config/src/migration.rs:9`
+- `pub fn get_nanobot_home() -> Result<PathBuf>` — `crates/nanobot-config/src/paths.rs:11`
+- `pub fn get_data_dir() -> Result<PathBuf>` — `crates/nanobot-config/src/paths.rs:21`
+- `pub fn get_media_dir(channel: Option<&str>) -> Result<PathBuf>` — `crates/nanobot-config/src/paths.rs:29`
+- `pub fn get_cron_dir() -> Result<PathBuf>` — `crates/nanobot-config/src/paths.rs:40`
+- `pub fn get_sessions_dir() -> Result<PathBuf>` — `crates/nanobot-config/src/paths.rs:48`
+- `pub fn get_config_path() -> Result<PathBuf>` — `crates/nanobot-config/src/paths.rs:58`
+- `pub fn get_memory_dir() -> Result<PathBuf>` — `crates/nanobot-config/src/paths.rs:64`
+- `pub fn get_skills_dir() -> Result<PathBuf>` — `crates/nanobot-config/src/paths.rs:72`
+- `pub fn get_workspace_path(config_workspace: Option<&str>) -> Result<PathBuf>` — `crates/nanobot-config/src/paths.rs:80`
+- `pub fn get_templates_dir() -> Result<PathBuf>` — `crates/nanobot-config/src/paths.rs:91`
+- `pub struct MigrationOptions` — `crates/nanobot-config/src/python_migrate.rs:34`
+- `pub fn dry_run() -> Self` — `crates/nanobot-config/src/python_migrate.rs:60`
+- `pub fn with_output(path: impl Into<std::path::PathBuf>) -> Self` — `crates/nanobot-config/src/python_migrate.rs:68`
+- `pub struct MigrationResult` — `crates/nanobot-config/src/python_migrate.rs:82`
+- `pub fn summary(&self) -> String` — `crates/nanobot-config/src/python_migrate.rs:93`
+- `pub struct MigrationReport` — `crates/nanobot-config/src/python_migrate.rs:133`
+- `pub fn mapped_count(&self) -> usize` — `crates/nanobot-config/src/python_migrate.rs:156`
+- `pub fn unmapped_count(&self) -> usize` — `crates/nanobot-config/src/python_migrate.rs:161`
+- `pub fn notes_count(&self) -> usize` — `crates/nanobot-config/src/python_migrate.rs:166`
+- `pub fn migrate_from_python( python_home: &Path, options: &MigrationOptions, ) -> Result<MigrationResult>` — `crates/nanobot-config/src/python_migrate.rs:219`
+- `pub fn migrate_from_str(content: &str) -> Result<MigrationResult>` — `crates/nanobot-config/src/python_migrate.rs:317`
+- `pub struct PythonConfig` — `crates/nanobot-config/src/python_schema.rs:13`
+- `pub struct PythonProviders` — `crates/nanobot-config/src/python_schema.rs:46`
+- `pub struct PythonProviderEntry` — `crates/nanobot-config/src/python_schema.rs:87`
+- `pub struct PythonAzureOpenAIEntry` — `crates/nanobot-config/src/python_schema.rs:103`
+- `pub struct PythonChannels` — `crates/nanobot-config/src/python_schema.rs:124`
+- `pub struct PythonTelegramConfig` — `crates/nanobot-config/src/python_schema.rs:169`
+- `pub struct PythonDiscordConfig` — `crates/nanobot-config/src/python_schema.rs:186`
+- `pub struct PythonSlackConfig` — `crates/nanobot-config/src/python_schema.rs:212`
+- `pub struct PythonMatrixConfig` — `crates/nanobot-config/src/python_schema.rs:234`
+- `pub struct PythonEmailConfig` — `crates/nanobot-config/src/python_schema.rs:250`
+- `pub struct PythonDingtalkConfig` — `crates/nanobot-config/src/python_schema.rs:268`
+- `pub struct PythonFeishuConfig` — `crates/nanobot-config/src/python_schema.rs:280`
+- `pub struct PythonWecomConfig` — `crates/nanobot-config/src/python_schema.rs:292`
+- `pub struct PythonWeixinConfig` — `crates/nanobot-config/src/python_schema.rs:306`
+- `pub struct PythonQQConfig` — `crates/nanobot-config/src/python_schema.rs:318`
+- `pub struct PythonAgents` — `crates/nanobot-config/src/python_schema.rs:329`
+- `pub struct PythonAgentDefaults` — `crates/nanobot-config/src/python_schema.rs:338`
+- `pub struct PythonHeartbeat` — `crates/nanobot-config/src/python_schema.rs:371`
+- `pub struct PythonSecurity` — `crates/nanobot-config/src/python_schema.rs:381`
+- `pub struct PythonDream` — `crates/nanobot-config/src/python_schema.rs:391`
+- `pub struct Config` — `crates/nanobot-config/src/schema.rs:12`
+- `pub struct ProvidersConfig` — `crates/nanobot-config/src/schema.rs:99`
+- `pub struct ProviderEntry` — `crates/nanobot-config/src/schema.rs:141`
+- `pub struct AzureOpenAIProviderEntry` — `crates/nanobot-config/src/schema.rs:160`
+- `pub struct ChannelsConfig` — `crates/nanobot-config/src/schema.rs:178`
+- `pub struct TelegramConfig` — `crates/nanobot-config/src/schema.rs:220`
+- `pub struct DiscordConfig` — `crates/nanobot-config/src/schema.rs:240`
+- `pub struct SlackConfig` — `crates/nanobot-config/src/schema.rs:257`
+- `pub struct MatrixConfig` — `crates/nanobot-config/src/schema.rs:272`
+- `pub struct WhatsappConfig` — `crates/nanobot-config/src/schema.rs:289`
+- `pub struct EmailConfig` — `crates/nanobot-config/src/schema.rs:298`
+- `pub struct DingtalkConfig` — `crates/nanobot-config/src/schema.rs:318`
+- `pub struct FeishuConfig` — `crates/nanobot-config/src/schema.rs:331`
+- `pub struct WecomConfig` — `crates/nanobot-config/src/schema.rs:344`
+- `pub struct WeixinConfig` — `crates/nanobot-config/src/schema.rs:363`
+- `pub struct QQConfig` — `crates/nanobot-config/src/schema.rs:380`
+- `pub struct MochatConfig` — `crates/nanobot-config/src/schema.rs:395`
+- `pub struct AgentDefaults` — `crates/nanobot-config/src/schema.rs:406`
+- `pub struct DreamConfig` — `crates/nanobot-config/src/schema.rs:458`
+- `pub struct HeartbeatConfig` — `crates/nanobot-config/src/schema.rs:485`
+- `pub struct CronConfig` — `crates/nanobot-config/src/schema.rs:507`
+- `pub struct SecurityConfig` — `crates/nanobot-config/src/schema.rs:534`
+- `pub struct ApiConfig` — `crates/nanobot-config/src/schema.rs:551`
+- `pub struct DaemonConfig` — `crates/nanobot-config/src/schema.rs:613`
+- `pub struct CustomProviderConfig` — `crates/nanobot-config/src/schema.rs:671`
+- `pub struct McpServerConfig` — `crates/nanobot-config/src/schema.rs:694`
+- `pub enum Severity` — `crates/nanobot-config/src/validate.rs:33`
+- `pub struct ValidationFinding` — `crates/nanobot-config/src/validate.rs:51`
+- `pub struct ValidationReport` — `crates/nanobot-config/src/validate.rs:68`
+- `pub fn findings(&self) -> &[ValidationFinding]` — `crates/nanobot-config/src/validate.rs:96`
+- `pub fn errors(&self) -> Vec<&ValidationFinding>` — `crates/nanobot-config/src/validate.rs:101`
+- `pub fn warnings(&self) -> Vec<&ValidationFinding>` — `crates/nanobot-config/src/validate.rs:109`
+- `pub fn is_valid(&self) -> bool` — `crates/nanobot-config/src/validate.rs:117`
+- `pub fn len(&self) -> usize` — `crates/nanobot-config/src/validate.rs:122`
+- `pub fn is_empty(&self) -> bool` — `crates/nanobot-config/src/validate.rs:127`
+- `pub fn validate(config: &Config) -> ValidationReport` — `crates/nanobot-config/src/validate.rs:149`
+- `pub fn fill_defaults(config: &mut Config) -> Vec<String>` — `crates/nanobot-config/src/validate.rs:177`
+- `pub fn validate_and_fill(config: &mut Config) -> (ValidationReport, Vec<String>)` — `crates/nanobot-config/src/validate.rs:229`
+- `pub fn validate_raw_env_vars(raw_yaml: &str) -> Vec<ValidationFinding>` — `crates/nanobot-config/src/validate.rs:248`
+
+### nanobot-core
+
+Count: 17
+
+- `pub enum NanobotError` — `crates/nanobot-core/src/error.rs:7`
+- `pub enum Platform` — `crates/nanobot-core/src/types.rs:8`
+- `pub fn as_str(&self) -> &'static str` — `crates/nanobot-core/src/types.rs:47`
+- `pub enum MessageType` — `crates/nanobot-core/src/types.rs:79`
+- `pub struct MediaAttachment` — `crates/nanobot-core/src/types.rs:103`
+- `pub enum MessageRole` — `crates/nanobot-core/src/types.rs:123`
+- `pub struct Message` — `crates/nanobot-core/src/types.rs:136`
+- `pub struct ToolCall` — `crates/nanobot-core/src/types.rs:154`
+- `pub struct FunctionCall` — `crates/nanobot-core/src/types.rs:166`
+- `pub struct Usage` — `crates/nanobot-core/src/types.rs:175`
+- `pub struct ToolDefinition` — `crates/nanobot-core/src/types.rs:186`
+- `pub struct FunctionDefinition` — `crates/nanobot-core/src/types.rs:196`
+- `pub struct RunResult` — `crates/nanobot-core/src/types.rs:209`
+- `pub struct SessionSource` — `crates/nanobot-core/src/types.rs:222`
+- `pub fn session_key(&self) -> String` — `crates/nanobot-core/src/types.rs:253`
+- `pub enum ChatType` — `crates/nanobot-core/src/types.rs:264`
+- `pub enum ProcessingOutcome` — `crates/nanobot-core/src/types.rs:277`
+
+### nanobot-cron
+
+Count: 33
+
+- `pub struct CronService` — `crates/nanobot-cron/src/service.rs:25`
+- `pub fn new(cron_dir: PathBuf) -> Result<Self>` — `crates/nanobot-cron/src/service.rs:35`
+- `pub fn with_bus(cron_dir: PathBuf, bus: MessageBus) -> Result<Self>` — `crates/nanobot-cron/src/service.rs:65`
+- `pub fn with_state_store( cron_dir: PathBuf, state_store: Box<dyn CronStateStore>, ) -> Result<Self>` — `crates/nanobot-cron/src/service.rs:72`
+- `pub fn add_job( &self, schedule: CronSchedule, payload: CronPayload, name: Option<String>, ) -> Result<CronJob>` — `crates/nanobot-cron/src/service.rs:158`
+- `pub fn add_job_with_priority( &self, schedule: CronSchedule, payload: CronPayload, name: Option<String>, priority: u32, ) -> Result<CronJob>` — `crates/nanobot-cron/src/service.rs:171`
+- `pub fn update_job( &self, job_id: &str, schedule: Option<CronSchedule>, payload: Option<CronPayload>, name: Option<String>, priority: Option<u32>, ) -> Result<Option<CronJob>>` — `crates/nanobot-cron/src/service.rs:207`
+- `pub fn remove_job(&self, job_id: &str) -> Result<bool>` — `crates/nanobot-cron/src/service.rs:249`
+- `pub fn pause_job(&self, job_id: &str) -> Result<bool>` — `crates/nanobot-cron/src/service.rs:265`
+- `pub fn resume_job(&self, job_id: &str) -> Result<bool>` — `crates/nanobot-cron/src/service.rs:288`
+- `pub fn list_jobs(&self) -> Vec<CronJob>` — `crates/nanobot-cron/src/service.rs:311`
+- `pub fn get_job(&self, job_id: &str) -> Option<CronJob>` — `crates/nanobot-cron/src/service.rs:316`
+- `pub fn tick(&self) -> Vec<CronJob>` — `crates/nanobot-cron/src/service.rs:326`
+- `pub fn mark_completed(&self, job_id: &str, result: Option<String>)` — `crates/nanobot-cron/src/service.rs:398`
+- `pub async fn run(&self) -> Result<()>` — `crates/nanobot-cron/src/service.rs:424`
+- `pub async fn stop(&self)` — `crates/nanobot-cron/src/service.rs:456`
+- `pub async fn is_running(&self) -> bool` — `crates/nanobot-cron/src/service.rs:461`
+- `pub fn get_job_state(&self, job_id: &str) -> Option<CronJobState>` — `crates/nanobot-cron/src/service.rs:466`
+- `pub fn list_job_states(&self) -> Vec<(CronJob, CronJobState)>` — `crates/nanobot-cron/src/service.rs:471`
+- `pub fn upcoming_from_expression( expr: &str, count: usize, ) -> Result<Vec<chrono::DateTime<chrono::Utc>>>` — `crates/nanobot-cron/src/service.rs:580`
+- `pub trait CronStateStore: Send + Sync` — `crates/nanobot-cron/src/state_store.rs:13`
+- `pub struct FileStateStore` — `crates/nanobot-cron/src/state_store.rs:36`
+- `pub fn new(path: PathBuf) -> Result<Self>` — `crates/nanobot-cron/src/state_store.rs:45`
+- `pub struct MemoryStateStore` — `crates/nanobot-cron/src/state_store.rs:107`
+- `pub fn new() -> Self` — `crates/nanobot-cron/src/state_store.rs:113`
+- `pub enum ScheduleKind` — `crates/nanobot-cron/src/types.rs:9`
+- `pub struct CronSchedule` — `crates/nanobot-cron/src/types.rs:20`
+- `pub struct CronPayload` — `crates/nanobot-cron/src/types.rs:43`
+- `pub struct CronRunRecord` — `crates/nanobot-cron/src/types.rs:62`
+- `pub enum JobState` — `crates/nanobot-cron/src/types.rs:77`
+- `pub struct CronJob` — `crates/nanobot-cron/src/types.rs:88`
+- `pub struct CronStore` — `crates/nanobot-cron/src/types.rs:137`
+- `pub struct CronJobState` — `crates/nanobot-cron/src/types.rs:147`
+
+### nanobot-daemon
+
+Count: 13
+
+- `pub fn daemonize(working_dir: &str, log_file: Option<&str>) -> Result<()>` — `crates/nanobot-daemon/src/daemonize.rs:40`
+- `pub fn setup_file_logging(log_dir: &str, level: &str) -> Result<LogGuard>` — `crates/nanobot-daemon/src/logging.rs:34`
+- `pub struct PidFile` — `crates/nanobot-daemon/src/pid_file.rs:24`
+- `pub fn create(path: &str) -> anyhow::Result<Self>` — `crates/nanobot-daemon/src/pid_file.rs:47`
+- `pub fn read_pid(path: &str) -> anyhow::Result<Option<i32>>` — `crates/nanobot-daemon/src/pid_file.rs:90`
+- `pub fn clean(self) -> anyhow::Result<()>` — `crates/nanobot-daemon/src/pid_file.rs:109`
+- `pub fn path(&self) -> &str` — `crates/nanobot-daemon/src/pid_file.rs:122`
+- `pub fn is_process_running(pid: i32) -> bool` — `crates/nanobot-daemon/src/pid_file.rs:131`
+- `pub enum ShutdownSignal` — `crates/nanobot-daemon/src/signal.rs:17`
+- `pub async fn wait_for_signal() -> ShutdownSignal` — `crates/nanobot-daemon/src/signal.rs:36`
+- `pub fn send_sigterm(pid: i32) -> Result<()>` — `crates/nanobot-daemon/src/signal.rs:69`
+- `pub fn install_early_sighup_handler()` — `crates/nanobot-daemon/src/signal.rs:82`
+- `pub fn send_sigterm_and_wait(pid: i32, timeout_secs: u64) -> Result<()>` — `crates/nanobot-daemon/src/signal.rs:100`
+
+### nanobot-heartbeat
+
+Count: 40
+
+- `pub struct HeartbeatService` — `crates/nanobot-heartbeat/src/service.rs:33`
+- `pub fn new(config: nanobot_config::Config) -> Self` — `crates/nanobot-heartbeat/src/service.rs:45`
+- `pub fn with_data_dir(config: nanobot_config::Config, data_dir: PathBuf) -> Self` — `crates/nanobot-heartbeat/src/service.rs:64`
+- `pub fn with_registries( config: nanobot_config::Config, _providers: nanobot_providers::ProviderRegistry, _tools: nanobot_tools::ToolRegistry, _sessions: nanobot_session::SessionManager, ) -> Self` — `crates/nanobot-heartbeat/src/service.rs:85`
+- `pub fn set_bus(&mut self, bus: MessageBus)` — `crates/nanobot-heartbeat/src/service.rs:95`
+- `pub fn register_check(&self, check: Arc<dyn HealthCheck>)` — `crates/nanobot-heartbeat/src/service.rs:100`
+- `pub fn deregister_check(&self, name: &str)` — `crates/nanobot-heartbeat/src/service.rs:105`
+- `pub fn with_failures_before_restart(mut self, n: usize) -> Self` — `crates/nanobot-heartbeat/src/service.rs:110`
+- `pub async fn run(&self) -> Result<()>` — `crates/nanobot-heartbeat/src/service.rs:116`
+- `pub async fn run_checks(&self) -> Result<HealthSnapshot>` — `crates/nanobot-heartbeat/src/service.rs:176`
+- `pub async fn stop(&self)` — `crates/nanobot-heartbeat/src/service.rs:388`
+- `pub async fn is_running(&self) -> bool` — `crates/nanobot-heartbeat/src/service.rs:393`
+- `pub fn state(&self) -> HeartbeatState` — `crates/nanobot-heartbeat/src/service.rs:398`
+- `pub fn interval(&self) -> Duration` — `crates/nanobot-heartbeat/src/service.rs:403`
+- `pub fn registered_checks(&self) -> Vec<String>` — `crates/nanobot-heartbeat/src/service.rs:408`
+- `pub fn component_failure_state(&self, name: &str) -> Option<ComponentFailureState>` — `crates/nanobot-heartbeat/src/service.rs:418`
+- `pub fn last_snapshot(&self) -> Option<HealthSnapshot>` — `crates/nanobot-heartbeat/src/service.rs:428`
+- `pub async fn generate_full_report(&self) -> Result<FullHealthReport>` — `crates/nanobot-heartbeat/src/service.rs:439`
+- `pub fn cached_full_report(&self) -> Option<FullHealthReport>` — `crates/nanobot-heartbeat/src/service.rs:448`
+- `pub enum CheckStatus` — `crates/nanobot-heartbeat/src/types.rs:11`
+- `pub struct HealthCheckResult` — `crates/nanobot-heartbeat/src/types.rs:24`
+- `pub struct HealthSnapshot` — `crates/nanobot-heartbeat/src/types.rs:37`
+- `pub fn from_checks(checks: Vec<HealthCheckResult>) -> Self` — `crates/nanobot-heartbeat/src/types.rs:50`
+- `pub fn failed_count(&self) -> usize` — `crates/nanobot-heartbeat/src/types.rs:62`
+- `pub fn degraded_count(&self) -> usize` — `crates/nanobot-heartbeat/src/types.rs:70`
+- `pub fn summary(&self) -> String` — `crates/nanobot-heartbeat/src/types.rs:80`
+- `pub struct HeartbeatState` — `crates/nanobot-heartbeat/src/types.rs:118`
+- `pub struct ComponentFailureState` — `crates/nanobot-heartbeat/src/types.rs:140`
+- `pub trait HealthCheck: Send + Sync` — `crates/nanobot-heartbeat/src/types.rs:165`
+- `pub struct HealthCheckRegistry` — `crates/nanobot-heartbeat/src/types.rs:174`
+- `pub fn new() -> Self` — `crates/nanobot-heartbeat/src/types.rs:180`
+- `pub fn register(&mut self, check: Arc<dyn HealthCheck>)` — `crates/nanobot-heartbeat/src/types.rs:185`
+- `pub fn deregister(&mut self, name: &str)` — `crates/nanobot-heartbeat/src/types.rs:196`
+- `pub fn checks(&self) -> &[Arc<dyn HealthCheck>]` — `crates/nanobot-heartbeat/src/types.rs:201`
+- `pub fn get(&self, name: &str) -> Option<&Arc<dyn HealthCheck>>` — `crates/nanobot-heartbeat/src/types.rs:206`
+- `pub fn len(&self) -> usize` — `crates/nanobot-heartbeat/src/types.rs:211`
+- `pub fn is_empty(&self) -> bool` — `crates/nanobot-heartbeat/src/types.rs:216`
+- `pub struct FullHealthReport` — `crates/nanobot-heartbeat/src/types.rs:234`
+- `pub struct ComponentReport` — `crates/nanobot-heartbeat/src/types.rs:261`
+- `pub fn from_snapshot(snapshot: &HealthSnapshot, state: &HeartbeatState) -> Self` — `crates/nanobot-heartbeat/src/types.rs:276`
+
+### nanobot-learning
+
+Count: 43
+
+- `pub struct LearningConfig` — `crates/nanobot-learning/src/config.rs:18`
+- `pub fn new() -> Self` — `crates/nanobot-learning/src/config.rs:60`
+- `pub fn event_log_file(&self) -> PathBuf` — `crates/nanobot-learning/src/config.rs:68`
+- `pub fn effective_log_dir(&self) -> PathBuf` — `crates/nanobot-learning/src/config.rs:74`
+- `pub fn validate(&self) -> Result<()>` — `crates/nanobot-learning/src/config.rs:84`
+- `pub enum ErrorClassification` — `crates/nanobot-learning/src/event.rs:17`
+- `pub enum SkillOutcome` — `crates/nanobot-learning/src/event.rs:33`
+- `pub enum LearningEvent` — `crates/nanobot-learning/src/event.rs:45`
+- `pub fn timestamp(&self) -> DateTime<Utc>` — `crates/nanobot-learning/src/event.rs:108`
+- `pub enum LearningAction` — `crates/nanobot-learning/src/event.rs:124`
+- `pub struct LearningEventBus` — `crates/nanobot-learning/src/event.rs:141`
+- `pub fn new() -> Self` — `crates/nanobot-learning/src/event.rs:147`
+- `pub fn with_capacity(capacity: usize) -> Self` — `crates/nanobot-learning/src/event.rs:152`
+- `pub fn publish(&self, event: LearningEvent) -> usize` — `crates/nanobot-learning/src/event.rs:161`
+- `pub fn subscribe(&self) -> broadcast::Receiver<LearningEvent>` — `crates/nanobot-learning/src/event.rs:169`
+- `pub fn sender(&self) -> broadcast::Sender<LearningEvent>` — `crates/nanobot-learning/src/event.rs:174`
+- `pub trait LearningEventHandler: Send + Sync` — `crates/nanobot-learning/src/processor.rs:18`
+- `pub struct ToolStats` — `crates/nanobot-learning/src/processor.rs:28`
+- `pub fn success_rate(&self) -> f64` — `crates/nanobot-learning/src/processor.rs:41`
+- `pub fn avg_duration_ms(&self) -> f64` — `crates/nanobot-learning/src/processor.rs:51`
+- `pub struct CorrectionStats` — `crates/nanobot-learning/src/processor.rs:62`
+- `pub struct ProcessorStats` — `crates/nanobot-learning/src/processor.rs:73`
+- `pub struct BasicEventProcessor` — `crates/nanobot-learning/src/processor.rs:84`
+- `pub fn new() -> Self` — `crates/nanobot-learning/src/processor.rs:90`
+- `pub fn stats(&self) -> ProcessorStats` — `crates/nanobot-learning/src/processor.rs:97`
+- `pub fn reset(&self)` — `crates/nanobot-learning/src/processor.rs:102`
+- `pub enum PromptSection` — `crates/nanobot-learning/src/prompt.rs:11`
+- `pub fn content(&self) -> &str` — `crates/nanobot-learning/src/prompt.rs:24`
+- `pub fn header(&self) -> &str` — `crates/nanobot-learning/src/prompt.rs:34`
+- `pub struct PromptAssembler` — `crates/nanobot-learning/src/prompt.rs:46`
+- `pub fn new() -> Self` — `crates/nanobot-learning/src/prompt.rs:53`
+- `pub fn with_separator(separator: impl Into<String>) -> Self` — `crates/nanobot-learning/src/prompt.rs:60`
+- `pub fn assemble(&self, sections: &[PromptSection]) -> String` — `crates/nanobot-learning/src/prompt.rs:71`
+- `pub struct EventLogHeader` — `crates/nanobot-learning/src/store.rs:18`
+- `pub struct EventStore` — `crates/nanobot-learning/src/store.rs:36`
+- `pub fn new(path: impl Into<PathBuf>, max_events: usize) -> Self` — `crates/nanobot-learning/src/store.rs:47`
+- `pub fn path(&self) -> &Path` — `crates/nanobot-learning/src/store.rs:55`
+- `pub async fn append(&self, event: &LearningEvent) -> Result<()>` — `crates/nanobot-learning/src/store.rs:60`
+- `pub async fn append_batch(&self, events: &[LearningEvent]) -> Result<()>` — `crates/nanobot-learning/src/store.rs:81`
+- `pub async fn read_all(&self) -> Result<Vec<LearningEvent>>` — `crates/nanobot-learning/src/store.rs:109`
+- `pub async fn read_range(&self, offset: usize, limit: usize) -> Result<Vec<LearningEvent>>` — `crates/nanobot-learning/src/store.rs:114`
+- `pub async fn count(&self) -> Result<usize>` — `crates/nanobot-learning/src/store.rs:149`
+- `pub async fn prune(&self) -> Result<()>` — `crates/nanobot-learning/src/store.rs:172`
+
+### nanobot-memory
+
+Count: 25
+
+- `pub struct MemoryConfig` — `crates/nanobot-memory/src/config.rs:19`
+- `pub fn for_test(temp_dir: &std::path::Path) -> Self` — `crates/nanobot-memory/src/config.rs:74`
+- `pub fn from_toml(toml_str: &str) -> crate::error::Result<Self>` — `crates/nanobot-memory/src/config.rs:84`
+- `pub fn to_toml(&self) -> crate::error::Result<String>` — `crates/nanobot-memory/src/config.rs:89`
+- `pub enum MemoryError` — `crates/nanobot-memory/src/error.rs:7`
+- `pub struct HotStore` — `crates/nanobot-memory/src/hot_store.rs:24`
+- `pub async fn new(config: &MemoryConfig) -> Result<Self>` — `crates/nanobot-memory/src/hot_store.rs:35`
+- `pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f64` — `crates/nanobot-memory/src/hot_store.rs:191`
+- `pub trait MemoryStore: Send + Sync` — `crates/nanobot-memory/src/store.rs:14`
+- `pub enum MemoryCategory` — `crates/nanobot-memory/src/types.rs:17`
+- `pub struct MemoryEntry` — `crates/nanobot-memory/src/types.rs:56`
+- `pub fn new(content: impl Into<String>, category: MemoryCategory) -> Self` — `crates/nanobot-memory/src/types.rs:78`
+- `pub fn with_confidence(mut self, confidence: f64) -> Self` — `crates/nanobot-memory/src/types.rs:93`
+- `pub fn with_embedding(mut self, embedding: Vec<f32>) -> Self` — `crates/nanobot-memory/src/types.rs:99`
+- `pub fn touch(&mut self)` — `crates/nanobot-memory/src/types.rs:105`
+- `pub struct ScoredEntry` — `crates/nanobot-memory/src/types.rs:113`
+- `pub struct MemoryQuery` — `crates/nanobot-memory/src/types.rs:122`
+- `pub fn new() -> Self` — `crates/nanobot-memory/src/types.rs:137`
+- `pub fn with_text(mut self, text: impl Into<String>) -> Self` — `crates/nanobot-memory/src/types.rs:145`
+- `pub fn with_category(mut self, category: MemoryCategory) -> Self` — `crates/nanobot-memory/src/types.rs:151`
+- `pub fn with_min_confidence(mut self, confidence: f64) -> Self` — `crates/nanobot-memory/src/types.rs:157`
+- `pub fn with_embedding(mut self, embedding: Vec<f32>) -> Self` — `crates/nanobot-memory/src/types.rs:163`
+- `pub fn with_limit(mut self, limit: usize) -> Self` — `crates/nanobot-memory/src/types.rs:169`
+- `pub struct WarmStore` — `crates/nanobot-memory/src/warm_store.rs:23`
+- `pub fn new(config: &MemoryConfig) -> Self` — `crates/nanobot-memory/src/warm_store.rs:34`
+
+### nanobot-providers
+
+Count: 79
+
+- `pub struct AnthropicConfig` — `crates/nanobot-providers/src/anthropic.rs:20`
+- `pub struct AnthropicProvider` — `crates/nanobot-providers/src/anthropic.rs:28`
+- `pub fn new(config: AnthropicConfig) -> anyhow::Result<Self>` — `crates/nanobot-providers/src/anthropic.rs:35`
+- `pub fn with_client(config: AnthropicConfig, client: Client) -> Self` — `crates/nanobot-providers/src/anthropic.rs:46`
+- `pub fn with_retry(config: AnthropicConfig, retry: RetryConfig) -> anyhow::Result<Self>` — `crates/nanobot-providers/src/anthropic.rs:55`
+- `pub fn with_client_and_retry( config: AnthropicConfig, client: Client, retry: RetryConfig, ) -> Self` — `crates/nanobot-providers/src/anthropic.rs:65`
+- `pub trait LlmProvider: Send + Sync` — `crates/nanobot-providers/src/base.rs:17`
+- `pub struct CompletionRequest` — `crates/nanobot-providers/src/base.rs:33`
+- `pub struct CompletionResponse` — `crates/nanobot-providers/src/base.rs:59`
+- `pub struct CompletionChunk` — `crates/nanobot-providers/src/base.rs:78`
+- `pub struct ToolCallDelta` — `crates/nanobot-providers/src/base.rs:98`
+- `pub struct MiddlewareConfig` — `crates/nanobot-providers/src/middleware.rs:38`
+- `pub fn default_unlimited() -> Self` — `crates/nanobot-providers/src/middleware.rs:59`
+- `pub fn no_retry_unlimited() -> Self` — `crates/nanobot-providers/src/middleware.rs:68`
+- `pub fn with_retry(retry: RetryConfig) -> Self` — `crates/nanobot-providers/src/middleware.rs:77`
+- `pub fn with_rate_limit(requests_per_minute: u64) -> Self` — `crates/nanobot-providers/src/middleware.rs:88`
+- `pub fn with_retry_and_rate_limit(retry: RetryConfig, requests_per_minute: u64) -> Self` — `crates/nanobot-providers/src/middleware.rs:102`
+- `pub fn with_circuit_breaker(self) -> Self` — `crates/nanobot-providers/src/middleware.rs:116`
+- `pub fn with_circuit_breaker_config(self, config: CircuitBreakerConfig) -> Self` — `crates/nanobot-providers/src/middleware.rs:124`
+- `pub fn from_retry_policy(policy: RetryPolicy) -> Self` — `crates/nanobot-providers/src/middleware.rs:135`
+- `pub struct ProviderMiddleware` — `crates/nanobot-providers/src/middleware.rs:150`
+- `pub fn new(provider: impl LlmProvider + 'static, config: MiddlewareConfig) -> Self` — `crates/nanobot-providers/src/middleware.rs:157`
+- `pub fn from_arc(provider: Arc<dyn LlmProvider>, config: MiddlewareConfig) -> Self` — `crates/nanobot-providers/src/middleware.rs:165`
+- `pub struct OpenAiCompatConfig` — `crates/nanobot-providers/src/openai_compat.rs:21`
+- `pub struct OpenAiCompatProvider` — `crates/nanobot-providers/src/openai_compat.rs:32`
+- `pub fn new(config: OpenAiCompatConfig) -> anyhow::Result<Self>` — `crates/nanobot-providers/src/openai_compat.rs:39`
+- `pub fn with_client(config: OpenAiCompatConfig, client: Client) -> Self` — `crates/nanobot-providers/src/openai_compat.rs:49`
+- `pub fn with_retry(config: OpenAiCompatConfig, retry: RetryConfig) -> anyhow::Result<Self>` — `crates/nanobot-providers/src/openai_compat.rs:58`
+- `pub fn with_client_and_retry( config: OpenAiCompatConfig, client: Client, retry: RetryConfig, ) -> Self` — `crates/nanobot-providers/src/openai_compat.rs:68`
+- `pub trait RateLimiter: Send + Sync` — `crates/nanobot-providers/src/rate_limit.rs:16`
+- `pub struct TokenBucket` — `crates/nanobot-providers/src/rate_limit.rs:43`
+- `pub fn new(capacity: u64, refill_interval: Duration) -> Self` — `crates/nanobot-providers/src/rate_limit.rs:64`
+- `pub fn with_refill(capacity: u64, refill_amount: u64, refill_interval: Duration) -> Self` — `crates/nanobot-providers/src/rate_limit.rs:80`
+- `pub fn unlimited() -> Self` — `crates/nanobot-providers/src/rate_limit.rs:92`
+- `pub struct UnlimitedLimiter;` — `crates/nanobot-providers/src/rate_limit.rs:193`
+- `pub struct ProviderRegistry` — `crates/nanobot-providers/src/registry.rs:38`
+- `pub fn new() -> Self` — `crates/nanobot-providers/src/registry.rs:45`
+- `pub fn from_config(config: &Config) -> Result<Self>` — `crates/nanobot-providers/src/registry.rs:53`
+- `pub fn register(&mut self, name: &str, provider: impl LlmProvider + 'static)` — `crates/nanobot-providers/src/registry.rs:189`
+- `pub fn set_default(&mut self, name: &str)` — `crates/nanobot-providers/src/registry.rs:194`
+- `pub fn resolve_provider_name(&self, model: &str) -> Option<&str>` — `crates/nanobot-providers/src/registry.rs:201`
+- `pub fn get_provider(&self, model: &str) -> Option<Arc<dyn LlmProvider>>` — `crates/nanobot-providers/src/registry.rs:212`
+- `pub fn get_provider_by_name(&self, name: &str) -> Option<Arc<dyn LlmProvider>>` — `crates/nanobot-providers/src/registry.rs:223`
+- `pub fn provider_names(&self) -> Vec<String>` — `crates/nanobot-providers/src/registry.rs:228`
+- `pub struct RetryPolicy` — `crates/nanobot-providers/src/retry.rs:49`
+- `pub fn no_retries() -> Self` — `crates/nanobot-providers/src/retry.rs:89`
+- `pub fn with_max_retries(mut self, max: u32) -> Self` — `crates/nanobot-providers/src/retry.rs:102`
+- `pub fn with_base_delay(mut self, delay: Duration) -> Self` — `crates/nanobot-providers/src/retry.rs:108`
+- `pub fn with_max_delay(mut self, delay: Duration) -> Self` — `crates/nanobot-providers/src/retry.rs:114`
+- `pub fn with_jitter(mut self, enabled: bool) -> Self` — `crates/nanobot-providers/src/retry.rs:120`
+- `pub fn with_retryable_codes(mut self, codes: Vec<u16>) -> Self` — `crates/nanobot-providers/src/retry.rs:126`
+- `pub fn with_max_retries_503(mut self, max: u32) -> Self` — `crates/nanobot-providers/src/retry.rs:132`
+- `pub fn with_max_delay_503(mut self, delay: Duration) -> Self` — `crates/nanobot-providers/src/retry.rs:138`
+- `pub fn is_retryable(&self, status: u16) -> bool` — `crates/nanobot-providers/src/retry.rs:144`
+- `pub struct RetryConfig` — `crates/nanobot-providers/src/retry.rs:158`
+- `pub fn no_retries() -> Self` — `crates/nanobot-providers/src/retry.rs:185`
+- `pub fn with_max_retries(mut self, max: u32) -> Self` — `crates/nanobot-providers/src/retry.rs:196`
+- `pub struct CircuitBreakerConfig` — `crates/nanobot-providers/src/retry.rs:229`
+- `pub fn with_failure_threshold(mut self, threshold: u64) -> Self` — `crates/nanobot-providers/src/retry.rs:250`
+- `pub fn with_reset_timeout(mut self, timeout: Duration) -> Self` — `crates/nanobot-providers/src/retry.rs:256`
+- `pub fn with_success_threshold(mut self, threshold: u64) -> Self` — `crates/nanobot-providers/src/retry.rs:262`
+- `pub struct CircuitBreaker` — `crates/nanobot-providers/src/retry.rs:277`
+- `pub fn new(config: CircuitBreakerConfig) -> Self` — `crates/nanobot-providers/src/retry.rs:292`
+- `pub fn defaults() -> Self` — `crates/nanobot-providers/src/retry.rs:303`
+- `pub fn allow_request(&self) -> Result<(), String>` — `crates/nanobot-providers/src/retry.rs:311`
+- `pub fn record_success(&self)` — `crates/nanobot-providers/src/retry.rs:343`
+- `pub fn record_failure(&self)` — `crates/nanobot-providers/src/retry.rs:360`
+- `pub fn state_name(&self) -> &'static str` — `crates/nanobot-providers/src/retry.rs:387`
+- `pub fn failure_count(&self) -> u64` — `crates/nanobot-providers/src/retry.rs:397`
+- `pub fn success_count(&self) -> u64` — `crates/nanobot-providers/src/retry.rs:402`
+- `pub fn reset(&self)` — `crates/nanobot-providers/src/retry.rs:407`
+- `pub fn set_opened_at_for_test(&self, millis: u64)` — `crates/nanobot-providers/src/retry.rs:417`
+- `pub fn is_retryable_status(status: u16) -> bool` — `crates/nanobot-providers/src/retry.rs:445`
+- `pub fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<Duration>` — `crates/nanobot-providers/src/retry.rs:451`
+- `pub fn backoff_duration(base: Duration, attempt: u32, max_delay: Duration) -> Duration` — `crates/nanobot-providers/src/retry.rs:462`
+- `pub fn backoff_with_jitter(base: Duration, attempt: u32, max_delay: Duration) -> Duration` — `crates/nanobot-providers/src/retry.rs:474`
+- `pub async fn retry_with_backoff<F, Fut, T>(config: &RetryConfig, op: F) -> anyhow::Result<T> where F: Fn(u32) -> Fut, Fut: std::future::Future<Output = anyhow::Result<T>>,` — `crates/nanobot-providers/src/retry.rs:498`
+- `pub async fn retry_with_policy<F, Fut, T>( policy: &RetryPolicy, circuit_breaker: Option<&CircuitBreaker>, op: F, ) -> anyhow::Result<T> where F: Fn(u32) -> Fut, Fut: std::future::Future<Output = anyhow::Result<T>>,` — `crates/nanobot-providers/src/retry.rs:542`
+- `pub fn extract_status_code(msg: &str) -> Option<u16>` — `crates/nanobot-providers/src/retry.rs:633`
+
+### nanobot-security
+
+Count: 7
+
+- `pub struct SsrfGuard` — `crates/nanobot-security/src/network.rs:31`
+- `pub fn new() -> Self` — `crates/nanobot-security/src/network.rs:38`
+- `pub fn add_whitelist(&mut self, cidr: &str) -> Result<()>` — `crates/nanobot-security/src/network.rs:50`
+- `pub fn add_whitelists(&mut self, cidrs: &[String]) -> Result<()>` — `crates/nanobot-security/src/network.rs:60`
+- `pub fn is_ip_allowed(&self, ip: &IpAddr) -> bool` — `crates/nanobot-security/src/network.rs:68`
+- `pub fn validate_url(&self, url_str: &str) -> Result<()>` — `crates/nanobot-security/src/network.rs:80`
+- `pub fn contains_internal_urls(&self, text: &str) -> bool` — `crates/nanobot-security/src/network.rs:100`
+
+### nanobot-session
+
+Count: 52
+
+- `pub struct SessionManager` — `crates/nanobot-session/src/manager.rs:19`
+- `pub fn new(data_dir: PathBuf) -> Result<Self>` — `crates/nanobot-session/src/manager.rs:35`
+- `pub fn with_max_history(data_dir: PathBuf, max_history: usize) -> Result<Self>` — `crates/nanobot-session/src/manager.rs:49`
+- `pub fn get_or_create(&self, key: &str, source: Option<SessionSource>) -> Session` — `crates/nanobot-session/src/manager.rs:63`
+- `pub fn save_session(&self, session: &Session) -> Result<()>` — `crates/nanobot-session/src/manager.rs:98`
+- `pub fn append_entry(&self, key: &str, entry: &SessionEntry) -> Result<()>` — `crates/nanobot-session/src/manager.rs:126`
+- `pub fn reset_session(&self, key: &str) -> Result<()>` — `crates/nanobot-session/src/manager.rs:137`
+- `pub fn remove_session(&self, key: &str) -> Result<()>` — `crates/nanobot-session/src/manager.rs:149`
+- `pub fn active_session_keys(&self) -> Vec<String>` — `crates/nanobot-session/src/manager.rs:157`
+- `pub fn flush_all(&self) -> Result<()>` — `crates/nanobot-session/src/manager.rs:162`
+- `pub fn session_count(&self) -> usize` — `crates/nanobot-session/src/manager.rs:173`
+- `pub fn search_notes(&self, session_key: &str, query: &str) -> Vec<Note>` — `crates/nanobot-session/src/manager.rs:180`
+- `pub fn search_all_notes(&self, query: &str) -> Vec<(String, Note)>` — `crates/nanobot-session/src/manager.rs:191`
+- `pub fn search_all_notes_by_tag(&self, tag: &str) -> Vec<(String, Note)>` — `crates/nanobot-session/src/manager.rs:217`
+- `pub struct NoteStore` — `crates/nanobot-session/src/note_store.rs:13`
+- `pub fn new(dir: PathBuf) -> Result<Self>` — `crates/nanobot-session/src/note_store.rs:20`
+- `pub fn load_notes(&self, session_key: &str) -> Result<Vec<Note>>` — `crates/nanobot-session/src/note_store.rs:42`
+- `pub fn save_notes(&self, session_key: &str, notes: &[Note]) -> Result<()>` — `crates/nanobot-session/src/note_store.rs:59`
+- `pub fn delete_notes(&self, session_key: &str) -> Result<()>` — `crates/nanobot-session/src/note_store.rs:89`
+- `pub fn search_notes(&self, query: &str) -> Result<Vec<(String, Note)>>` — `crates/nanobot-session/src/note_store.rs:102`
+- `pub fn search_notes_by_tag(&self, tag: &str) -> Result<Vec<(String, Note)>>` — `crates/nanobot-session/src/note_store.rs:126`
+- `pub fn list_sessions_with_notes(&self) -> Result<Vec<String>>` — `crates/nanobot-session/src/note_store.rs:143`
+- `pub struct SessionStore` — `crates/nanobot-session/src/store.rs:15`
+- `pub fn new(dir: PathBuf) -> Result<Self>` — `crates/nanobot-session/src/store.rs:22`
+- `pub fn load(&self, key: &str) -> Result<Option<Session>>` — `crates/nanobot-session/src/store.rs:41`
+- `pub fn save(&self, session: &Session) -> Result<()>` — `crates/nanobot-session/src/store.rs:90`
+- `pub fn append_entry(&self, key: &str, entry: &SessionEntry) -> Result<()>` — `crates/nanobot-session/src/store.rs:119`
+- `pub fn delete(&self, key: &str) -> Result<()>` — `crates/nanobot-session/src/store.rs:140`
+- `pub fn list_keys(&self) -> Result<Vec<String>>` — `crates/nanobot-session/src/store.rs:150`
+- `pub struct Note` — `crates/nanobot-session/src/types.rs:15`
+- `pub fn new(title: String, content: String, tags: Vec<String>) -> Self` — `crates/nanobot-session/src/types.rs:33`
+- `pub struct Session` — `crates/nanobot-session/src/types.rs:56`
+- `pub fn new(key: String) -> Self` — `crates/nanobot-session/src/types.rs:78`
+- `pub fn add_user_message(&mut self, content: String)` — `crates/nanobot-session/src/types.rs:89`
+- `pub fn add_assistant_message(&mut self, content: String)` — `crates/nanobot-session/src/types.rs:99`
+- `pub fn add_system_message(&mut self, content: String)` — `crates/nanobot-session/src/types.rs:109`
+- `pub fn add_tool_result(&mut self, tool_call_id: String, content: String)` — `crates/nanobot-session/src/types.rs:119`
+- `pub fn to_messages(&self) -> Vec<Message>` — `crates/nanobot-session/src/types.rs:130`
+- `pub fn truncate(&mut self, max_messages: usize)` — `crates/nanobot-session/src/types.rs:145`
+- `pub fn estimated_tokens(&self) -> usize` — `crates/nanobot-session/src/types.rs:172`
+- `pub fn reset(&mut self)` — `crates/nanobot-session/src/types.rs:180`
+- `pub fn save_note(&mut self, title: String, content: String, tags: Vec<String>)` — `crates/nanobot-session/src/types.rs:193`
+- `pub fn get_note(&self, title: &str) -> Option<&Note>` — `crates/nanobot-session/src/types.rs:205`
+- `pub fn get_note_by_id(&self, id: &str) -> Option<&Note>` — `crates/nanobot-session/src/types.rs:210`
+- `pub fn delete_note(&mut self, title: &str) -> bool` — `crates/nanobot-session/src/types.rs:215`
+- `pub fn all_notes(&self) -> &[Note]` — `crates/nanobot-session/src/types.rs:222`
+- `pub fn notes_by_tag(&self, tag: &str) -> Vec<&Note>` — `crates/nanobot-session/src/types.rs:227`
+- `pub fn search_notes(&self, query: &str) -> Vec<&Note>` — `crates/nanobot-session/src/types.rs:238`
+- `pub fn compact_notes(&mut self) -> bool` — `crates/nanobot-session/src/types.rs:254`
+- `pub fn format_notes_context(&self) -> Option<String>` — `crates/nanobot-session/src/types.rs:303`
+- `pub struct SessionEntry` — `crates/nanobot-session/src/types.rs:326`
+- `pub struct SessionMetadata` — `crates/nanobot-session/src/types.rs:360`
+
+### nanobot-skill
+
+Count: 43
+
+- `pub struct SkillCompiler;` — `crates/nanobot-skill/src/compiler.rs:14`
+- `pub fn new() -> Self` — `crates/nanobot-skill/src/compiler.rs:18`
+- `pub fn compile_str(&self, name: &str, content: &str) -> SkillResult<CompiledSkill>` — `crates/nanobot-skill/src/compiler.rs:25`
+- `pub fn compile_file(&self, path: &Path) -> SkillResult<CompiledSkill>` — `crates/nanobot-skill/src/compiler.rs:37`
+- `pub struct SkillConfig` — `crates/nanobot-skill/src/config.rs:18`
+- `pub fn with_skills_dir(mut self, dir: impl Into<PathBuf>) -> Self` — `crates/nanobot-skill/src/config.rs:64`
+- `pub fn load_from_file(path: &std::path::Path) -> crate::SkillResult<Self>` — `crates/nanobot-skill/src/config.rs:70`
+- `pub enum SkillError` — `crates/nanobot-skill/src/error.rs:7`
+- `pub struct SkillLoader` — `crates/nanobot-skill/src/loader.rs:49`
+- `pub fn new(config: SkillConfig) -> Self` — `crates/nanobot-skill/src/loader.rs:57`
+- `pub async fn load_all(&self, registry: &SkillRegistry) -> SkillResult<Vec<String>>` — `crates/nanobot-skill/src/loader.rs:69`
+- `pub async fn load_from_dir( &self, dir: &Path, registry: &SkillRegistry, ) -> SkillResult<Vec<String>>` — `crates/nanobot-skill/src/loader.rs:75`
+- `pub fn load_skill(&self, path: &Path) -> SkillResult<CompiledSkill>` — `crates/nanobot-skill/src/loader.rs:114`
+- `pub fn reload_skill(&self, path: &Path) -> SkillResult<CompiledSkill>` — `crates/nanobot-skill/src/loader.rs:140`
+- `pub fn clear_cache(&self)` — `crates/nanobot-skill/src/loader.rs:154`
+- `pub fn cache_size(&self) -> usize` — `crates/nanobot-skill/src/loader.rs:159`
+- `pub struct SkillManifest` — `crates/nanobot-skill/src/manifest.rs:21`
+- `pub fn validate(&self) -> Result<(), Vec<String>>` — `crates/nanobot-skill/src/manifest.rs:55`
+- `pub struct SkillManifestBuilder` — `crates/nanobot-skill/src/manifest.rs:96`
+- `pub fn new( name: impl Into<String>, version: impl Into<String>, description: impl Into<String>, ) -> Self` — `crates/nanobot-skill/src/manifest.rs:108`
+- `pub fn triggers(mut self, triggers: impl IntoIterator<Item = impl Into<String>>) -> Self` — `crates/nanobot-skill/src/manifest.rs:125`
+- `pub fn steps(mut self, steps: impl IntoIterator<Item = impl Into<String>>) -> Self` — `crates/nanobot-skill/src/manifest.rs:131`
+- `pub fn pitfalls(mut self, pitfalls: impl IntoIterator<Item = impl Into<String>>) -> Self` — `crates/nanobot-skill/src/manifest.rs:137`
+- `pub fn category(mut self, category: impl Into<String>) -> Self` — `crates/nanobot-skill/src/manifest.rs:143`
+- `pub fn build(self) -> SkillManifest` — `crates/nanobot-skill/src/manifest.rs:149`
+- `pub struct SkillMatch` — `crates/nanobot-skill/src/registry.rs:17`
+- `pub struct SkillRegistry` — `crates/nanobot-skill/src/registry.rs:29`
+- `pub fn new() -> Self` — `crates/nanobot-skill/src/registry.rs:35`
+- `pub async fn register(&self, skill: CompiledSkill) -> SkillResult<()>` — `crates/nanobot-skill/src/registry.rs:44`
+- `pub async fn get(&self, name: &str) -> Option<Arc<RwLock<CompiledSkill>>>` — `crates/nanobot-skill/src/registry.rs:55`
+- `pub async fn unregister(&self, name: &str) -> bool` — `crates/nanobot-skill/src/registry.rs:61`
+- `pub async fn len(&self) -> usize` — `crates/nanobot-skill/src/registry.rs:67`
+- `pub async fn is_empty(&self) -> bool` — `crates/nanobot-skill/src/registry.rs:72`
+- `pub async fn skill_names(&self) -> Vec<String>` — `crates/nanobot-skill/src/registry.rs:77`
+- `pub async fn match_skills(&self, query: &str) -> Vec<SkillMatch>` — `crates/nanobot-skill/src/registry.rs:84`
+- `pub async fn update_confidence( &self, name: &str, event: crate::skill::ConfidenceEvent, ) -> SkillResult<()>` — `crates/nanobot-skill/src/registry.rs:107`
+- `pub enum SkillOutput` — `crates/nanobot-skill/src/skill.rs:13`
+- `pub enum ConfidenceEvent` — `crates/nanobot-skill/src/skill.rs:30`
+- `pub trait Skill: Send + Sync + 'static` — `crates/nanobot-skill/src/skill.rs:48`
+- `pub struct CompiledSkill` — `crates/nanobot-skill/src/skill.rs:77`
+- `pub fn new(manifest: crate::SkillManifest) -> Self` — `crates/nanobot-skill/src/skill.rs:85`
+- `pub fn manifest(&self) -> &crate::SkillManifest` — `crates/nanobot-skill/src/skill.rs:94`
+- `pub fn usage_count(&self) -> u64` — `crates/nanobot-skill/src/skill.rs:99`
+
+### nanobot-tools
+
+Count: 97
+
+- `pub enum CronAction` — `crates/nanobot-tools/src/builtins/cron.rs:16`
+- `pub struct CronTool` — `crates/nanobot-tools/src/builtins/cron.rs:29`
+- `pub fn new() -> Self` — `crates/nanobot-tools/src/builtins/cron.rs:34`
+- `pub fn with_callback(callback: CronCallback) -> Self` — `crates/nanobot-tools/src/builtins/cron.rs:39`
+- `pub struct ReadFileTool;` — `crates/nanobot-tools/src/builtins/filesystem.rs:11`
+- `pub fn new() -> Self` — `crates/nanobot-tools/src/builtins/filesystem.rs:14`
+- `pub struct WriteFileTool;` — `crates/nanobot-tools/src/builtins/filesystem.rs:78`
+- `pub fn new() -> Self` — `crates/nanobot-tools/src/builtins/filesystem.rs:81`
+- `pub struct EditFileTool;` — `crates/nanobot-tools/src/builtins/filesystem.rs:159`
+- `pub fn new() -> Self` — `crates/nanobot-tools/src/builtins/filesystem.rs:162`
+- `pub struct ListDirTool;` — `crates/nanobot-tools/src/builtins/filesystem.rs:243`
+- `pub fn new() -> Self` — `crates/nanobot-tools/src/builtins/filesystem.rs:246`
+- `pub struct MessageTool` — `crates/nanobot-tools/src/builtins/message.rs:11`
+- `pub fn new() -> Self` — `crates/nanobot-tools/src/builtins/message.rs:18`
+- `pub fn with_bus(mut self, sender: tokio::sync::mpsc::Sender<OutboundMessage>) -> Self` — `crates/nanobot-tools/src/builtins/message.rs:27`
+- `pub fn with_default_channel(mut self, channel: Platform, chat_id: String) -> Self` — `crates/nanobot-tools/src/builtins/message.rs:34`
+- `pub fn register_all(registry: &ToolRegistry)` — `crates/nanobot-tools/src/builtins/mod.rs:14`
+- `pub struct GrepTool;` — `crates/nanobot-tools/src/builtins/search.rs:11`
+- `pub fn new() -> Self` — `crates/nanobot-tools/src/builtins/search.rs:14`
+- `pub struct GlobTool;` — `crates/nanobot-tools/src/builtins/search.rs:157`
+- `pub fn new() -> Self` — `crates/nanobot-tools/src/builtins/search.rs:160`
+- `pub struct ExecTool` — `crates/nanobot-tools/src/builtins/shell.rs:11`
+- `pub fn new() -> Self` — `crates/nanobot-tools/src/builtins/shell.rs:17`
+- `pub fn with_timeout(mut self, timeout: Duration) -> Self` — `crates/nanobot-tools/src/builtins/shell.rs:32`
+- `pub fn sandboxed(mut self, sandboxed: bool) -> Self` — `crates/nanobot-tools/src/builtins/shell.rs:38`
+- `pub struct SpawnTool` — `crates/nanobot-tools/src/builtins/spawn.rs:13`
+- `pub fn new() -> Self` — `crates/nanobot-tools/src/builtins/spawn.rs:19`
+- `pub fn with_spawner(mut self, spawner: Arc<dyn SubAgentSpawner>) -> Self` — `crates/nanobot-tools/src/builtins/spawn.rs:26`
+- `pub struct WebSearchTool` — `crates/nanobot-tools/src/builtins/web.rs:11`
+- `pub fn new() -> Self` — `crates/nanobot-tools/src/builtins/web.rs:25`
+- `pub struct WebFetchTool;` — `crates/nanobot-tools/src/builtins/web.rs:181`
+- `pub fn new() -> Self` — `crates/nanobot-tools/src/builtins/web.rs:184`
+- `pub struct ToolRegistry` — `crates/nanobot-tools/src/registry.rs:13`
+- `pub fn new() -> Self` — `crates/nanobot-tools/src/registry.rs:19`
+- `pub fn register(&self, tool: impl Tool + 'static)` — `crates/nanobot-tools/src/registry.rs:26`
+- `pub fn unregister(&self, name: &str)` — `crates/nanobot-tools/src/registry.rs:33`
+- `pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>>` — `crates/nanobot-tools/src/registry.rs:38`
+- `pub async fn execute(&self, name: &str, args: Value) -> Result<String, ToolError>` — `crates/nanobot-tools/src/registry.rs:43`
+- `pub fn get_definitions(&self) -> Vec<FunctionDefinition>` — `crates/nanobot-tools/src/registry.rs:59`
+- `pub fn get_definitions_for_toolset(&self, toolset: &str) -> Vec<FunctionDefinition>` — `crates/nanobot-tools/src/registry.rs:69`
+- `pub fn tool_names(&self) -> Vec<String>` — `crates/nanobot-tools/src/registry.rs:79`
+- `pub fn len(&self) -> usize` — `crates/nanobot-tools/src/registry.rs:84`
+- `pub fn is_empty(&self) -> bool` — `crates/nanobot-tools/src/registry.rs:89`
+- `pub fn filter_out(&self, denied: &[String]) -> ToolRegistry` — `crates/nanobot-tools/src/registry.rs:97`
+- `pub enum SchemaType` — `crates/nanobot-tools/src/schema.rs:9`
+- `pub struct ParameterSchema` — `crates/nanobot-tools/src/schema.rs:20`
+- `pub fn tool_parameters_schema( properties: std::collections::HashMap<String, ParameterSchema>, required: Vec<String>, ) -> Value` — `crates/nanobot-tools/src/schema.rs:38`
+- `pub struct Version` — `crates/nanobot-tools/src/skill_loader.rs:45`
+- `pub fn parse(s: &str) -> Option<Self>` — `crates/nanobot-tools/src/skill_loader.rs:56`
+- `pub struct VersionWarning` — `crates/nanobot-tools/src/skill_loader.rs:100`
+- `pub struct SkillWatcher` — `crates/nanobot-tools/src/skill_loader.rs:132`
+- `pub fn new(root: PathBuf) -> Result<Self>` — `crates/nanobot-tools/src/skill_loader.rs:140`
+- `pub fn changed_paths(&self) -> Vec<PathBuf>` — `crates/nanobot-tools/src/skill_loader.rs:158`
+- `pub struct SkillLoader` — `crates/nanobot-tools/src/skill_loader.rs:187`
+- `pub fn new(root: PathBuf) -> Self` — `crates/nanobot-tools/src/skill_loader.rs:202`
+- `pub fn load_all(&mut self) -> Result<Vec<Skill>>` — `crates/nanobot-tools/src/skill_loader.rs:218`
+- `pub fn load_all_ordered(&mut self) -> Result<Vec<Skill>>` — `crates/nanobot-tools/src/skill_loader.rs:321`
+- `pub fn get(&self, name: &str) -> Option<&Skill>` — `crates/nanobot-tools/src/skill_loader.rs:334`
+- `pub fn all(&self) -> Vec<&Skill>` — `crates/nanobot-tools/src/skill_loader.rs:339`
+- `pub fn len(&self) -> usize` — `crates/nanobot-tools/src/skill_loader.rs:344`
+- `pub fn is_empty(&self) -> bool` — `crates/nanobot-tools/src/skill_loader.rs:349`
+- `pub fn categories(&self) -> HashMap<&str, usize>` — `crates/nanobot-tools/src/skill_loader.rs:354`
+- `pub fn list_by_category(&self, category: &str) -> Vec<&Skill>` — `crates/nanobot-tools/src/skill_loader.rs:363`
+- `pub fn find_by_tag(&self, tag: &str) -> Vec<&Skill>` — `crates/nanobot-tools/src/skill_loader.rs:371`
+- `pub fn dependency_order(&self) -> Vec<String>` — `crates/nanobot-tools/src/skill_loader.rs:387`
+- `pub fn resolve_dependencies(&self, name: &str) -> Vec<String>` — `crates/nanobot-tools/src/skill_loader.rs:461`
+- `pub fn check_versions(&self) -> Vec<VersionWarning>` — `crates/nanobot-tools/src/skill_loader.rs:498`
+- `pub fn skill_version(&self, name: &str) -> Option<Version>` — `crates/nanobot-tools/src/skill_loader.rs:528`
+- `pub fn invalidate_all(&mut self)` — `crates/nanobot-tools/src/skill_loader.rs:540`
+- `pub fn invalidate_path(&mut self, path: &Path)` — `crates/nanobot-tools/src/skill_loader.rs:547`
+- `pub fn invalidate_by_name(&mut self, name: &str)` — `crates/nanobot-tools/src/skill_loader.rs:565`
+- `pub fn invalidate_category(&mut self, category: &str) -> Vec<String>` — `crates/nanobot-tools/src/skill_loader.rs:580`
+- `pub fn invalidate_pattern(&mut self, pattern: &str) -> Vec<String>` — `crates/nanobot-tools/src/skill_loader.rs:597`
+- `pub fn invalidate_cascade(&mut self, name: &str) -> Vec<String>` — `crates/nanobot-tools/src/skill_loader.rs:621`
+- `pub fn start_watcher(&mut self) -> Result<()>` — `crates/nanobot-tools/src/skill_loader.rs:665`
+- `pub fn stop_watcher(&mut self)` — `crates/nanobot-tools/src/skill_loader.rs:679`
+- `pub fn reload_changed(&mut self) -> Result<Vec<String>>` — `crates/nanobot-tools/src/skill_loader.rs:688`
+- `pub fn root(&self) -> &Path` — `crates/nanobot-tools/src/skill_loader.rs:806`
+- `pub fn cache_size(&self) -> usize` — `crates/nanobot-tools/src/skill_loader.rs:811`
+- `pub fn is_watching(&self) -> bool` — `crates/nanobot-tools/src/skill_loader.rs:816`
+- `pub struct SkillParameter` — `crates/nanobot-tools/src/skills.rs:43`
+- `pub struct Skill` — `crates/nanobot-tools/src/skills.rs:56`
+- `pub struct SkillStore` — `crates/nanobot-tools/src/skills.rs:108`
+- `pub fn new(root: PathBuf) -> Self` — `crates/nanobot-tools/src/skills.rs:121`
+- `pub fn load_all(&mut self) -> Result<Vec<Skill>>` — `crates/nanobot-tools/src/skills.rs:132`
+- `pub fn reload_changed(&mut self) -> Result<Vec<String>>` — `crates/nanobot-tools/src/skills.rs:176`
+- `pub fn get(&self, name: &str) -> Option<&Skill>` — `crates/nanobot-tools/src/skills.rs:231`
+- `pub fn all(&self) -> Vec<&Skill>` — `crates/nanobot-tools/src/skills.rs:236`
+- `pub fn list_by_category(&self, category: &str) -> Vec<&Skill>` — `crates/nanobot-tools/src/skills.rs:241`
+- `pub fn categories(&self) -> HashMap<&str, usize>` — `crates/nanobot-tools/src/skills.rs:249`
+- `pub fn len(&self) -> usize` — `crates/nanobot-tools/src/skills.rs:258`
+- `pub fn is_empty(&self) -> bool` — `crates/nanobot-tools/src/skills.rs:263`
+- `pub fn root(&self) -> &Path` — `crates/nanobot-tools/src/skills.rs:268`
+- `pub enum ToolError` — `crates/nanobot-tools/src/trait_def.rs:11`
+- `pub trait Tool: Send + Sync` — `crates/nanobot-tools/src/trait_def.rs:33`
+- `pub enum SpawnStatus` — `crates/nanobot-tools/src/trait_def.rs:75`
+- `pub trait SubAgentSpawner: Send + Sync` — `crates/nanobot-tools/src/trait_def.rs:90`
+
+## 2. Test Inventory
+
+### nanobot-agent
+
+- Unit: 191
+- Integration: 0
+- Doc: 0
+
+#### unit
+
+- `test_compaction_config_default` — `crates/nanobot-agent/src/compaction.rs:328` (conditional=#[cfg(test)])
+- `test_compaction_config_threshold` — `crates/nanobot-agent/src/compaction.rs:337` (conditional=#[cfg(test)])
+- `test_needs_compaction_false` — `crates/nanobot-agent/src/compaction.rs:347` (conditional=#[cfg(test)])
+- `test_needs_compaction_true` — `crates/nanobot-agent/src/compaction.rs:360` (conditional=#[cfg(test)])
+- `test_compact_session_noop_when_below_threshold` — `crates/nanobot-agent/src/compaction.rs:372` (conditional=#[cfg(test)])
+- `test_compact_session_summarize` — `crates/nanobot-agent/src/compaction.rs:385` (conditional=#[cfg(test)])
+- `test_compact_session_preserves_system_message` — `crates/nanobot-agent/src/compaction.rs:408` (conditional=#[cfg(test)])
+- `test_compact_session_truncate_strategy` — `crates/nanobot-agent/src/compaction.rs:425` (conditional=#[cfg(test)])
+- `test_compact_session_too_short` — `crates/nanobot-agent/src/compaction.rs:442` (conditional=#[cfg(test)])
+- `test_build_summary` — `crates/nanobot-agent/src/compaction.rs:456` (conditional=#[cfg(test)])
+- `test_compaction_result_fields` — `crates/nanobot-agent/src/compaction.rs:470` (conditional=#[cfg(test)])
+- `test_compaction_notes_extracted_count` — `crates/nanobot-agent/src/compaction.rs:489` (conditional=#[cfg(test)])
+- `test_compaction_notes_deduplicated` — `crates/nanobot-agent/src/compaction.rs:516` (conditional=#[cfg(test)])
+- `test_truncate_notes_extracted_is_zero` — `crates/nanobot-agent/src/compaction.rs:558` (conditional=#[cfg(test)])
+- `test_build_system_prompt_basic` — `crates/nanobot-agent/src/context.rs:190` (conditional=#[cfg(test)])
+- `test_build_system_prompt_with_session_history` — `crates/nanobot-agent/src/context.rs:213` (conditional=#[cfg(test)])
+- `test_build_system_prompt_with_tools` — `crates/nanobot-agent/src/context.rs:229` (conditional=#[cfg(test)])
+- `test_build_system_prompt_custom_name` — `crates/nanobot-agent/src/context.rs:264` (conditional=#[cfg(test)])
+- `test_build_system_prompt_custom_instructions` — `crates/nanobot-agent/src/context.rs:277` (conditional=#[cfg(test)])
+- `test_build_identity_default` — `crates/nanobot-agent/src/context.rs:291` (conditional=#[cfg(test)])
+- `test_build_identity_custom_name` — `crates/nanobot-agent/src/context.rs:300` (conditional=#[cfg(test)])
+- `test_build_runtime_content` — `crates/nanobot-agent/src/context.rs:309` (conditional=#[cfg(test)])
+- `test_build_system_prompt_all_sections` — `crates/nanobot-agent/src/context.rs:320` (conditional=#[cfg(test)])
+- `test_build_system_prompt_with_skills` — `crates/nanobot-agent/src/context.rs:365` (conditional=#[cfg(test)])
+- `test_build_system_prompt_with_empty_skills` — `crates/nanobot-agent/src/context.rs:381` (conditional=#[cfg(test)])
+- `test_build_system_prompt_without_skills` — `crates/nanobot-agent/src/context.rs:394` (conditional=#[cfg(test)])
+- `test_build_system_prompt_with_recalled_memory` — `crates/nanobot-agent/src/context.rs:407` (conditional=#[cfg(test)])
+- `test_build_system_prompt_empty_recalled_memory_ignored` — `crates/nanobot-agent/src/context.rs:425` (conditional=#[cfg(test)])
+- `test_context_builder_with_custom_assembler` — `crates/nanobot-agent/src/context.rs:442` (conditional=#[cfg(test)])
+- `test_context_builder_uses_section_headers` — `crates/nanobot-agent/src/context.rs:458` (conditional=#[cfg(test)])
+- `test_context_builder_prompt_section_order` — `crates/nanobot-agent/src/context.rs:476` (conditional=#[cfg(test)])
+- `test_context_builder_assembler_default_when_not_set` — `crates/nanobot-agent/src/context.rs:496` (conditional=#[cfg(test)])
+- `test_config_default` — `crates/nanobot-agent/src/context_budget.rs:422` (conditional=#[cfg(test)])
+- `test_config_validate_valid` — `crates/nanobot-agent/src/context_budget.rs:433` (conditional=#[cfg(test)])
+- `test_config_validate_ratios_sum_exactly_one` — `crates/nanobot-agent/src/context_budget.rs:439` (conditional=#[cfg(test)])
+- `test_config_validate_ratios_exceed_one` — `crates/nanobot-agent/src/context_budget.rs:452` (conditional=#[cfg(test)])
+- `test_config_with_total_tokens` — `crates/nanobot-agent/src/context_budget.rs:465` (conditional=#[cfg(test)])
+- `test_config_serde_roundtrip` — `crates/nanobot-agent/src/context_budget.rs:472` (conditional=#[cfg(test)])
+- `test_allocation_default_128k` — `crates/nanobot-agent/src/context_budget.rs:484` (conditional=#[cfg(test)])
+- `test_allocation_custom` — `crates/nanobot-agent/src/context_budget.rs:501` (conditional=#[cfg(test)])
+- `test_allocation_no_reserved` — `crates/nanobot-agent/src/context_budget.rs:519` (conditional=#[cfg(test)])
+- `test_estimate_tokens_empty` — `crates/nanobot-agent/src/context_budget.rs:535` (conditional=#[cfg(test)])
+- `test_estimate_tokens_short` — `crates/nanobot-agent/src/context_budget.rs:540` (conditional=#[cfg(test)])
+- `test_estimate_tokens_long` — `crates/nanobot-agent/src/context_budget.rs:546` (conditional=#[cfg(test)])
+- `test_estimate_messages_tokens` — `crates/nanobot-agent/src/context_budget.rs:553` (conditional=#[cfg(test)])
+- `test_fits_history_within_budget` — `crates/nanobot-agent/src/context_budget.rs:564` (conditional=#[cfg(test)])
+- `test_fits_history_exceeds_budget` — `crates/nanobot-agent/src/context_budget.rs:581` (conditional=#[cfg(test)])
+- `test_fits_system` — `crates/nanobot-agent/src/context_budget.rs:597` (conditional=#[cfg(test)])
+- `test_fits_notes` — `crates/nanobot-agent/src/context_budget.rs:611` (conditional=#[cfg(test)])
+- `test_prune_under_budget_returns_all` — `crates/nanobot-agent/src/context_budget.rs:627` (conditional=#[cfg(test)])
+- `test_prune_preserves_system_message` — `crates/nanobot-agent/src/context_budget.rs:642` (conditional=#[cfg(test)])
+- `test_prune_keeps_recent_messages` — `crates/nanobot-agent/src/context_budget.rs:659` (conditional=#[cfg(test)])
+- `test_prune_preserves_tool_call_messages` — `crates/nanobot-agent/src/context_budget.rs:685` (conditional=#[cfg(test)])
+- `test_prune_tool_calls_dropped_if_budget_too_small` — `crates/nanobot-agent/src/context_budget.rs:707` (conditional=#[cfg(test)])
+- `test_prune_tokens_after_within_budget` — `crates/nanobot-agent/src/context_budget.rs:731` (conditional=#[cfg(test)])
+- `test_prune_removed_count` — `crates/nanobot-agent/src/context_budget.rs:748` (conditional=#[cfg(test)])
+- `test_prune_empty_messages` — `crates/nanobot-agent/src/context_budget.rs:764` (conditional=#[cfg(test)])
+- `test_prune_single_message_under_budget` — `crates/nanobot-agent/src/context_budget.rs:772` (conditional=#[cfg(test)])
+- `test_prune_kept_preserves_order` — `crates/nanobot-agent/src/context_budget.rs:780` (conditional=#[cfg(test)])
+- `test_prune_no_system_message` — `crates/nanobot-agent/src/context_budget.rs:797` (conditional=#[cfg(test)])
+- `test_prune_all_messages_same_size` — `crates/nanobot-agent/src/context_budget.rs:810` (conditional=#[cfg(test)])
+- `test_budget_and_prune_integration` — `crates/nanobot-agent/src/context_budget.rs:834` (conditional=#[cfg(test)])
+- `test_debug_impl_context_budget` — `crates/nanobot-agent/src/context_budget.rs:860` (conditional=#[cfg(test)])
+- `test_composite_hook_new` — `crates/nanobot-agent/src/hook.rs:96` (conditional=#[cfg(test)])
+- `test_agent_loop_construction` — `crates/nanobot-agent/src/loop_mod.rs:784` (conditional=#[cfg(test)])
+- `test_connected_channels_starts_empty` — `crates/nanobot-agent/src/loop_mod.rs:791` (conditional=#[cfg(test)])
+- `test_connected_channels_external_update` — `crates/nanobot-agent/src/loop_mod.rs:798` (conditional=#[cfg(test)])
+- `test_record_activity` — `crates/nanobot-agent/src/loop_mod.rs:806` (conditional=#[cfg(test)])
+- `test_configured_channel_names_default` — `crates/nanobot-agent/src/loop_mod.rs:814` (conditional=#[cfg(test)])
+- `test_configured_channel_names_with_telegram` — `crates/nanobot-agent/src/loop_mod.rs:820` (conditional=#[cfg(test)])
+- `test_configured_channel_names_multiple` — `crates/nanobot-agent/src/loop_mod.rs:844` (conditional=#[cfg(test)])
+- `test_with_memory_store_builder` — `crates/nanobot-agent/src/loop_mod.rs:1071` (conditional=#[cfg(test)])
+- `test_without_memory_store_is_none` — `crates/nanobot-agent/src/loop_mod.rs:1079` (conditional=#[cfg(test)])
+- `test_format_conversation_summary` — `crates/nanobot-agent/src/loop_mod.rs:1166` (conditional=#[cfg(test)])
+- `test_format_conversation_summary_truncation` — `crates/nanobot-agent/src/loop_mod.rs:1173` (conditional=#[cfg(test)])
+- `test_truncate_str_short` — `crates/nanobot-agent/src/loop_mod.rs:1184` (conditional=#[cfg(test)])
+- `test_truncate_str_exact` — `crates/nanobot-agent/src/loop_mod.rs:1189` (conditional=#[cfg(test)])
+- `test_truncate_str_long` — `crates/nanobot-agent/src/loop_mod.rs:1194` (conditional=#[cfg(test)])
+- `test_truncate_str_unicode` — `crates/nanobot-agent/src/loop_mod.rs:1200` (conditional=#[cfg(test)])
+- `test_skill_registry_none_by_default` — `crates/nanobot-agent/src/loop_mod.rs:1261` (conditional=#[cfg(test)])
+- `test_with_skill_registry` — `crates/nanobot-agent/src/loop_mod.rs:1268` (conditional=#[cfg(test)])
+- `test_learning_bus_none_by_default` — `crates/nanobot-agent/src/loop_mod.rs:1357` (conditional=#[cfg(test)])
+- `test_with_learning_bus_builder` — `crates/nanobot-agent/src/loop_mod.rs:1364` (conditional=#[cfg(test)])
+- `test_learning_bus_clone_and_subscribe` — `crates/nanobot-agent/src/loop_mod.rs:1494` (conditional=#[cfg(test)])
+- `test_prompt_assembler_none_by_default` — `crates/nanobot-agent/src/loop_mod.rs:1512` (conditional=#[cfg(test)])
+- `test_with_prompt_assembler_builder` — `crates/nanobot-agent/src/loop_mod.rs:1519` (conditional=#[cfg(test)])
+- `test_with_prompt_assembler_custom_separator` — `crates/nanobot-agent/src/loop_mod.rs:1527` (conditional=#[cfg(test)])
+- `test_prompt_assembler_passed_to_context_builder` — `crates/nanobot-agent/src/loop_mod.rs:1534` (conditional=#[cfg(test)])
+- `test_memory_store_new` — `crates/nanobot-agent/src/memory.rs:108` (conditional=#[cfg(test)])
+- `test_memory_store_write_read` — `crates/nanobot-agent/src/memory.rs:117` (conditional=#[cfg(test)])
+- `test_memory_store_read_empty` — `crates/nanobot-agent/src/memory.rs:126` (conditional=#[cfg(test)])
+- `test_memory_store_user_memory` — `crates/nanobot-agent/src/memory.rs:134` (conditional=#[cfg(test)])
+- `test_memory_store_get_context` — `crates/nanobot-agent/src/memory.rs:146` (conditional=#[cfg(test)])
+- `test_note_format_tags` — `crates/nanobot-agent/src/notes.rs:825` (conditional=#[cfg(test)])
+- `test_note_format_labels` — `crates/nanobot-agent/src/notes.rs:833` (conditional=#[cfg(test)])
+- `test_note_format_display` — `crates/nanobot-agent/src/notes.rs:841` (conditional=#[cfg(test)])
+- `test_note_format_all` — `crates/nanobot-agent/src/notes.rs:847` (conditional=#[cfg(test)])
+- `test_note_format_from_tag` — `crates/nanobot-agent/src/notes.rs:856` (conditional=#[cfg(test)])
+- `test_note_format_from_tag_roundtrip` — `crates/nanobot-agent/src/notes.rs:875` (conditional=#[cfg(test)])
+- `test_note_format_serde` — `crates/nanobot-agent/src/notes.rs:883` (conditional=#[cfg(test)])
+- `test_save_and_load_note` — `crates/nanobot-agent/src/notes.rs:900` (conditional=#[cfg(test)])
+- `test_save_multiple_notes` — `crates/nanobot-agent/src/notes.rs:918` (conditional=#[cfg(test)])
+- `test_update_existing_note` — `crates/nanobot-agent/src/notes.rs:940` (conditional=#[cfg(test)])
+- `test_delete_note` — `crates/nanobot-agent/src/notes.rs:964` (conditional=#[cfg(test)])
+- `test_delete_nonexistent_note` — `crates/nanobot-agent/src/notes.rs:982` (conditional=#[cfg(test)])
+- `test_format_notes_context_empty` — `crates/nanobot-agent/src/notes.rs:993` (conditional=#[cfg(test)])
+- `test_format_notes_context_with_notes` — `crates/nanobot-agent/src/notes.rs:999` (conditional=#[cfg(test)])
+- `test_notes_by_tag` — `crates/nanobot-agent/src/notes.rs:1027` (conditional=#[cfg(test)])
+- `test_search_notes` — `crates/nanobot-agent/src/notes.rs:1058` (conditional=#[cfg(test)])
+- `test_notes_persist_across_session_operations` — `crates/nanobot-agent/src/notes.rs:1076` (conditional=#[cfg(test)])
+- `test_save_structured_note` — `crates/nanobot-agent/src/notes.rs:1099` (conditional=#[cfg(test)])
+- `test_notes_by_format_empty` — `crates/nanobot-agent/src/notes.rs:1119` (conditional=#[cfg(test)])
+- `test_notes_by_format_isolation` — `crates/nanobot-agent/src/notes.rs:1125` (conditional=#[cfg(test)])
+- `test_format_section` — `crates/nanobot-agent/src/notes.rs:1159` (conditional=#[cfg(test)])
+- `test_format_structured_context` — `crates/nanobot-agent/src/notes.rs:1188` (conditional=#[cfg(test)])
+- `test_format_structured_context_empty_session` — `crates/nanobot-agent/src/notes.rs:1235` (conditional=#[cfg(test)])
+- `test_format_structured_context_all_categories` — `crates/nanobot-agent/src/notes.rs:1241` (conditional=#[cfg(test)])
+- `test_extract_notes_from_response_simple` — `crates/nanobot-agent/src/notes.rs:1266` (conditional=#[cfg(test)])
+- `test_extract_notes_without_tags` — `crates/nanobot-agent/src/notes.rs:1281` (conditional=#[cfg(test)])
+- `test_extract_notes_multiple_tags` — `crates/nanobot-agent/src/notes.rs:1293` (conditional=#[cfg(test)])
+- `test_extract_multiple_notes` — `crates/nanobot-agent/src/notes.rs:1305` (conditional=#[cfg(test)])
+- `test_extract_notes_no_match` — `crates/nanobot-agent/src/notes.rs:1317` (conditional=#[cfg(test)])
+- `test_compact_if_needed_under_limit` — `crates/nanobot-agent/src/notes.rs:1327` (conditional=#[cfg(test)])
+- `test_extract_compaction_notes_summary` — `crates/nanobot-agent/src/notes.rs:1342` (conditional=#[cfg(test)])
+- `test_extract_compaction_notes_action_items` — `crates/nanobot-agent/src/notes.rs:1366` (conditional=#[cfg(test)])
+- `test_extract_compaction_notes_decisions` — `crates/nanobot-agent/src/notes.rs:1384` (conditional=#[cfg(test)])
+- `test_extract_compaction_notes_open_questions` — `crates/nanobot-agent/src/notes.rs:1401` (conditional=#[cfg(test)])
+- `test_extract_compaction_notes_empty_messages` — `crates/nanobot-agent/src/notes.rs:1426` (conditional=#[cfg(test)])
+- `test_extract_compaction_notes_no_matching_patterns` — `crates/nanobot-agent/src/notes.rs:1434` (conditional=#[cfg(test)])
+- `test_compaction_config_default` — `crates/nanobot-agent/src/notes.rs:1461` (conditional=#[cfg(test)])
+- `test_compaction_config_custom` — `crates/nanobot-agent/src/notes.rs:1469` (conditional=#[cfg(test)])
+- `test_needs_compaction_under_threshold` — `crates/nanobot-agent/src/notes.rs:1477` (conditional=#[cfg(test)])
+- `test_needs_compaction_over_threshold` — `crates/nanobot-agent/src/notes.rs:1484` (conditional=#[cfg(test)])
+- `test_needs_compaction_disabled` — `crates/nanobot-agent/src/notes.rs:1491` (conditional=#[cfg(test)])
+- `test_notes_store_new_creates_dir` — `crates/nanobot-agent/src/notes.rs:1502` (conditional=#[cfg(test)])
+- `test_notes_store_save_and_load` — `crates/nanobot-agent/src/notes.rs:1513` (conditional=#[cfg(test)])
+- `test_notes_store_load_nonexistent` — `crates/nanobot-agent/src/notes.rs:1538` (conditional=#[cfg(test)])
+- `test_notes_store_save_empty_removes_file` — `crates/nanobot-agent/src/notes.rs:1545` (conditional=#[cfg(test)])
+- `test_notes_store_delete` — `crates/nanobot-agent/src/notes.rs:1558` (conditional=#[cfg(test)])
+- `test_notes_store_delete_nonexistent` — `crates/nanobot-agent/src/notes.rs:1572` (conditional=#[cfg(test)])
+- `test_notes_store_list_sessions` — `crates/nanobot-agent/src/notes.rs:1579` (conditional=#[cfg(test)])
+- `test_notes_store_save_is_atomic` — `crates/nanobot-agent/src/notes.rs:1595` (conditional=#[cfg(test)])
+- `test_notes_store_corrupted_file` — `crates/nanobot-agent/src/notes.rs:1616` (conditional=#[cfg(test)])
+- `test_notes_store_multiple_sessions_independent` — `crates/nanobot-agent/src/notes.rs:1630` (conditional=#[cfg(test)])
+- `test_persist_and_restore_roundtrip` — `crates/nanobot-agent/src/notes.rs:1678` (conditional=#[cfg(test)])
+- `test_restore_empty_store` — `crates/nanobot-agent/src/notes.rs:1701` (conditional=#[cfg(test)])
+- `test_persist_empty_session_removes_file` — `crates/nanobot-agent/src/notes.rs:1712` (conditional=#[cfg(test)])
+- `test_restore_overwrites_in_memory` — `crates/nanobot-agent/src/notes.rs:1728` (conditional=#[cfg(test)])
+- `test_compact_with_config_noop_under_threshold` — `crates/nanobot-agent/src/notes.rs:1753` (conditional=#[cfg(test)])
+- `test_compact_with_config_triggers_over_threshold` — `crates/nanobot-agent/src/notes.rs:1766` (conditional=#[cfg(test)])
+- `test_compact_with_config_categorizes_by_format` — `crates/nanobot-agent/src/notes.rs:1789` (conditional=#[cfg(test)])
+- `test_compact_with_config_removes_stale_compaction` — `crates/nanobot-agent/src/notes.rs:1830` (conditional=#[cfg(test)])
+- `test_compact_with_config_preserves_recent_notes_order` — `crates/nanobot-agent/src/notes.rs:1860` (conditional=#[cfg(test)])
+- `test_compact_with_config_disabled` — `crates/nanobot-agent/src/notes.rs:1879` (conditional=#[cfg(test)])
+- `test_compact_with_config_keep_more_than_total` — `crates/nanobot-agent/src/notes.rs:1894` (conditional=#[cfg(test)])
+- `test_persist_compact_restore_cycle` — `crates/nanobot-agent/src/notes.rs:1912` (conditional=#[cfg(test)])
+- `test_persist_structured_notes_with_formats` — `crates/nanobot-agent/src/notes.rs:1959` (conditional=#[cfg(test)])
+- `test_compaction_config_serde` — `crates/nanobot-agent/src/notes.rs:2005` (conditional=#[cfg(test)])
+- `test_notes_store_persists_across_store_instances` — `crates/nanobot-agent/src/notes.rs:2015` (conditional=#[cfg(test)])
+- `test_parse_frontmatter_valid` — `crates/nanobot-agent/src/skills.rs:410` (conditional=#[cfg(test)])
+- `test_parse_frontmatter_no_frontmatter` — `crates/nanobot-agent/src/skills.rs:418` (conditional=#[cfg(test)])
+- `test_parse_frontmatter_unclosed` — `crates/nanobot-agent/src/skills.rs:426` (conditional=#[cfg(test)])
+- `test_parse_frontmatter_multiline_body` — `crates/nanobot-agent/src/skills.rs:433` (conditional=#[cfg(test)])
+- `test_parse_frontmatter_complex_yaml` — `crates/nanobot-agent/src/skills.rs:442` (conditional=#[cfg(test)])
+- `test_parse_parameters_structured` — `crates/nanobot-agent/src/skills.rs:460` (conditional=#[cfg(test)])
+- `test_parse_parameters_string_shorthand` — `crates/nanobot-agent/src/skills.rs:495` (conditional=#[cfg(test)])
+- `test_parse_parameters_empty` — `crates/nanobot-agent/src/skills.rs:513` (conditional=#[cfg(test)])
+- `test_parse_parameters_mixed` — `crates/nanobot-agent/src/skills.rs:520` (conditional=#[cfg(test)])
+- `test_yaml_string_array` — `crates/nanobot-agent/src/skills.rs:545` (conditional=#[cfg(test)])
+- `test_load_all_empty_dir` — `crates/nanobot-agent/src/skills.rs:569` (conditional=#[cfg(test)])
+- `test_load_all_nonexistent_dir` — `crates/nanobot-agent/src/skills.rs:577` (conditional=#[cfg(test)])
+- `test_load_all_single_skill` — `crates/nanobot-agent/src/skills.rs:584` (conditional=#[cfg(test)])
+- `test_load_all_nested_dirs` — `crates/nanobot-agent/src/skills.rs:604` (conditional=#[cfg(test)])
+- `test_load_all_ignores_non_md` — `crates/nanobot-agent/src/skills.rs:639` (conditional=#[cfg(test)])
+- `test_load_all_name_from_file_stem_when_missing` — `crates/nanobot-agent/src/skills.rs:652` (conditional=#[cfg(test)])
+- `test_load_all_no_frontmatter` — `crates/nanobot-agent/src/skills.rs:667` (conditional=#[cfg(test)])
+- `test_load_all_with_parameters` — `crates/nanobot-agent/src/skills.rs:683` (conditional=#[cfg(test)])
+- `test_load_all_with_tags_and_requires` — `crates/nanobot-agent/src/skills.rs:705` (conditional=#[cfg(test)])
+- `test_reload_changed_no_changes` — `crates/nanobot-agent/src/skills.rs:727` (conditional=#[cfg(test)])
+- `test_reload_changed_modified_file` — `crates/nanobot-agent/src/skills.rs:744` (conditional=#[cfg(test)])
+- `test_reload_changed_new_file_discovered` — `crates/nanobot-agent/src/skills.rs:779` (conditional=#[cfg(test)])
+- `test_skills_prompt_empty` — `crates/nanobot-agent/src/skills.rs:809` (conditional=#[cfg(test)])
+- `test_skills_prompt_nonempty` — `crates/nanobot-agent/src/skills.rs:814` (conditional=#[cfg(test)])
+- `test_skills_to_function_definitions_basic` — `crates/nanobot-agent/src/skills.rs:837` (conditional=#[cfg(test)])
+- `test_skills_to_function_definitions_no_params` — `crates/nanobot-agent/src/skills.rs:869` (conditional=#[cfg(test)])
+- `test_skills_to_function_definitions_multiple` — `crates/nanobot-agent/src/skills.rs:892` (conditional=#[cfg(test)])
+- `test_collect_md_files_flat` — `crates/nanobot-agent/src/skills.rs:934` (conditional=#[cfg(test)])
+- `test_collect_md_files_recursive` — `crates/nanobot-agent/src/skills.rs:945` (conditional=#[cfg(test)])
+- `test_collect_md_files_empty_dir` — `crates/nanobot-agent/src/skills.rs:957` (conditional=#[cfg(test)])
+- `test_manager_config_default` — `crates/nanobot-agent/src/subagent.rs:2066` (conditional=#[cfg(test)])
+- `test_manager_config_custom` — `crates/nanobot-agent/src/subagent.rs:2073` (conditional=#[cfg(test)])
+
+#### integration
+
+- None
+
+#### doc
+
+- None
+
+### nanobot-api
+
+- Unit: 3
+- Integration: 0
+- Doc: 0
+
+#### unit
+
+- `test_chat_completion_request_deserialize` — `crates/nanobot-api/src/server.rs:1772` (conditional=#[cfg(test)])
+- `test_chat_completion_request_minimal` — `crates/nanobot-api/src/server.rs:1789` (conditional=#[cfg(test)])
+- `test_api_message_serde` — `crates/nanobot-api/src/server.rs:1800` (conditional=#[cfg(test)])
+
+#### integration
+
+- None
+
+#### doc
+
+- None
+
+### nanobot-bus
+
+- Unit: 1
+- Integration: 0
+- Doc: 0
+
+#### unit
+
+- `test_bus_default` — `crates/nanobot-bus/src/queue.rs:346` (conditional=#[cfg(test)])
+
+#### integration
+
+- None
+
+#### doc
+
+- None
+
+### nanobot-channels
+
+- Unit: 197
+- Integration: 7
+- Doc: 2
+
+#### unit
+
+- `test_matches_command_exact` — `crates/nanobot-channels/src/commands.rs:961` (conditional=#[cfg(test)])
+- `test_matches_command_case_insensitive` — `crates/nanobot-channels/src/commands.rs:966` (conditional=#[cfg(test)])
+- `test_matches_command_with_bot_mention` — `crates/nanobot-channels/src/commands.rs:973` (conditional=#[cfg(test)])
+- `test_matches_command_with_trailing_args` — `crates/nanobot-channels/src/commands.rs:979` (conditional=#[cfg(test)])
+- `test_matches_command_no_match` — `crates/nanobot-channels/src/commands.rs:985` (conditional=#[cfg(test)])
+- `test_try_handle_command_validate` — `crates/nanobot-channels/src/commands.rs:996` (conditional=#[cfg(test)])
+- `test_try_handle_command_menu` — `crates/nanobot-channels/src/commands.rs:1003` (conditional=#[cfg(test)])
+- `test_try_handle_command_other` — `crates/nanobot-channels/src/commands.rs:1018` (conditional=#[cfg(test)])
+- `test_command_response_text` — `crates/nanobot-channels/src/commands.rs:1028` (conditional=#[cfg(test)])
+- `test_command_response_with_keyboard` — `crates/nanobot-channels/src/commands.rs:1035` (conditional=#[cfg(test)])
+- `test_handle_validate_default_config` — `crates/nanobot-channels/src/commands.rs:1067` (conditional=#[cfg(test)])
+- `test_handle_validate_valid_config` — `crates/nanobot-channels/src/commands.rs:1079` (conditional=#[cfg(test)])
+- `test_handle_validate_invalid_config` — `crates/nanobot-channels/src/commands.rs:1099` (conditional=#[cfg(test)])
+- `test_handle_validate_summary_shows_name` — `crates/nanobot-channels/src/commands.rs:1111` (conditional=#[cfg(test)])
+- `test_handle_validate_summary_shows_unnamed` — `crates/nanobot-channels/src/commands.rs:1124` (conditional=#[cfg(test)])
+- `test_handle_validate_summary_shows_providers` — `crates/nanobot-channels/src/commands.rs:1136` (conditional=#[cfg(test)])
+- `test_handle_validate_summary_shows_channels` — `crates/nanobot-channels/src/commands.rs:1151` (conditional=#[cfg(test)])
+- `test_handle_validate_summary_channels_disabled` — `crates/nanobot-channels/src/commands.rs:1166` (conditional=#[cfg(test)])
+- `test_handle_validate_no_providers` — `crates/nanobot-channels/src/commands.rs:1179` (conditional=#[cfg(test)])
+- `test_handle_validate_no_channels` — `crates/nanobot-channels/src/commands.rs:1189` (conditional=#[cfg(test)])
+- `test_handle_help_lists_commands` — `crates/nanobot-channels/src/commands.rs:1203` (conditional=#[cfg(test)])
+- `test_try_handle_command_help` — `crates/nanobot-channels/src/commands.rs:1213` (conditional=#[cfg(test)])
+- `test_handle_help_includes_reset` — `crates/nanobot-channels/src/commands.rs:1219` (conditional=#[cfg(test)])
+- `test_handle_status_basic` — `crates/nanobot-channels/src/commands.rs:1227` (conditional=#[cfg(test)])
+- `test_handle_status_no_key` — `crates/nanobot-channels/src/commands.rs:1235` (conditional=#[cfg(test)])
+- `test_handle_status_heartbeat_disabled` — `crates/nanobot-channels/src/commands.rs:1247` (conditional=#[cfg(test)])
+- `test_format_key_status_ok` — `crates/nanobot-channels/src/commands.rs:1260` (conditional=#[cfg(test)])
+- `test_format_key_status_no_key` — `crates/nanobot-channels/src/commands.rs:1265` (conditional=#[cfg(test)])
+- `test_format_key_status_empty` — `crates/nanobot-channels/src/commands.rs:1270` (conditional=#[cfg(test)])
+- `test_menu_keyboard_structure` — `crates/nanobot-channels/src/commands.rs:1277` (conditional=#[cfg(test)])
+- `test_handle_menu_callback_status` — `crates/nanobot-channels/src/commands.rs:1303` (conditional=#[cfg(test)])
+- `test_handle_menu_callback_help` — `crates/nanobot-channels/src/commands.rs:1311` (conditional=#[cfg(test)])
+- `test_handle_menu_callback_validate` — `crates/nanobot-channels/src/commands.rs:1319` (conditional=#[cfg(test)])
+- `test_handle_menu_callback_cancel` — `crates/nanobot-channels/src/commands.rs:1327` (conditional=#[cfg(test)])
+- `test_handle_menu_callback_unknown` — `crates/nanobot-channels/src/commands.rs:1334` (conditional=#[cfg(test)])
+- `test_handle_settings_has_keyboard` — `crates/nanobot-channels/src/commands.rs:1343` (conditional=#[cfg(test)])
+- `test_try_handle_command_settings` — `crates/nanobot-channels/src/commands.rs:1357` (conditional=#[cfg(test)])
+- `test_settings_keyboard_buttons` — `crates/nanobot-channels/src/commands.rs:1370` (conditional=#[cfg(test)])
+- `test_handle_settings_single_page` — `crates/nanobot-channels/src/commands.rs:1390` (conditional=#[cfg(test)])
+- `test_handle_settings_first_page` — `crates/nanobot-channels/src/commands.rs:1404` (conditional=#[cfg(test)])
+- `test_handle_settings_page_clamped_to_last` — `crates/nanobot-channels/src/commands.rs:1412` (conditional=#[cfg(test)])
+- `test_handle_settings_shows_name` — `crates/nanobot-channels/src/commands.rs:1421` (conditional=#[cfg(test)])
+- `test_handle_settings_shows_providers` — `crates/nanobot-channels/src/commands.rs:1434` (conditional=#[cfg(test)])
+- `test_handle_settings_no_providers` — `crates/nanobot-channels/src/commands.rs:1450` (conditional=#[cfg(test)])
+- `test_handle_history_no_sessions` — `crates/nanobot-channels/src/commands.rs:1461` (conditional=#[cfg(test)])
+- `test_handle_history_with_data` — `crates/nanobot-channels/src/commands.rs:1469` (conditional=#[cfg(test)])
+- `test_handle_history_pagination_keyboard` — `crates/nanobot-channels/src/commands.rs:1487` (conditional=#[cfg(test)])
+- `test_try_handle_command_history` — `crates/nanobot-channels/src/commands.rs:1507` (conditional=#[cfg(test)])
+- `test_handle_history_empty` — `crates/nanobot-channels/src/commands.rs:1516` (conditional=#[cfg(test)])
+- `test_handle_history_single_page` — `crates/nanobot-channels/src/commands.rs:1523` (conditional=#[cfg(test)])
+- `test_handle_history_multi_page` — `crates/nanobot-channels/src/commands.rs:1533` (conditional=#[cfg(test)])
+- `test_handle_history_second_page` — `crates/nanobot-channels/src/commands.rs:1545` (conditional=#[cfg(test)])
+- `test_handle_history_page_clamped` — `crates/nanobot-channels/src/commands.rs:1555` (conditional=#[cfg(test)])
+- `test_handle_history_callback_delegates` — `crates/nanobot-channels/src/commands.rs:1563` (conditional=#[cfg(test)])
+- `test_handle_history_shows_index_numbers` — `crates/nanobot-channels/src/commands.rs:1571` (conditional=#[cfg(test)])
+- `test_short_key` — `crates/nanobot-channels/src/commands.rs:1582` (conditional=#[cfg(test)])
+- `test_truncate_str_short` — `crates/nanobot-channels/src/commands.rs:1590` (conditional=#[cfg(test)])
+- `test_truncate_str_exact` — `crates/nanobot-channels/src/commands.rs:1595` (conditional=#[cfg(test)])
+- `test_truncate_str_long` — `crates/nanobot-channels/src/commands.rs:1600` (conditional=#[cfg(test)])
+- `test_truncate_str_multibyte` — `crates/nanobot-channels/src/commands.rs:1607` (conditional=#[cfg(test)])
+- `test_handle_reset_success` — `crates/nanobot-channels/src/commands.rs:1617` (conditional=#[cfg(test)])
+- `test_handle_reset_no_session` — `crates/nanobot-channels/src/commands.rs:1638` (conditional=#[cfg(test)])
+- `test_handle_callback_unknown` — `crates/nanobot-channels/src/commands.rs:1649` (conditional=#[cfg(test)])
+- `test_handle_callback_history_page` — `crates/nanobot-channels/src/commands.rs:1656` (conditional=#[cfg(test)])
+- `test_handle_callback_settings_model_switch` — `crates/nanobot-channels/src/commands.rs:1672` (conditional=#[cfg(test)])
+- `test_handle_callback_settings_streaming_toggle` — `crates/nanobot-channels/src/commands.rs:1691` (conditional=#[cfg(test)])
+- `test_handle_callback_settings_unknown_action` — `crates/nanobot-channels/src/commands.rs:1712` (conditional=#[cfg(test)])
+- `test_model_cycle_constants` — `crates/nanobot-channels/src/commands.rs:1717` (conditional=#[cfg(test)])
+- `test_rebuild_callback_data_with_payload` — `crates/nanobot-channels/src/commands.rs:1729` (conditional=#[cfg(test)])
+- `test_rebuild_callback_data_without_payload` — `crates/nanobot-channels/src/commands.rs:1746` (conditional=#[cfg(test)])
+- `test_manager_new` — `crates/nanobot-channels/src/manager.rs:270` (conditional=#[cfg(test)])
+- `test_parse_session_key_simple` — `crates/nanobot-channels/src/manager.rs:310` (conditional=#[cfg(test)])
+- `test_parse_session_key_with_thread` — `crates/nanobot-channels/src/manager.rs:317` (conditional=#[cfg(test)])
+- `test_parse_session_key_negative_chat_id` — `crates/nanobot-channels/src/manager.rs:324` (conditional=#[cfg(test)])
+- `test_parse_session_key_empty` — `crates/nanobot-channels/src/manager.rs:331` (conditional=#[cfg(test)])
+- `test_parse_session_key_no_colon` — `crates/nanobot-channels/src/manager.rs:336` (conditional=#[cfg(test)])
+- `test_parse_session_key_empty_platform` — `crates/nanobot-channels/src/manager.rs:341` (conditional=#[cfg(test)])
+- `test_parse_session_key_empty_chat_id` — `crates/nanobot-channels/src/manager.rs:346` (conditional=#[cfg(test)])
+- `test_start_typing_no_running_channel` — `crates/nanobot-channels/src/manager.rs:355` (conditional=#[cfg(test)])
+- `test_stop_typing_nonexistent` — `crates/nanobot-channels/src/manager.rs:365` (conditional=#[cfg(test)])
+- `test_start_typing_invalid_session_key` — `crates/nanobot-channels/src/manager.rs:374` (conditional=#[cfg(test)])
+- `test_discord_new` — `crates/nanobot-channels/src/platforms/discord.rs:1290` (conditional=#[cfg(test)])
+- `test_discord_default` — `crates/nanobot-channels/src/platforms/discord.rs:1298` (conditional=#[cfg(test)])
+- `test_discord_auth_header` — `crates/nanobot-channels/src/platforms/discord.rs:1330` (conditional=#[cfg(test)])
+- `test_discord_make_error_result_retryable` — `crates/nanobot-channels/src/platforms/discord.rs:1340` (conditional=#[cfg(test)])
+- `test_discord_make_error_result_non_retryable` — `crates/nanobot-channels/src/platforms/discord.rs:1348` (conditional=#[cfg(test)])
+- `test_create_message_body_serialisation` — `crates/nanobot-channels/src/platforms/discord.rs:1355` (conditional=#[cfg(test)])
+- `test_create_message_body_embed_serialisation` — `crates/nanobot-channels/src/platforms/discord.rs:1370` (conditional=#[cfg(test)])
+- `test_intents_text_bot_value` — `crates/nanobot-channels/src/platforms/discord.rs:1462` (conditional=#[cfg(test)])
+- `test_opcode_constants` — `crates/nanobot-channels/src/platforms/discord.rs:1468` (conditional=#[cfg(test)])
+- `test_edit_message_body_serialisation` — `crates/nanobot-channels/src/platforms/discord.rs:1480` (conditional=#[cfg(test)])
+- `test_edit_message_body_with_embed_serialisation` — `crates/nanobot-channels/src/platforms/discord.rs:1491` (conditional=#[cfg(test)])
+- `test_gateway_payload_deserialisation` — `crates/nanobot-channels/src/platforms/discord.rs:1511` (conditional=#[cfg(test)])
+- `test_gateway_payload_dispatch` — `crates/nanobot-channels/src/platforms/discord.rs:1520` (conditional=#[cfg(test)])
+- `test_gateway_payload_invalid_session` — `crates/nanobot-channels/src/platforms/discord.rs:1537` (conditional=#[cfg(test)])
+- `test_gateway_payload_reconnect` — `crates/nanobot-channels/src/platforms/discord.rs:1545` (conditional=#[cfg(test)])
+- `test_discord_message_response_parse` — `crates/nanobot-channels/src/platforms/discord.rs:1552` (conditional=#[cfg(test)])
+- `test_discord_user_parse` — `crates/nanobot-channels/src/platforms/discord.rs:1559` (conditional=#[cfg(test)])
+- `test_make_error_result_forbidden` — `crates/nanobot-channels/src/platforms/discord.rs:1567` (conditional=#[cfg(test)])
+- `test_make_error_result_service_unavailable` — `crates/nanobot-channels/src/platforms/discord.rs:1577` (conditional=#[cfg(test)])
+- `test_session_state_default_empty` — `crates/nanobot-channels/src/platforms/discord.rs:1589` (conditional=#[cfg(test)])
+- `test_session_state_save_from_ready` — `crates/nanobot-channels/src/platforms/discord.rs:1597` (conditional=#[cfg(test)])
+- `test_session_state_update_seq` — `crates/nanobot-channels/src/platforms/discord.rs:1605` (conditional=#[cfg(test)])
+- `test_session_state_update_seq_ignores_none` — `crates/nanobot-channels/src/platforms/discord.rs:1614` (conditional=#[cfg(test)])
+- `test_session_state_clear` — `crates/nanobot-channels/src/platforms/discord.rs:1622` (conditional=#[cfg(test)])
+- `test_session_state_has_session_requires_id` — `crates/nanobot-channels/src/platforms/discord.rs:1635` (conditional=#[cfg(test)])
+- `test_build_identify_payload` — `crates/nanobot-channels/src/platforms/discord.rs:1649` (conditional=#[cfg(test)])
+- `test_build_resume_payload` — `crates/nanobot-channels/src/platforms/discord.rs:1660` (conditional=#[cfg(test)])
+- `test_resume_payload_is_valid_json` — `crates/nanobot-channels/src/platforms/discord.rs:1669` (conditional=#[cfg(test)])
+- `test_backoff_doubles` — `crates/nanobot-channels/src/platforms/discord.rs:1682` (conditional=#[cfg(test)])
+- `test_backoff_capped_at_max` — `crates/nanobot-channels/src/platforms/discord.rs:1692` (conditional=#[cfg(test)])
+- `test_backoff_sequence` — `crates/nanobot-channels/src/platforms/discord.rs:1699` (conditional=#[cfg(test)])
+- `test_session_outcome_variants` — `crates/nanobot-channels/src/platforms/discord.rs:1716` (conditional=#[cfg(test)])
+- `test_session_outcome_invalid_session_data_true` — `crates/nanobot-channels/src/platforms/discord.rs:1737` (conditional=#[cfg(test)])
+- `test_session_outcome_invalid_session_data_false` — `crates/nanobot-channels/src/platforms/discord.rs:1746` (conditional=#[cfg(test)])
+- `test_session_outcome_invalid_session_data_null` — `crates/nanobot-channels/src/platforms/discord.rs:1755` (conditional=#[cfg(test)])
+- `test_ready_data_parse` — `crates/nanobot-channels/src/platforms/discord.rs:1768` (conditional=#[cfg(test)])
+- `test_ready_dispatch_full_payload` — `crates/nanobot-channels/src/platforms/discord.rs:1775` (conditional=#[cfg(test)])
+- `test_resumed_dispatch_payload` — `crates/nanobot-channels/src/platforms/discord.rs:1791` (conditional=#[cfg(test)])
+- `test_emit_gateway_event_with_sender` — `crates/nanobot-channels/src/platforms/discord.rs:1804` (conditional=#[cfg(test)])
+- `test_emit_gateway_event_without_sender` — `crates/nanobot-channels/src/platforms/discord.rs:1833` (conditional=#[cfg(test)])
+- `test_emit_gateway_event_resumed` — `crates/nanobot-channels/src/platforms/discord.rs:1846` (conditional=#[cfg(test)])
+- `test_emit_gateway_event_reidentify` — `crates/nanobot-channels/src/platforms/discord.rs:1871` (conditional=#[cfg(test)])
+- `test_max_reconnect_attempts_constant` — `crates/nanobot-channels/src/platforms/discord.rs:1890` (conditional=#[cfg(test)])
+- `test_max_backoff_constant` — `crates/nanobot-channels/src/platforms/discord.rs:1895` (conditional=#[cfg(test)])
+- `test_set_event_sender` — `crates/nanobot-channels/src/platforms/discord.rs:1904` (conditional=#[cfg(test)])
+- `test_gateway_url_default` — `crates/nanobot-channels/src/platforms/discord.rs:1918` (conditional=#[cfg(test)])
+- `test_gateway_url_override` — `crates/nanobot-channels/src/platforms/discord.rs:1924` (conditional=#[cfg(test)])
+- `test_full_resume_scenario_state_transitions` — `crates/nanobot-channels/src/platforms/discord.rs:1935` (conditional=#[cfg(test)])
+- `test_invalid_session_resumable_preserves_state` — `crates/nanobot-channels/src/platforms/discord.rs:1974` (conditional=#[cfg(test)])
+- `test_invalid_session_not_resumable_clears_state` — `crates/nanobot-channels/src/platforms/discord.rs:1997` (conditional=#[cfg(test)])
+- `test_percent_encode_emoji_checkmark` — `crates/nanobot-channels/src/platforms/discord.rs:2016` (conditional=#[cfg(test)])
+- `test_percent_encode_emoji_thumbsup` — `crates/nanobot-channels/src/platforms/discord.rs:2022` (conditional=#[cfg(test)])
+- `test_percent_encode_emoji_eyes` — `crates/nanobot-channels/src/platforms/discord.rs:2028` (conditional=#[cfg(test)])
+- `test_percent_encode_emoji_ascii_pass_through` — `crates/nanobot-channels/src/platforms/discord.rs:2034` (conditional=#[cfg(test)])
+- `test_read_receipt_url_format` — `crates/nanobot-channels/src/platforms/discord.rs:2079` (conditional=#[cfg(test)])
+- `test_telegram_new` — `crates/nanobot-channels/src/platforms/telegram.rs:1858` (conditional=#[cfg(test)])
+- `test_telegram_default` — `crates/nanobot-channels/src/platforms/telegram.rs:1866` (conditional=#[cfg(test)])
+- `test_api_url` — `crates/nanobot-channels/src/platforms/telegram.rs:1872` (conditional=#[cfg(test)])
+- `test_running_flag_default` — `crates/nanobot-channels/src/platforms/telegram.rs:1936` (conditional=#[cfg(test)])
+- `test_parse_update_json` — `crates/nanobot-channels/src/platforms/telegram.rs:1942` (conditional=#[cfg(test)])
+- `test_parse_photo_update` — `crates/nanobot-channels/src/platforms/telegram.rs:1974` (conditional=#[cfg(test)])
+- `test_parse_get_me_response` — `crates/nanobot-channels/src/platforms/telegram.rs:1998` (conditional=#[cfg(test)])
+- `test_parse_callback_query_update` — `crates/nanobot-channels/src/platforms/telegram.rs:2259` (conditional=#[cfg(test)])
+- `test_parse_update_with_message_and_no_callback` — `crates/nanobot-channels/src/platforms/telegram.rs:2292` (conditional=#[cfg(test)])
+- `test_edit_message_text_body_serialisation` — `crates/nanobot-channels/src/platforms/telegram.rs:2430` (conditional=#[cfg(test)])
+- `test_edit_message_reply_markup_body_serialisation` — `crates/nanobot-channels/src/platforms/telegram.rs:2447` (conditional=#[cfg(test)])
+- `test_answer_callback_query_body_serialisation` — `crates/nanobot-channels/src/platforms/telegram.rs:2460` (conditional=#[cfg(test)])
+- `test_answer_callback_query_body_no_text` — `crates/nanobot-channels/src/platforms/telegram.rs:2473` (conditional=#[cfg(test)])
+- `test_answer_callback_query_body_show_alert` — `crates/nanobot-channels/src/platforms/telegram.rs:2485` (conditional=#[cfg(test)])
+- `test_set_message_reaction_body_serialisation` — `crates/nanobot-channels/src/platforms/telegram.rs:2502` (conditional=#[cfg(test)])
+- `test_reaction_type_serialisation` — `crates/nanobot-channels/src/platforms/telegram.rs:2535` (conditional=#[cfg(test)])
+- `test_builder_empty` — `crates/nanobot-channels/src/platforms/telegram.rs:2550` (conditional=#[cfg(test)])
+- `test_builder_single_button` — `crates/nanobot-channels/src/platforms/telegram.rs:2556` (conditional=#[cfg(test)])
+- `test_builder_row_pair` — `crates/nanobot-channels/src/platforms/telegram.rs:2571` (conditional=#[cfg(test)])
+- `test_builder_multiple_rows` — `crates/nanobot-channels/src/platforms/telegram.rs:2582` (conditional=#[cfg(test)])
+- `test_builder_auto_flush_without_new_row` — `crates/nanobot-channels/src/platforms/telegram.rs:2596` (conditional=#[cfg(test)])
+- `test_builder_url_button` — `crates/nanobot-channels/src/platforms/telegram.rs:2607` (conditional=#[cfg(test)])
+- `test_builder_confirm_cancel` — `crates/nanobot-channels/src/platforms/telegram.rs:2620` (conditional=#[cfg(test)])
+- `test_builder_pagination_first_page` — `crates/nanobot-channels/src/platforms/telegram.rs:2637` (conditional=#[cfg(test)])
+- `test_builder_pagination_last_page` — `crates/nanobot-channels/src/platforms/telegram.rs:2649` (conditional=#[cfg(test)])
+- `test_builder_pagination_middle_page` — `crates/nanobot-channels/src/platforms/telegram.rs:2659` (conditional=#[cfg(test)])
+- `test_builder_pagination_single_page` — `crates/nanobot-channels/src/platforms/telegram.rs:2671` (conditional=#[cfg(test)])
+- `test_inline_keyboard_serialisation` — `crates/nanobot-channels/src/platforms/telegram.rs:2680` (conditional=#[cfg(test)])
+- `test_inline_keyboard_roundtrip_serde` — `crates/nanobot-channels/src/platforms/telegram.rs:2694` (conditional=#[cfg(test)])
+- `test_inline_keyboard_button_equality` — `crates/nanobot-channels/src/platforms/telegram.rs:2706` (conditional=#[cfg(test)])
+- `test_callback_action_parse_simple` — `crates/nanobot-channels/src/platforms/telegram.rs:2725` (conditional=#[cfg(test)])
+- `test_callback_action_parse_with_payload` — `crates/nanobot-channels/src/platforms/telegram.rs:2733` (conditional=#[cfg(test)])
+- `test_callback_action_parse_complex_payload` — `crates/nanobot-channels/src/platforms/telegram.rs:2741` (conditional=#[cfg(test)])
+- `test_callback_action_parse_empty` — `crates/nanobot-channels/src/platforms/telegram.rs:2750` (conditional=#[cfg(test)])
+- `test_callback_action_parse_no_colon` — `crates/nanobot-channels/src/platforms/telegram.rs:2755` (conditional=#[cfg(test)])
+- `test_callback_action_parse_trailing_colon` — `crates/nanobot-channels/src/platforms/telegram.rs:2760` (conditional=#[cfg(test)])
+- `test_callback_action_parse_leading_colon` — `crates/nanobot-channels/src/platforms/telegram.rs:2766` (conditional=#[cfg(test)])
+- `test_router_new_empty` — `crates/nanobot-channels/src/platforms/telegram.rs:2802` (conditional=#[cfg(test)])
+- `test_router_default` — `crates/nanobot-channels/src/platforms/telegram.rs:2809` (conditional=#[cfg(test)])
+- `test_callback_response_equality` — `crates/nanobot-channels/src/platforms/telegram.rs:2996` (conditional=#[cfg(test)])
+- `test_callback_context_debug` — `crates/nanobot-channels/src/platforms/telegram.rs:3030` (conditional=#[cfg(test)])
+- `test_set_session_keys` — `crates/nanobot-channels/src/platforms/telegram.rs:3151` (conditional=#[cfg(test)])
+- `test_session_keys_independent_per_channel` — `crates/nanobot-channels/src/platforms/telegram.rs:3160` (conditional=#[cfg(test)])
+- `test_register_default_handlers_registers_all` — `crates/nanobot-channels/src/platforms/telegram.rs:3172` (conditional=#[cfg(test)])
+- `test_register_default_handlers_idempotent` — `crates/nanobot-channels/src/platforms/telegram.rs:3183` (conditional=#[cfg(test)])
+- `test_websocket_new` — `crates/nanobot-channels/src/platforms/websocket.rs:530` (conditional=#[cfg(test)])
+- `test_websocket_default` — `crates/nanobot-channels/src/platforms/websocket.rs:539` (conditional=#[cfg(test)])
+- `test_websocket_with_custom_addr` — `crates/nanobot-channels/src/platforms/websocket.rs:546` (conditional=#[cfg(test)])
+- `test_inbound_message_parse` — `crates/nanobot-channels/src/platforms/websocket.rs:574` (conditional=#[cfg(test)])
+- `test_inbound_message_defaults_role` — `crates/nanobot-channels/src/platforms/websocket.rs:582` (conditional=#[cfg(test)])
+- `test_outbound_message_format` — `crates/nanobot-channels/src/platforms/websocket.rs:590` (conditional=#[cfg(test)])
+- `test_typing_indicator_format` — `crates/nanobot-channels/src/platforms/websocket.rs:602` (conditional=#[cfg(test)])
+- `test_image_message_format` — `crates/nanobot-channels/src/platforms/websocket.rs:610` (conditional=#[cfg(test)])
+- `test_image_message_no_caption` — `crates/nanobot-channels/src/platforms/websocket.rs:624` (conditional=#[cfg(test)])
+- `test_default_listen_addr` — `crates/nanobot-channels/src/platforms/websocket.rs:864` (conditional=#[cfg(test)])
+- `test_registry_new_has_builtin_channels` — `crates/nanobot-channels/src/registry.rs:65` (conditional=#[cfg(test)])
+- `test_registry_default` — `crates/nanobot-channels/src/registry.rs:73` (conditional=#[cfg(test)])
+- `test_registry_create_known_channel` — `crates/nanobot-channels/src/registry.rs:80` (conditional=#[cfg(test)])
+- `test_registry_create_discord` — `crates/nanobot-channels/src/registry.rs:89` (conditional=#[cfg(test)])
+- `test_registry_create_unknown` — `crates/nanobot-channels/src/registry.rs:97` (conditional=#[cfg(test)])
+- `test_registry_register_custom` — `crates/nanobot-channels/src/registry.rs:106` (conditional=#[cfg(test)])
+
+#### integration
+
+- `test_expand_env_vars_telegram_token` — `crates/nanobot-channels/tests/proxy_client.rs:17`
+- `test_expand_env_vars_with_default_in_yaml` — `crates/nanobot-channels/tests/proxy_client.rs:26`
+- `test_expand_env_vars_multiple_in_one_line` — `crates/nanobot-channels/tests/proxy_client.rs:39`
+- `test_load_config_from_file_with_env_vars` — `crates/nanobot-channels/tests/proxy_client.rs:50`
+- `test_registry_creates_all_builtin_channels` — `crates/nanobot-channels/tests/proxy_client.rs:90`
+- `test_manager_creation_with_bus` — `crates/nanobot-channels/tests/proxy_client.rs:98`
+- `test_telegram_channel_attributes` — `crates/nanobot-channels/tests/proxy_client.rs:110`
+
+#### doc
+
+- `crates/nanobot-channels/src/platforms/telegram.rs - platforms::telegram::InlineKeyboardBuilder (line 230)` — `crates/nanobot-channels/src/platforms/telegram.rs:230`
+- `crates/nanobot-channels/src/platforms/telegram.rs - platforms::telegram::CallbackRouter (line 444)` — `crates/nanobot-channels/src/platforms/telegram.rs:444`
+
+### nanobot-config
+
+- Unit: 190
+- Integration: 0
+- Doc: 1
+
+#### unit
+
+- `test_expand_env_vars_simple` — `crates/nanobot-config/src/loader.rs:70` (conditional=#[cfg(test)])
+- `test_expand_env_vars_with_default` — `crates/nanobot-config/src/loader.rs:77` (conditional=#[cfg(test)])
+- `test_expand_env_vars_missing_no_default` — `crates/nanobot-config/src/loader.rs:83` (conditional=#[cfg(test)])
+- `test_default_config_roundtrip` — `crates/nanobot-config/src/loader.rs:89` (conditional=#[cfg(test)])
+- `test_save_and_load_config` — `crates/nanobot-config/src/loader.rs:97` (conditional=#[cfg(test)])
+- `test_load_config_missing_file_returns_default` — `crates/nanobot-config/src/loader.rs:111` (conditional=#[cfg(test)])
+- `test_load_config_with_env_vars` — `crates/nanobot-config/src/loader.rs:121` (conditional=#[cfg(test)])
+- `test_expand_env_vars_multiple` — `crates/nanobot-config/src/loader.rs:148` (conditional=#[cfg(test)])
+- `test_migrate_config_from_v0` — `crates/nanobot-config/src/migration.rs:31` (conditional=#[cfg(test)])
+- `test_migrate_config_already_current` — `crates/nanobot-config/src/migration.rs:39` (conditional=#[cfg(test)])
+- `test_nanobot_home_default` — `crates/nanobot-config/src/paths.rs:110` (conditional=#[cfg(test)])
+- `test_nanobot_home_env` — `crates/nanobot-config/src/paths.rs:117` (conditional=#[cfg(test)])
+- `test_config_path_default` — `crates/nanobot-config/src/paths.rs:125` (conditional=#[cfg(test)])
+- `test_migration_report_display` — `crates/nanobot-config/src/python_migrate.rs:835` (conditional=#[cfg(test)])
+- `test_migration_report_counts` — `crates/nanobot-config/src/python_migrate.rs:853` (conditional=#[cfg(test)])
+- `test_migration_options_default` — `crates/nanobot-config/src/python_migrate.rs:874` (conditional=#[cfg(test)])
+- `test_migration_options_dry_run` — `crates/nanobot-config/src/python_migrate.rs:883` (conditional=#[cfg(test)])
+- `test_migration_options_with_output` — `crates/nanobot-config/src/python_migrate.rs:889` (conditional=#[cfg(test)])
+- `test_migrate_providers` — `crates/nanobot-config/src/python_migrate.rs:902` (conditional=#[cfg(test)])
+- `test_migrate_telegram_channel` — `crates/nanobot-config/src/python_migrate.rs:951` (conditional=#[cfg(test)])
+- `test_migrate_discord_with_group_policy_warning` — `crates/nanobot-config/src/python_migrate.rs:965` (conditional=#[cfg(test)])
+- `test_migrate_slack_channel` — `crates/nanobot-config/src/python_migrate.rs:983` (conditional=#[cfg(test)])
+- `test_migrate_all_channels` — `crates/nanobot-config/src/python_migrate.rs:1000` (conditional=#[cfg(test)])
+- `test_migrate_agents_defaults` — `crates/nanobot-config/src/python_migrate.rs:1050` (conditional=#[cfg(test)])
+- `test_migrate_heartbeat` — `crates/nanobot-config/src/python_migrate.rs:1070` (conditional=#[cfg(test)])
+- `test_migrate_security` — `crates/nanobot-config/src/python_migrate.rs:1081` (conditional=#[cfg(test)])
+- `test_migrate_dream` — `crates/nanobot-config/src/python_migrate.rs:1095` (conditional=#[cfg(test)])
+- `test_migrate_custom_provider_no_base` — `crates/nanobot-config/src/python_migrate.rs:1111` (conditional=#[cfg(test)])
+- `test_migrate_empty_config` — `crates/nanobot-config/src/python_migrate.rs:1123` (conditional=#[cfg(test)])
+- `test_migrate_no_sections` — `crates/nanobot-config/src/python_migrate.rs:1136` (conditional=#[cfg(test)])
+- `test_migrate_azure_openai` — `crates/nanobot-config/src/python_migrate.rs:1148` (conditional=#[cfg(test)])
+- `test_migrate_yaml_output_valid` — `crates/nanobot-config/src/python_migrate.rs:1174` (conditional=#[cfg(test)])
+- `test_migrate_per_channel_merge` — `crates/nanobot-config/src/python_migrate.rs:1196` (conditional=#[cfg(test)])
+- `test_migrate_from_str_json` — `crates/nanobot-config/src/python_migrate.rs:1217` (conditional=#[cfg(test)])
+- `test_migrate_from_str_yaml` — `crates/nanobot-config/src/python_migrate.rs:1231` (conditional=#[cfg(test)])
+- `test_migrate_from_str_empty` — `crates/nanobot-config/src/python_migrate.rs:1273` (conditional=#[cfg(test)])
+- `test_validation_after_full_migration` — `crates/nanobot-config/src/python_migrate.rs:1284` (conditional=#[cfg(test)])
+- `test_validation_catches_missing_provider` — `crates/nanobot-config/src/python_migrate.rs:1296` (conditional=#[cfg(test)])
+- `test_validation_catches_bad_temperature` — `crates/nanobot-config/src/python_migrate.rs:1314` (conditional=#[cfg(test)])
+- `test_migration_result_summary` — `crates/nanobot-config/src/python_migrate.rs:1338` (conditional=#[cfg(test)])
+- `test_migration_result_summary_with_errors` — `crates/nanobot-config/src/python_migrate.rs:1349` (conditional=#[cfg(test)])
+- `test_migrate_from_python_json_file` — `crates/nanobot-config/src/python_migrate.rs:1362` (conditional=#[cfg(test)])
+- `test_migrate_from_python_yaml_file` — `crates/nanobot-config/src/python_migrate.rs:1381` (conditional=#[cfg(test)])
+- `test_migrate_from_python_no_config_file_errors` — `crates/nanobot-config/src/python_migrate.rs:1416` (conditional=#[cfg(test)])
+- `test_migrate_from_python_auto_detect_json` — `crates/nanobot-config/src/python_migrate.rs:1435` (conditional=#[cfg(test)])
+- `test_migrate_from_python_auto_detect_yaml_fallback` — `crates/nanobot-config/src/python_migrate.rs:1457` (conditional=#[cfg(test)])
+- `test_dry_run_does_not_write` — `crates/nanobot-config/src/python_migrate.rs:1487` (conditional=#[cfg(test)])
+- `test_write_creates_output_file` — `crates/nanobot-config/src/python_migrate.rs:1516` (conditional=#[cfg(test)])
+- `test_per_channel_yaml_discovery` — `crates/nanobot-config/src/python_migrate.rs:1548` (conditional=#[cfg(test)])
+- `test_migrate_json_roundtrip` — `crates/nanobot-config/src/python_migrate.rs:1583` (conditional=#[cfg(test)])
+- `test_read_python_config_json_extension` — `crates/nanobot-config/src/python_migrate.rs:1600` (conditional=#[cfg(test)])
+- `test_read_python_config_yaml_extension` — `crates/nanobot-config/src/python_migrate.rs:1614` (conditional=#[cfg(test)])
+- `test_read_python_config_yml_extension` — `crates/nanobot-config/src/python_migrate.rs:1624` (conditional=#[cfg(test)])
+- `test_read_python_config_no_extension_auto_detect` — `crates/nanobot-config/src/python_migrate.rs:1634` (conditional=#[cfg(test)])
+- `test_parse_python_config_minimal` — `crates/nanobot-config/src/python_schema.rs:405` (conditional=#[cfg(test)])
+- `test_parse_python_config_full` — `crates/nanobot-config/src/python_schema.rs:414` (conditional=#[cfg(test)])
+- `test_parse_python_config_empty` — `crates/nanobot-config/src/python_schema.rs:506` (conditional=#[cfg(test)])
+- `test_parse_python_config_unknown_fields_ignored` — `crates/nanobot-config/src/python_schema.rs:514` (conditional=#[cfg(test)])
+- `test_config_default` — `crates/nanobot-config/src/schema.rs:761` (conditional=#[cfg(test)])
+- `test_agent_defaults_values` — `crates/nanobot-config/src/schema.rs:772` (conditional=#[cfg(test)])
+- `test_config_yaml_roundtrip` — `crates/nanobot-config/src/schema.rs:785` (conditional=#[cfg(test)])
+- `test_provider_entry_optional_fields` — `crates/nanobot-config/src/schema.rs:796` (conditional=#[cfg(test)])
+- `test_security_config_default` — `crates/nanobot-config/src/schema.rs:809` (conditional=#[cfg(test)])
+- `test_mcp_server_config_default_transport` — `crates/nanobot-config/src/schema.rs:823` (conditional=#[cfg(test)])
+- `test_config_parse_minimal_yaml` — `crates/nanobot-config/src/schema.rs:835` (conditional=#[cfg(test)])
+- `test_config_parse_full_yaml` — `crates/nanobot-config/src/schema.rs:849` (conditional=#[cfg(test)])
+- `test_custom_provider_config_parse` — `crates/nanobot-config/src/schema.rs:940` (conditional=#[cfg(test)])
+- `test_dream_config_default` — `crates/nanobot-config/src/schema.rs:961` (conditional=#[cfg(test)])
+- `test_heartbeat_config_default` — `crates/nanobot-config/src/schema.rs:969` (conditional=#[cfg(test)])
+- `test_cron_config_default` — `crates/nanobot-config/src/schema.rs:976` (conditional=#[cfg(test)])
+- `test_cron_config_parse` — `crates/nanobot-config/src/schema.rs:984` (conditional=#[cfg(test)])
+- `test_empty_config_yaml` — `crates/nanobot-config/src/schema.rs:1001` (conditional=#[cfg(test)])
+- `test_daemon_config_default` — `crates/nanobot-config/src/schema.rs:1009` (conditional=#[cfg(test)])
+- `test_daemon_config_parse` — `crates/nanobot-config/src/schema.rs:1018` (conditional=#[cfg(test)])
+- `test_daemon_config_yaml_roundtrip` — `crates/nanobot-config/src/schema.rs:1034` (conditional=#[cfg(test)])
+- `test_report_empty` — `crates/nanobot-config/src/validate.rs:1252` (conditional=#[cfg(test)])
+- `test_report_with_error` — `crates/nanobot-config/src/validate.rs:1260` (conditional=#[cfg(test)])
+- `test_report_with_warning` — `crates/nanobot-config/src/validate.rs:1270` (conditional=#[cfg(test)])
+- `test_severity_display` — `crates/nanobot-config/src/validate.rs:1279` (conditional=#[cfg(test)])
+- `test_finding_display` — `crates/nanobot-config/src/validate.rs:1285` (conditional=#[cfg(test)])
+- `test_report_display` — `crates/nanobot-config/src/validate.rs:1298` (conditional=#[cfg(test)])
+- `test_valid_config` — `crates/nanobot-config/src/validate.rs:1312` (conditional=#[cfg(test)])
+- `test_no_provider_configured` — `crates/nanobot-config/src/validate.rs:1323` (conditional=#[cfg(test)])
+- `test_openai_empty_key` — `crates/nanobot-config/src/validate.rs:1332` (conditional=#[cfg(test)])
+- `test_openai_bad_prefix` — `crates/nanobot-config/src/validate.rs:1348` (conditional=#[cfg(test)])
+- `test_anthropic_bad_prefix` — `crates/nanobot-config/src/validate.rs:1364` (conditional=#[cfg(test)])
+- `test_anthropic_valid_key` — `crates/nanobot-config/src/validate.rs:1380` (conditional=#[cfg(test)])
+- `test_azure_openai_missing_fields` — `crates/nanobot-config/src/validate.rs:1393` (conditional=#[cfg(test)])
+- `test_custom_provider_empty_name` — `crates/nanobot-config/src/validate.rs:1409` (conditional=#[cfg(test)])
+- `test_custom_provider_valid` — `crates/nanobot-config/src/validate.rs:1426` (conditional=#[cfg(test)])
+- `test_ollama_no_base_url` — `crates/nanobot-config/src/validate.rs:1440` (conditional=#[cfg(test)])
+- `test_no_channels_warning` — `crates/nanobot-config/src/validate.rs:1460` (conditional=#[cfg(test)])
+- `test_telegram_empty_token` — `crates/nanobot-config/src/validate.rs:1468` (conditional=#[cfg(test)])
+- `test_telegram_bad_token_format` — `crates/nanobot-config/src/validate.rs:1486` (conditional=#[cfg(test)])
+- `test_telegram_disabled` — `crates/nanobot-config/src/validate.rs:1503` (conditional=#[cfg(test)])
+- `test_discord_empty_token` — `crates/nanobot-config/src/validate.rs:1521` (conditional=#[cfg(test)])
+- `test_discord_short_token` — `crates/nanobot-config/src/validate.rs:1538` (conditional=#[cfg(test)])
+- `test_slack_missing_token` — `crates/nanobot-config/src/validate.rs:1554` (conditional=#[cfg(test)])
+- `test_matrix_missing_fields` — `crates/nanobot-config/src/validate.rs:1571` (conditional=#[cfg(test)])
+- `test_email_missing_fields` — `crates/nanobot-config/src/validate.rs:1588` (conditional=#[cfg(test)])
+- `test_agent_empty_model` — `crates/nanobot-config/src/validate.rs:1611` (conditional=#[cfg(test)])
+- `test_agent_temperature_negative` — `crates/nanobot-config/src/validate.rs:1620` (conditional=#[cfg(test)])
+- `test_agent_temperature_too_high` — `crates/nanobot-config/src/validate.rs:1632` (conditional=#[cfg(test)])
+- `test_agent_temperature_boundary_valid` — `crates/nanobot-config/src/validate.rs:1644` (conditional=#[cfg(test)])
+- `test_agent_max_tokens_zero` — `crates/nanobot-config/src/validate.rs:1653` (conditional=#[cfg(test)])
+- `test_agent_max_tokens_very_large` — `crates/nanobot-config/src/validate.rs:1662` (conditional=#[cfg(test)])
+- `test_agent_max_iterations_zero` — `crates/nanobot-config/src/validate.rs:1673` (conditional=#[cfg(test)])
+- `test_agent_tool_timeout_zero` — `crates/nanobot-config/src/validate.rs:1685` (conditional=#[cfg(test)])
+- `test_agent_empty_workspace` — `crates/nanobot-config/src/validate.rs:1696` (conditional=#[cfg(test)])
+- `test_dream_enabled_zero_interval` — `crates/nanobot-config/src/validate.rs:1711` (conditional=#[cfg(test)])
+- `test_dream_enabled_very_short_interval` — `crates/nanobot-config/src/validate.rs:1724` (conditional=#[cfg(test)])
+- `test_dream_disabled_zero_interval_ok` — `crates/nanobot-config/src/validate.rs:1736` (conditional=#[cfg(test)])
+- `test_dream_empty_model` — `crates/nanobot-config/src/validate.rs:1748` (conditional=#[cfg(test)])
+- `test_heartbeat_enabled_zero_interval` — `crates/nanobot-config/src/validate.rs:1761` (conditional=#[cfg(test)])
+- `test_heartbeat_enabled_very_short_interval` — `crates/nanobot-config/src/validate.rs:1774` (conditional=#[cfg(test)])
+- `test_heartbeat_enabled_very_long_interval` — `crates/nanobot-config/src/validate.rs:1786` (conditional=#[cfg(test)])
+- `test_heartbeat_disabled_zero_interval_ok` — `crates/nanobot-config/src/validate.rs:1798` (conditional=#[cfg(test)])
+- `test_cron_enabled_zero_tick` — `crates/nanobot-config/src/validate.rs:1814` (conditional=#[cfg(test)])
+- `test_cron_enabled_very_short_tick` — `crates/nanobot-config/src/validate.rs:1824` (conditional=#[cfg(test)])
+- `test_cron_disabled_zero_tick_ok` — `crates/nanobot-config/src/validate.rs:1833` (conditional=#[cfg(test)])
+- `test_cron_empty_state_file` — `crates/nanobot-config/src/validate.rs:1842` (conditional=#[cfg(test)])
+- `test_security_valid_cidr` — `crates/nanobot-config/src/validate.rs:1858` (conditional=#[cfg(test)])
+- `test_security_invalid_cidr` — `crates/nanobot-config/src/validate.rs:1871` (conditional=#[cfg(test)])
+- `test_security_empty_cidr` — `crates/nanobot-config/src/validate.rs:1883` (conditional=#[cfg(test)])
+- `test_security_valid_ipv6_cidr` — `crates/nanobot-config/src/validate.rs:1894` (conditional=#[cfg(test)])
+- `test_mcp_stdio_valid` — `crates/nanobot-config/src/validate.rs:1909` (conditional=#[cfg(test)])
+- `test_mcp_stdio_missing_command` — `crates/nanobot-config/src/validate.rs:1926` (conditional=#[cfg(test)])
+- `test_mcp_sse_valid` — `crates/nanobot-config/src/validate.rs:1947` (conditional=#[cfg(test)])
+- `test_mcp_http_missing_url` — `crates/nanobot-config/src/validate.rs:1964` (conditional=#[cfg(test)])
+- `test_mcp_unknown_transport` — `crates/nanobot-config/src/validate.rs:1985` (conditional=#[cfg(test)])
+- `test_cross_field_model_matches_provider` — `crates/nanobot-config/src/validate.rs:2011` (conditional=#[cfg(test)])
+- `test_cross_field_model_no_match` — `crates/nanobot-config/src/validate.rs:2018` (conditional=#[cfg(test)])
+- `test_cross_field_single_provider_any_model` — `crates/nanobot-config/src/validate.rs:2035` (conditional=#[cfg(test)])
+- `test_fill_defaults_empty_config` — `crates/nanobot-config/src/validate.rs:2054` (conditional=#[cfg(test)])
+- `test_fill_defaults_already_set` — `crates/nanobot-config/src/validate.rs:2088` (conditional=#[cfg(test)])
+- `test_validate_and_fill_combines` — `crates/nanobot-config/src/validate.rs:2106` (conditional=#[cfg(test)])
+- `test_provider_none_api_key` — `crates/nanobot-config/src/validate.rs:2133` (conditional=#[cfg(test)])
+- `test_multiple_providers` — `crates/nanobot-config/src/validate.rs:2153` (conditional=#[cfg(test)])
+- `test_all_channels_disabled` — `crates/nanobot-config/src/validate.rs:2170` (conditional=#[cfg(test)])
+- `test_dingtalk_invalid_webhook_url` — `crates/nanobot-config/src/validate.rs:2184` (conditional=#[cfg(test)])
+- `test_dingtalk_valid_webhook_url` — `crates/nanobot-config/src/validate.rs:2199` (conditional=#[cfg(test)])
+- `test_mochat_missing_webhook` — `crates/nanobot-config/src/validate.rs:2218` (conditional=#[cfg(test)])
+- `test_openai_invalid_base_url` — `crates/nanobot-config/src/validate.rs:2236` (conditional=#[cfg(test)])
+- `test_azure_openai_invalid_endpoint` — `crates/nanobot-config/src/validate.rs:2252` (conditional=#[cfg(test)])
+- `test_custom_provider_duplicate_names` — `crates/nanobot-config/src/validate.rs:2272` (conditional=#[cfg(test)])
+- `test_custom_provider_no_model_patterns_warning` — `crates/nanobot-config/src/validate.rs:2301` (conditional=#[cfg(test)])
+- `test_email_port_zero_warns` — `crates/nanobot-config/src/validate.rs:2322` (conditional=#[cfg(test)])
+- `test_email_port_nonstandard_warns` — `crates/nanobot-config/src/validate.rs:2340` (conditional=#[cfg(test)])
+- `test_email_port_standard_ok` — `crates/nanobot-config/src/validate.rs:2358` (conditional=#[cfg(test)])
+- `test_dingtalk_http_webhook_warns` — `crates/nanobot-config/src/validate.rs:2380` (conditional=#[cfg(test)])
+- `test_mochat_http_webhook_warns` — `crates/nanobot-config/src/validate.rs:2396` (conditional=#[cfg(test)])
+- `test_matrix_homeserver_http_warns` — `crates/nanobot-config/src/validate.rs:2411` (conditional=#[cfg(test)])
+- `test_matrix_homeserver_https_ok` — `crates/nanobot-config/src/validate.rs:2429` (conditional=#[cfg(test)])
+- `test_agent_model_whitespace_error` — `crates/nanobot-config/src/validate.rs:2450` (conditional=#[cfg(test)])
+- `test_agent_max_iterations_very_large` — `crates/nanobot-config/src/validate.rs:2466` (conditional=#[cfg(test)])
+- `test_api_allowed_origins_bad_format` — `crates/nanobot-config/src/validate.rs:2481` (conditional=#[cfg(test)])
+- `test_api_allowed_origins_wildcard_ok` — `crates/nanobot-config/src/validate.rs:2492` (conditional=#[cfg(test)])
+- `test_api_allowed_origins_valid_url_ok` — `crates/nanobot-config/src/validate.rs:2503` (conditional=#[cfg(test)])
+- `test_api_max_body_size_tiny_warns` — `crates/nanobot-config/src/validate.rs:2514` (conditional=#[cfg(test)])
+- `test_dream_model_cross_check_mismatch` — `crates/nanobot-config/src/validate.rs:2529` (conditional=#[cfg(test)])
+- `test_dream_model_cross_check_match` — `crates/nanobot-config/src/validate.rs:2541` (conditional=#[cfg(test)])
+- `test_dream_model_cross_check_disabled` — `crates/nanobot-config/src/validate.rs:2550` (conditional=#[cfg(test)])
+- `test_raw_env_vars_unresolved_var` — `crates/nanobot-config/src/validate.rs:2563` (conditional=#[cfg(test)])
+- `test_raw_env_vars_with_default_ok` — `crates/nanobot-config/src/validate.rs:2580` (conditional=#[cfg(test)])
+- `test_raw_env_vars_set_in_env_ok` — `crates/nanobot-config/src/validate.rs:2597` (conditional=#[cfg(test)])
+- `test_raw_env_vars_no_vars` — `crates/nanobot-config/src/validate.rs:2615` (conditional=#[cfg(test)])
+- `test_raw_env_vars_multiple_unresolved` — `crates/nanobot-config/src/validate.rs:2626` (conditional=#[cfg(test)])
+- `test_raw_env_vars_path_is_yaml_key` — `crates/nanobot-config/src/validate.rs:2651` (conditional=#[cfg(test)])
+- `test_raw_env_vars_empty_default_no_warn` — `crates/nanobot-config/src/validate.rs:2660` (conditional=#[cfg(test)])
+- `test_channels_enabled_no_provider_warns` — `crates/nanobot-config/src/validate.rs:2677` (conditional=#[cfg(test)])
+- `test_channels_enabled_with_provider_ok` — `crates/nanobot-config/src/validate.rs:2694` (conditional=#[cfg(test)])
+- `test_invalid_temperature_string_model` — `crates/nanobot-config/src/validate.rs:2710` (conditional=#[cfg(test)])
+- `test_agent_max_iterations_boundary` — `crates/nanobot-config/src/validate.rs:2720` (conditional=#[cfg(test)])
+- `test_agent_max_iterations_just_above_boundary` — `crates/nanobot-config/src/validate.rs:2732` (conditional=#[cfg(test)])
+- `test_heartbeat_boundary_valid` — `crates/nanobot-config/src/validate.rs:2743` (conditional=#[cfg(test)])
+- `test_cron_boundary_valid` — `crates/nanobot-config/src/validate.rs:2753` (conditional=#[cfg(test)])
+- `test_dream_boundary_valid` — `crates/nanobot-config/src/validate.rs:2761` (conditional=#[cfg(test)])
+- `test_dream_interval_below_60_warns` — `crates/nanobot-config/src/validate.rs:2769` (conditional=#[cfg(test)])
+- `test_api_empty_origins_warns` — `crates/nanobot-config/src/validate.rs:2781` (conditional=#[cfg(test)])
+- `test_api_zero_body_size_errors` — `crates/nanobot-config/src/validate.rs:2792` (conditional=#[cfg(test)])
+- `test_mcp_empty_command_error` — `crates/nanobot-config/src/validate.rs:2804` (conditional=#[cfg(test)])
+- `test_mcp_sse_empty_url_error` — `crates/nanobot-config/src/validate.rs:2825` (conditional=#[cfg(test)])
+- `test_mcp_sse_invalid_url_error` — `crates/nanobot-config/src/validate.rs:2846` (conditional=#[cfg(test)])
+- `test_feishu_missing_app_id` — `crates/nanobot-config/src/validate.rs:2867` (conditional=#[cfg(test)])
+- `test_feishu_missing_app_secret` — `crates/nanobot-config/src/validate.rs:2883` (conditional=#[cfg(test)])
+- `test_wecom_missing_fields` — `crates/nanobot-config/src/validate.rs:2899` (conditional=#[cfg(test)])
+- `test_weixin_missing_app_id` — `crates/nanobot-config/src/validate.rs:2917` (conditional=#[cfg(test)])
+- `test_qq_missing_app_id` — `crates/nanobot-config/src/validate.rs:2935` (conditional=#[cfg(test)])
+- `test_email_port_boundary_valid` — `crates/nanobot-config/src/validate.rs:2952` (conditional=#[cfg(test)])
+- `test_security_blocked_networks_invalid` — `crates/nanobot-config/src/validate.rs:2971` (conditional=#[cfg(test)])
+
+#### integration
+
+- None
+
+#### doc
+
+- `crates/nanobot-config/src/python_migrate.rs - python_migrate (line 8)` — `crates/nanobot-config/src/python_migrate.rs:8`
+
+### nanobot-core
+
+- Unit: 18
+- Integration: 0
+- Doc: 0
+
+#### unit
+
+- `test_version_not_empty` — `crates/nanobot-core/src/constants.rs:56` (conditional=#[cfg(test)])
+- `test_defaults_sensible` — `crates/nanobot-core/src/constants.rs:61` (conditional=#[cfg(test)])
+- `test_error_variants` — `crates/nanobot-core/src/error.rs:77` (conditional=#[cfg(test)])
+- `test_from_io_error` — `crates/nanobot-core/src/error.rs:131` (conditional=#[cfg(test)])
+- `test_from_serde_error` — `crates/nanobot-core/src/error.rs:139` (conditional=#[cfg(test)])
+- `test_result_alias` — `crates/nanobot-core/src/error.rs:146` (conditional=#[cfg(test)])
+- `test_platform_as_str` — `crates/nanobot-core/src/types.rs:293` (conditional=#[cfg(test)])
+- `test_platform_display` — `crates/nanobot-core/src/types.rs:314` (conditional=#[cfg(test)])
+- `test_platform_serde_roundtrip` — `crates/nanobot-core/src/types.rs:322` (conditional=#[cfg(test)])
+- `test_message_type_default` — `crates/nanobot-core/src/types.rs:350` (conditional=#[cfg(test)])
+- `test_message_role_serde` — `crates/nanobot-core/src/types.rs:356` (conditional=#[cfg(test)])
+- `test_message_construction` — `crates/nanobot-core/src/types.rs:371` (conditional=#[cfg(test)])
+- `test_tool_call_construction` — `crates/nanobot-core/src/types.rs:387` (conditional=#[cfg(test)])
+- `test_function_definition_construction` — `crates/nanobot-core/src/types.rs:403` (conditional=#[cfg(test)])
+- `test_session_source_key` — `crates/nanobot-core/src/types.rs:424` (conditional=#[cfg(test)])
+- `test_usage_default` — `crates/nanobot-core/src/types.rs:451` (conditional=#[cfg(test)])
+- `test_processing_outcome_variants` — `crates/nanobot-core/src/types.rs:459` (conditional=#[cfg(test)])
+- `test_run_result_construction` — `crates/nanobot-core/src/types.rs:472` (conditional=#[cfg(test)])
+
+#### integration
+
+- None
+
+#### doc
+
+- None
+
+### nanobot-cron
+
+- Unit: 80
+- Integration: 0
+- Doc: 0
+
+#### unit
+
+- `test_add_job` — `crates/nanobot-cron/src/service.rs:660` (conditional=#[cfg(test)])
+- `test_remove_job` — `crates/nanobot-cron/src/service.rs:679` (conditional=#[cfg(test)])
+- `test_remove_nonexistent` — `crates/nanobot-cron/src/service.rs:692` (conditional=#[cfg(test)])
+- `test_list_jobs` — `crates/nanobot-cron/src/service.rs:700` (conditional=#[cfg(test)])
+- `test_get_job` — `crates/nanobot-cron/src/service.rs:722` (conditional=#[cfg(test)])
+- `test_update_job_schedule` — `crates/nanobot-cron/src/service.rs:740` (conditional=#[cfg(test)])
+- `test_update_job_payload` — `crates/nanobot-cron/src/service.rs:766` (conditional=#[cfg(test)])
+- `test_update_nonexistent` — `crates/nanobot-cron/src/service.rs:783` (conditional=#[cfg(test)])
+- `test_pause_resume_job` — `crates/nanobot-cron/src/service.rs:793` (conditional=#[cfg(test)])
+- `test_pause_nonexistent` — `crates/nanobot-cron/src/service.rs:819` (conditional=#[cfg(test)])
+- `test_pause_already_paused` — `crates/nanobot-cron/src/service.rs:827` (conditional=#[cfg(test)])
+- `test_tick_no_due` — `crates/nanobot-cron/src/service.rs:840` (conditional=#[cfg(test)])
+- `test_tick_due_job` — `crates/nanobot-cron/src/service.rs:850` (conditional=#[cfg(test)])
+- `test_tick_every_reschedules` — `crates/nanobot-cron/src/service.rs:865` (conditional=#[cfg(test)])
+- `test_tick_cron_reschedules` — `crates/nanobot-cron/src/service.rs:890` (conditional=#[cfg(test)])
+- `test_tick_records_history` — `crates/nanobot-cron/src/service.rs:913` (conditional=#[cfg(test)])
+- `test_mark_completed` — `crates/nanobot-cron/src/service.rs:927` (conditional=#[cfg(test)])
+- `test_persist_and_reload` — `crates/nanobot-cron/src/service.rs:943` (conditional=#[cfg(test)])
+- `test_persist_file_is_cron_state_json` — `crates/nanobot-cron/src/service.rs:965` (conditional=#[cfg(test)])
+- `test_persist_after_update` — `crates/nanobot-cron/src/service.rs:980` (conditional=#[cfg(test)])
+- `test_compute_next_run_every` — `crates/nanobot-cron/src/service.rs:1002` (conditional=#[cfg(test)])
+- `test_compute_next_run_at` — `crates/nanobot-cron/src/service.rs:1010` (conditional=#[cfg(test)])
+- `test_compute_next_run_cron_every_minute` — `crates/nanobot-cron/src/service.rs:1025` (conditional=#[cfg(test)])
+- `test_compute_next_run_cron_specific` — `crates/nanobot-cron/src/service.rs:1036` (conditional=#[cfg(test)])
+- `test_compute_next_run_cron_5field` — `crates/nanobot-cron/src/service.rs:1046` (conditional=#[cfg(test)])
+- `test_validate_schedule_valid` — `crates/nanobot-cron/src/service.rs:1058` (conditional=#[cfg(test)])
+- `test_validate_schedule_invalid_cron_expr` — `crates/nanobot-cron/src/service.rs:1065` (conditional=#[cfg(test)])
+- `test_validate_schedule_missing_fields` — `crates/nanobot-cron/src/service.rs:1077` (conditional=#[cfg(test)])
+- `test_add_job_invalid_schedule` — `crates/nanobot-cron/src/service.rs:1107` (conditional=#[cfg(test)])
+- `test_upcoming_from_expression` — `crates/nanobot-cron/src/service.rs:1123` (conditional=#[cfg(test)])
+- `test_upcoming_from_expression_invalid` — `crates/nanobot-cron/src/service.rs:1132` (conditional=#[cfg(test)])
+- `test_history_trimmed` — `crates/nanobot-cron/src/service.rs:1139` (conditional=#[cfg(test)])
+- `test_system_job_cannot_be_removed` — `crates/nanobot-cron/src/service.rs:1170` (conditional=#[cfg(test)])
+- `test_tick_multiple_due` — `crates/nanobot-cron/src/service.rs:1202` (conditional=#[cfg(test)])
+- `test_add_job_saves_state` — `crates/nanobot-cron/src/service.rs:1228` (conditional=#[cfg(test)])
+- `test_tick_updates_state` — `crates/nanobot-cron/src/service.rs:1247` (conditional=#[cfg(test)])
+- `test_pause_updates_state` — `crates/nanobot-cron/src/service.rs:1263` (conditional=#[cfg(test)])
+- `test_resume_updates_state` — `crates/nanobot-cron/src/service.rs:1277` (conditional=#[cfg(test)])
+- `test_remove_job_deletes_state` — `crates/nanobot-cron/src/service.rs:1293` (conditional=#[cfg(test)])
+- `test_mark_completed_with_error` — `crates/nanobot-cron/src/service.rs:1310` (conditional=#[cfg(test)])
+- `test_list_job_states` — `crates/nanobot-cron/src/service.rs:1326` (conditional=#[cfg(test)])
+- `test_state_survives_restart` — `crates/nanobot-cron/src/service.rs:1342` (conditional=#[cfg(test)])
+- `test_catch_up_missed_jobs` — `crates/nanobot-cron/src/service.rs:1372` (conditional=#[cfg(test)])
+- `test_with_state_store_custom` — `crates/nanobot-cron/src/service.rs:1416` (conditional=#[cfg(test)])
+- `test_add_job_with_priority` — `crates/nanobot-cron/src/service.rs:1436` (conditional=#[cfg(test)])
+- `test_add_job_default_priority` — `crates/nanobot-cron/src/service.rs:1457` (conditional=#[cfg(test)])
+- `test_update_job_priority` — `crates/nanobot-cron/src/service.rs:1469` (conditional=#[cfg(test)])
+- `test_tick_sorts_by_priority` — `crates/nanobot-cron/src/service.rs:1490` (conditional=#[cfg(test)])
+- `test_priority_persists_across_restart` — `crates/nanobot-cron/src/service.rs:1528` (conditional=#[cfg(test)])
+- `test_memory_save_and_load` — `crates/nanobot-cron/src/state_store.rs:180` (conditional=#[cfg(test)])
+- `test_memory_load_missing` — `crates/nanobot-cron/src/state_store.rs:192` (conditional=#[cfg(test)])
+- `test_memory_list_states_empty` — `crates/nanobot-cron/src/state_store.rs:198` (conditional=#[cfg(test)])
+- `test_memory_list_states_multiple` — `crates/nanobot-cron/src/state_store.rs:204` (conditional=#[cfg(test)])
+- `test_memory_delete` — `crates/nanobot-cron/src/state_store.rs:216` (conditional=#[cfg(test)])
+- `test_memory_delete_missing` — `crates/nanobot-cron/src/state_store.rs:224` (conditional=#[cfg(test)])
+- `test_memory_save_overwrites` — `crates/nanobot-cron/src/state_store.rs:230` (conditional=#[cfg(test)])
+- `test_memory_save_all` — `crates/nanobot-cron/src/state_store.rs:242` (conditional=#[cfg(test)])
+- `test_memory_default` — `crates/nanobot-cron/src/state_store.rs:254` (conditional=#[cfg(test)])
+- `test_file_save_and_load` — `crates/nanobot-cron/src/state_store.rs:262` (conditional=#[cfg(test)])
+- `test_file_load_missing` — `crates/nanobot-cron/src/state_store.rs:279` (conditional=#[cfg(test)])
+- `test_file_list_states` — `crates/nanobot-cron/src/state_store.rs:287` (conditional=#[cfg(test)])
+- `test_file_delete` — `crates/nanobot-cron/src/state_store.rs:300` (conditional=#[cfg(test)])
+- `test_file_delete_missing` — `crates/nanobot-cron/src/state_store.rs:311` (conditional=#[cfg(test)])
+- `test_file_persists_across_instances` — `crates/nanobot-cron/src/state_store.rs:319` (conditional=#[cfg(test)])
+- `test_file_creates_parent_dir` — `crates/nanobot-cron/src/state_store.rs:338` (conditional=#[cfg(test)])
+- `test_file_save_all` — `crates/nanobot-cron/src/state_store.rs:347` (conditional=#[cfg(test)])
+- `test_file_survives_empty_state` — `crates/nanobot-cron/src/state_store.rs:362` (conditional=#[cfg(test)])
+- `test_file_state_with_error` — `crates/nanobot-cron/src/state_store.rs:374` (conditional=#[cfg(test)])
+- `test_schedule_kind_serde` — `crates/nanobot-cron/src/types.rs:168` (conditional=#[cfg(test)])
+- `test_cron_schedule_construction` — `crates/nanobot-cron/src/types.rs:177` (conditional=#[cfg(test)])
+- `test_cron_payload_construction` — `crates/nanobot-cron/src/types.rs:211` (conditional=#[cfg(test)])
+- `test_job_state_default` — `crates/nanobot-cron/src/types.rs:225` (conditional=#[cfg(test)])
+- `test_cron_job_construction` — `crates/nanobot-cron/src/types.rs:232` (conditional=#[cfg(test)])
+- `test_cron_store_default` — `crates/nanobot-cron/src/types.rs:265` (conditional=#[cfg(test)])
+- `test_cron_job_priority_default` — `crates/nanobot-cron/src/types.rs:271` (conditional=#[cfg(test)])
+- `test_cron_job_priority_serde` — `crates/nanobot-cron/src/types.rs:278` (conditional=#[cfg(test)])
+- `test_cron_run_record` — `crates/nanobot-cron/src/types.rs:308` (conditional=#[cfg(test)])
+- `test_cron_job_state_construction` — `crates/nanobot-cron/src/types.rs:323` (conditional=#[cfg(test)])
+- `test_cron_job_state_with_error` — `crates/nanobot-cron/src/types.rs:339` (conditional=#[cfg(test)])
+- `test_cron_job_state_serde_roundtrip` — `crates/nanobot-cron/src/types.rs:353` (conditional=#[cfg(test)])
+
+#### integration
+
+- None
+
+#### doc
+
+- None
+
+### nanobot-daemon
+
+- Unit: 12
+- Integration: 0
+- Doc: 0
+
+#### unit
+
+- `test_daemonize_does_not_panic_on_struct_creation` — `crates/nanobot-daemon/src/daemonize.rs:110` (conditional=#[cfg(test)])
+- `test_redirect_stdio_compiles` — `crates/nanobot-daemon/src/daemonize.rs:119` (conditional=#[cfg(test)])
+- `test_setup_file_logging_creates_directory` — `crates/nanobot-daemon/src/logging.rs:62` (conditional=#[cfg(test)])
+- `test_log_directory_created_even_if_subscriber_fails` — `crates/nanobot-daemon/src/logging.rs:79` (conditional=#[cfg(test)])
+- `test_pid_file_create_and_read` — `crates/nanobot-daemon/src/pid_file.rs:141` (conditional=#[cfg(test)])
+- `test_pid_file_read_nonexistent` — `crates/nanobot-daemon/src/pid_file.rs:159` (conditional=#[cfg(test)])
+- `test_pid_file_double_lock_fails` — `crates/nanobot-daemon/src/pid_file.rs:165` (conditional=#[cfg(test)])
+- `test_pid_file_clean_removes_file` — `crates/nanobot-daemon/src/pid_file.rs:177` (conditional=#[cfg(test)])
+- `test_is_process_running` — `crates/nanobot-daemon/src/pid_file.rs:194` (conditional=#[cfg(test)])
+- `test_pid_file_creates_parent_directory` — `crates/nanobot-daemon/src/pid_file.rs:204` (conditional=#[cfg(test)])
+- `test_shutdown_signal_variants` — `crates/nanobot-daemon/src/signal.rs:129` (conditional=#[cfg(test)])
+- `test_send_sigterm_to_nonexistent_process` — `crates/nanobot-daemon/src/signal.rs:141` (conditional=#[cfg(test)])
+
+#### integration
+
+- None
+
+#### doc
+
+- None
+
+### nanobot-heartbeat
+
+- Unit: 32
+- Integration: 0
+- Doc: 0
+
+#### unit
+
+- `test_construction` — `crates/nanobot-heartbeat/src/service.rs:558` (conditional=#[cfg(test)])
+- `test_construction_with_data_dir` — `crates/nanobot-heartbeat/src/service.rs:566` (conditional=#[cfg(test)])
+- `test_interval_minimum_30s` — `crates/nanobot-heartbeat/src/service.rs:591` (conditional=#[cfg(test)])
+- `test_interval_uses_config` — `crates/nanobot-heartbeat/src/service.rs:600` (conditional=#[cfg(test)])
+- `test_default_disabled` — `crates/nanobot-heartbeat/src/service.rs:609` (conditional=#[cfg(test)])
+- `test_register_check` — `crates/nanobot-heartbeat/src/service.rs:617` (conditional=#[cfg(test)])
+- `test_register_multiple` — `crates/nanobot-heartbeat/src/service.rs:628` (conditional=#[cfg(test)])
+- `test_deregister_check` — `crates/nanobot-heartbeat/src/service.rs:646` (conditional=#[cfg(test)])
+- `test_state_persists_to_file` — `crates/nanobot-heartbeat/src/service.rs:942` (conditional=#[cfg(test)])
+- `test_state_file_is_heartbeat_state_json` — `crates/nanobot-heartbeat/src/service.rs:1004` (conditional=#[cfg(test)])
+- `test_with_failures_before_restart_min_1` — `crates/nanobot-heartbeat/src/service.rs:1055` (conditional=#[cfg(test)])
+- `test_check_status_serde` — `crates/nanobot-heartbeat/src/types.rs:342` (conditional=#[cfg(test)])
+- `test_health_check_result_construction` — `crates/nanobot-heartbeat/src/types.rs:356` (conditional=#[cfg(test)])
+- `test_health_snapshot_all_healthy` — `crates/nanobot-heartbeat/src/types.rs:368` (conditional=#[cfg(test)])
+- `test_health_snapshot_has_failure` — `crates/nanobot-heartbeat/src/types.rs:389` (conditional=#[cfg(test)])
+- `test_health_snapshot_degraded_is_healthy` — `crates/nanobot-heartbeat/src/types.rs:410` (conditional=#[cfg(test)])
+- `test_health_snapshot_summary_healthy` — `crates/nanobot-heartbeat/src/types.rs:433` (conditional=#[cfg(test)])
+- `test_health_snapshot_summary_degraded` — `crates/nanobot-heartbeat/src/types.rs:458` (conditional=#[cfg(test)])
+- `test_health_snapshot_summary_unhealthy` — `crates/nanobot-heartbeat/src/types.rs:470` (conditional=#[cfg(test)])
+- `test_heartbeat_state_default` — `crates/nanobot-heartbeat/src/types.rs:482` (conditional=#[cfg(test)])
+- `test_health_snapshot_serde_roundtrip` — `crates/nanobot-heartbeat/src/types.rs:492` (conditional=#[cfg(test)])
+- `test_component_failure_state_construction` — `crates/nanobot-heartbeat/src/types.rs:506` (conditional=#[cfg(test)])
+- `test_component_failure_state_serde_roundtrip` — `crates/nanobot-heartbeat/src/types.rs:523` (conditional=#[cfg(test)])
+- `test_registry_new` — `crates/nanobot-heartbeat/src/types.rs:572` (conditional=#[cfg(test)])
+- `test_registry_default` — `crates/nanobot-heartbeat/src/types.rs:579` (conditional=#[cfg(test)])
+- `test_registry_register` — `crates/nanobot-heartbeat/src/types.rs:585` (conditional=#[cfg(test)])
+- `test_registry_register_replaces_duplicate` — `crates/nanobot-heartbeat/src/types.rs:597` (conditional=#[cfg(test)])
+- `test_registry_deregister` — `crates/nanobot-heartbeat/src/types.rs:611` (conditional=#[cfg(test)])
+- `test_registry_deregister_missing` — `crates/nanobot-heartbeat/src/types.rs:630` (conditional=#[cfg(test)])
+- `test_full_health_report_all_healthy` — `crates/nanobot-heartbeat/src/types.rs:662` (conditional=#[cfg(test)])
+- `test_full_health_report_mixed` — `crates/nanobot-heartbeat/src/types.rs:692` (conditional=#[cfg(test)])
+- `test_full_health_report_serde_roundtrip` — `crates/nanobot-heartbeat/src/types.rs:742` (conditional=#[cfg(test)])
+
+#### integration
+
+- None
+
+#### doc
+
+- None
+
+### nanobot-learning
+
+- Unit: 18
+- Integration: 0
+- Doc: 0
+
+#### unit
+
+- `default_config` — `crates/nanobot-learning/src/config.rs:99` (conditional=#[cfg(test)])
+- `validate_rejects_zero_max_events` — `crates/nanobot-learning/src/config.rs:107` (conditional=#[cfg(test)])
+- `validate_accepts_valid_config` — `crates/nanobot-learning/src/config.rs:116` (conditional=#[cfg(test)])
+- `event_log_file_uses_configured_path` — `crates/nanobot-learning/src/config.rs:122` (conditional=#[cfg(test)])
+- `toml_roundtrip` — `crates/nanobot-learning/src/config.rs:134` (conditional=#[cfg(test)])
+- `event_bus_publish_subscribe` — `crates/nanobot-learning/src/event.rs:190` (conditional=#[cfg(test)])
+- `event_bus_no_subscribers` — `crates/nanobot-learning/src/event.rs:208` (conditional=#[cfg(test)])
+- `event_bus_multiple_subscribers` — `crates/nanobot-learning/src/event.rs:222` (conditional=#[cfg(test)])
+- `event_timestamp` — `crates/nanobot-learning/src/event.rs:240` (conditional=#[cfg(test)])
+- `event_serde_roundtrip` — `crates/nanobot-learning/src/event.rs:252` (conditional=#[cfg(test)])
+- `learning_action_serde` — `crates/nanobot-learning/src/event.rs:267` (conditional=#[cfg(test)])
+- `assemble_basic` — `crates/nanobot-learning/src/prompt.rs:93` (conditional=#[cfg(test)])
+- `assemble_skips_empty` — `crates/nanobot-learning/src/prompt.rs:112` (conditional=#[cfg(test)])
+- `assemble_custom_section` — `crates/nanobot-learning/src/prompt.rs:133` (conditional=#[cfg(test)])
+- `assemble_empty_input` — `crates/nanobot-learning/src/prompt.rs:146` (conditional=#[cfg(test)])
+- `custom_separator` — `crates/nanobot-learning/src/prompt.rs:153` (conditional=#[cfg(test)])
+- `section_header_and_content` — `crates/nanobot-learning/src/prompt.rs:169` (conditional=#[cfg(test)])
+- `prompt_section_serde` — `crates/nanobot-learning/src/prompt.rs:179` (conditional=#[cfg(test)])
+
+#### integration
+
+- None
+
+#### doc
+
+- None
+
+### nanobot-memory
+
+- Unit: 23
+- Integration: 0
+- Doc: 0
+
+#### unit
+
+- `test_default_config` — `crates/nanobot-memory/src/config.rs:99` (conditional=#[cfg(test)])
+- `test_for_test_config` — `crates/nanobot-memory/src/config.rs:114` (conditional=#[cfg(test)])
+- `test_toml_roundtrip` — `crates/nanobot-memory/src/config.rs:124` (conditional=#[cfg(test)])
+- `test_toml_parse_partial` — `crates/nanobot-memory/src/config.rs:140` (conditional=#[cfg(test)])
+- `test_toml_invalid` — `crates/nanobot-memory/src/config.rs:149` (conditional=#[cfg(test)])
+- `test_error_display` — `crates/nanobot-memory/src/error.rs:51` (conditional=#[cfg(test)])
+- `test_from_io_error` — `crates/nanobot-memory/src/error.rs:73` (conditional=#[cfg(test)])
+- `test_result_alias` — `crates/nanobot-memory/src/error.rs:80` (conditional=#[cfg(test)])
+- `test_cosine_similarity_identical` — `crates/nanobot-memory/src/hot_store.rs:480` (conditional=#[cfg(test)])
+- `test_cosine_similarity_orthogonal` — `crates/nanobot-memory/src/hot_store.rs:487` (conditional=#[cfg(test)])
+- `test_cosine_similarity_opposite` — `crates/nanobot-memory/src/hot_store.rs:495` (conditional=#[cfg(test)])
+- `test_cosine_similarity_empty` — `crates/nanobot-memory/src/hot_store.rs:503` (conditional=#[cfg(test)])
+- `test_cosine_similarity_different_lengths` — `crates/nanobot-memory/src/hot_store.rs:508` (conditional=#[cfg(test)])
+- `test_entry_new` — `crates/nanobot-memory/src/types.rs:180` (conditional=#[cfg(test)])
+- `test_entry_with_confidence_clamps` — `crates/nanobot-memory/src/types.rs:192` (conditional=#[cfg(test)])
+- `test_entry_with_embedding` — `crates/nanobot-memory/src/types.rs:204` (conditional=#[cfg(test)])
+- `test_entry_touch` — `crates/nanobot-memory/src/types.rs:210` (conditional=#[cfg(test)])
+- `test_entry_serde_roundtrip` — `crates/nanobot-memory/src/types.rs:220` (conditional=#[cfg(test)])
+- `test_category_serde_roundtrip` — `crates/nanobot-memory/src/types.rs:235` (conditional=#[cfg(test)])
+- `test_category_display` — `crates/nanobot-memory/src/types.rs:255` (conditional=#[cfg(test)])
+- `test_query_builder` — `crates/nanobot-memory/src/types.rs:263` (conditional=#[cfg(test)])
+- `test_query_default_limit` — `crates/nanobot-memory/src/types.rs:282` (conditional=#[cfg(test)])
+- `test_scored_entry` — `crates/nanobot-memory/src/types.rs:290` (conditional=#[cfg(test)])
+
+#### integration
+
+- None
+
+#### doc
+
+- None
+
+### nanobot-providers
+
+- Unit: 61
+- Integration: 0
+- Doc: 2
+
+#### unit
+
+- `test_anthropic_config_construction` — `crates/nanobot-providers/src/anthropic.rs:523` (conditional=#[cfg(test)])
+- `test_anthropic_provider_supports_model` — `crates/nanobot-providers/src/anthropic.rs:537` (conditional=#[cfg(test)])
+- `test_anthropic_provider_name` — `crates/nanobot-providers/src/anthropic.rs:554` (conditional=#[cfg(test)])
+- `test_convert_messages_system_and_user` — `crates/nanobot-providers/src/anthropic.rs:566` (conditional=#[cfg(test)])
+- `test_convert_messages_tool_result` — `crates/nanobot-providers/src/anthropic.rs:600` (conditional=#[cfg(test)])
+- `test_convert_messages_with_tool_calls` — `crates/nanobot-providers/src/anthropic.rs:627` (conditional=#[cfg(test)])
+- `test_convert_tools` — `crates/nanobot-providers/src/anthropic.rs:661` (conditional=#[cfg(test)])
+- `test_build_request_body` — `crates/nanobot-providers/src/anthropic.rs:684` (conditional=#[cfg(test)])
+- `test_base_url_default` — `crates/nanobot-providers/src/anthropic.rs:726` (conditional=#[cfg(test)])
+- `test_base_url_custom` — `crates/nanobot-providers/src/anthropic.rs:738` (conditional=#[cfg(test)])
+- `test_completion_request_serde` — `crates/nanobot-providers/src/base.rs:121` (conditional=#[cfg(test)])
+- `test_completion_response_serde` — `crates/nanobot-providers/src/base.rs:151` (conditional=#[cfg(test)])
+- `test_completion_chunk_default` — `crates/nanobot-providers/src/base.rs:171` (conditional=#[cfg(test)])
+- `test_tool_call_delta_construction` — `crates/nanobot-providers/src/base.rs:185` (conditional=#[cfg(test)])
+- `test_middleware_config_default_unlimited` — `crates/nanobot-providers/src/middleware.rs:410` (conditional=#[cfg(test)])
+- `test_middleware_config_no_retry` — `crates/nanobot-providers/src/middleware.rs:417` (conditional=#[cfg(test)])
+- `test_middleware_config_with_retry` — `crates/nanobot-providers/src/middleware.rs:423` (conditional=#[cfg(test)])
+- `test_middleware_config_with_rate_limit` — `crates/nanobot-providers/src/middleware.rs:429` (conditional=#[cfg(test)])
+- `test_middleware_config_debug` — `crates/nanobot-providers/src/middleware.rs:437` (conditional=#[cfg(test)])
+- `test_openai_config_construction` — `crates/nanobot-providers/src/openai_compat.rs:487` (conditional=#[cfg(test)])
+- `test_openai_provider_supports_model` — `crates/nanobot-providers/src/openai_compat.rs:502` (conditional=#[cfg(test)])
+- `test_openai_provider_name` — `crates/nanobot-providers/src/openai_compat.rs:517` (conditional=#[cfg(test)])
+- `test_build_headers` — `crates/nanobot-providers/src/openai_compat.rs:530` (conditional=#[cfg(test)])
+- `test_build_request_body_basic` — `crates/nanobot-providers/src/openai_compat.rs:546` (conditional=#[cfg(test)])
+- `test_build_request_body_with_tool_result` — `crates/nanobot-providers/src/openai_compat.rs:592` (conditional=#[cfg(test)])
+- `test_build_headers_no_organization` — `crates/nanobot-providers/src/openai_compat.rs:625` (conditional=#[cfg(test)])
+- `test_token_bucket_new_starts_full` — `crates/nanobot-providers/src/rate_limit.rs:220` (conditional=#[cfg(test)])
+- `test_token_bucket_try_acquire` — `crates/nanobot-providers/src/rate_limit.rs:226` (conditional=#[cfg(test)])
+- `test_token_bucket_unlimited` — `crates/nanobot-providers/src/rate_limit.rs:236` (conditional=#[cfg(test)])
+- `test_token_bucket_with_refill` — `crates/nanobot-providers/src/rate_limit.rs:250` (conditional=#[cfg(test)])
+- `test_token_bucket_concurrency_safe` — `crates/nanobot-providers/src/rate_limit.rs:259` (conditional=#[cfg(test)])
+- `test_registry_new` — `crates/nanobot-providers/src/registry.rs:293` (conditional=#[cfg(test)])
+- `test_registry_register` — `crates/nanobot-providers/src/registry.rs:299` (conditional=#[cfg(test)])
+- `test_registry_resolve_provider_name` — `crates/nanobot-providers/src/registry.rs:308` (conditional=#[cfg(test)])
+- `test_registry_default_provider` — `crates/nanobot-providers/src/registry.rs:323` (conditional=#[cfg(test)])
+- `test_retry_policy_default` — `crates/nanobot-providers/src/retry.rs:655` (conditional=#[cfg(test)])
+- `test_retry_policy_no_retries` — `crates/nanobot-providers/src/retry.rs:674` (conditional=#[cfg(test)])
+- `test_retry_policy_custom_codes` — `crates/nanobot-providers/src/retry.rs:681` (conditional=#[cfg(test)])
+- `test_retry_policy_builder` — `crates/nanobot-providers/src/retry.rs:690` (conditional=#[cfg(test)])
+- `test_retry_config_default` — `crates/nanobot-providers/src/retry.rs:707` (conditional=#[cfg(test)])
+- `test_retry_config_no_retries` — `crates/nanobot-providers/src/retry.rs:716` (conditional=#[cfg(test)])
+- `test_retry_config_from_policy` — `crates/nanobot-providers/src/retry.rs:723` (conditional=#[cfg(test)])
+- `test_is_retryable_status` — `crates/nanobot-providers/src/retry.rs:734` (conditional=#[cfg(test)])
+- `test_backoff_duration` — `crates/nanobot-providers/src/retry.rs:750` (conditional=#[cfg(test)])
+- `test_backoff_with_jitter_produces_reasonable_range` — `crates/nanobot-providers/src/retry.rs:762` (conditional=#[cfg(test)])
+- `test_parse_retry_after_seconds` — `crates/nanobot-providers/src/retry.rs:789` (conditional=#[cfg(test)])
+- `test_parse_retry_after_missing` — `crates/nanobot-providers/src/retry.rs:796` (conditional=#[cfg(test)])
+- `test_parse_retry_after_invalid` — `crates/nanobot-providers/src/retry.rs:802` (conditional=#[cfg(test)])
+- `test_extract_status_code` — `crates/nanobot-providers/src/retry.rs:813` (conditional=#[cfg(test)])
+- `test_circuit_breaker_config_default` — `crates/nanobot-providers/src/retry.rs:842` (conditional=#[cfg(test)])
+- `test_circuit_breaker_config_builder` — `crates/nanobot-providers/src/retry.rs:850` (conditional=#[cfg(test)])
+- `test_circuit_breaker_starts_closed` — `crates/nanobot-providers/src/retry.rs:865` (conditional=#[cfg(test)])
+- `test_circuit_breaker_trips_after_threshold` — `crates/nanobot-providers/src/retry.rs:872` (conditional=#[cfg(test)])
+- `test_circuit_breaker_success_resets_failures` — `crates/nanobot-providers/src/retry.rs:887` (conditional=#[cfg(test)])
+- `test_circuit_breaker_half_open_to_closed` — `crates/nanobot-providers/src/retry.rs:899` (conditional=#[cfg(test)])
+- `test_circuit_breaker_half_open_reopens_on_failure` — `crates/nanobot-providers/src/retry.rs:926` (conditional=#[cfg(test)])
+- `test_circuit_breaker_reset` — `crates/nanobot-providers/src/retry.rs:948` (conditional=#[cfg(test)])
+- `test_circuit_breaker_debug` — `crates/nanobot-providers/src/retry.rs:960` (conditional=#[cfg(test)])
+- `test_retry_policy_503_defaults` — `crates/nanobot-providers/src/retry.rs:1242` (conditional=#[cfg(test)])
+- `test_retry_policy_503_builder` — `crates/nanobot-providers/src/retry.rs:1249` (conditional=#[cfg(test)])
+- `test_backoff_503_capped_at_30s` — `crates/nanobot-providers/src/retry.rs:1258` (conditional=#[cfg(test)])
+
+#### integration
+
+- None
+
+#### doc
+
+- `crates/nanobot-providers/src/middleware.rs - middleware (line 9)` — `crates/nanobot-providers/src/middleware.rs:9`
+- `crates/nanobot-providers/src/rate_limit.rs - rate_limit::TokenBucket (line 36)` — `crates/nanobot-providers/src/rate_limit.rs:36`
+
+### nanobot-security
+
+- Unit: 13
+- Integration: 0
+- Doc: 0
+
+#### unit
+
+- `test_block_private_ipv4` — `crates/nanobot-security/src/network.rs:135` (conditional=#[cfg(test)])
+- `test_allow_public_ipv4` — `crates/nanobot-security/src/network.rs:145` (conditional=#[cfg(test)])
+- `test_whitelist_overrides` — `crates/nanobot-security/src/network.rs:152` (conditional=#[cfg(test)])
+- `test_validate_url_public` — `crates/nanobot-security/src/network.rs:161` (conditional=#[cfg(test)])
+- `test_validate_url_private` — `crates/nanobot-security/src/network.rs:167` (conditional=#[cfg(test)])
+- `test_internal_hostnames` — `crates/nanobot-security/src/network.rs:174` (conditional=#[cfg(test)])
+- `test_block_ipv6_loopback` — `crates/nanobot-security/src/network.rs:181` (conditional=#[cfg(test)])
+- `test_block_ipv6_link_local` — `crates/nanobot-security/src/network.rs:188` (conditional=#[cfg(test)])
+- `test_allow_public_ipv6` — `crates/nanobot-security/src/network.rs:195` (conditional=#[cfg(test)])
+- `test_contains_internal_urls` — `crates/nanobot-security/src/network.rs:203` (conditional=#[cfg(test)])
+- `test_not_internal_urls` — `crates/nanobot-security/src/network.rs:212` (conditional=#[cfg(test)])
+- `test_validate_url_invalid` — `crates/nanobot-security/src/network.rs:220` (conditional=#[cfg(test)])
+- `test_ssrf_guard_default` — `crates/nanobot-security/src/network.rs:227` (conditional=#[cfg(test)])
+
+#### integration
+
+- None
+
+#### doc
+
+- None
+
+### nanobot-session
+
+- Unit: 64
+- Integration: 0
+- Doc: 0
+
+#### unit
+
+- `test_session_lifecycle` — `crates/nanobot-session/src/manager.rs:246` (conditional=#[cfg(test)])
+- `test_session_reset` — `crates/nanobot-session/src/manager.rs:266` (conditional=#[cfg(test)])
+- `test_multiple_sessions` — `crates/nanobot-session/src/manager.rs:281` (conditional=#[cfg(test)])
+- `test_session_truncation_on_save` — `crates/nanobot-session/src/manager.rs:305` (conditional=#[cfg(test)])
+- `test_session_count` — `crates/nanobot-session/src/manager.rs:322` (conditional=#[cfg(test)])
+- `test_active_session_keys` — `crates/nanobot-session/src/manager.rs:336` (conditional=#[cfg(test)])
+- `test_search_notes_in_session` — `crates/nanobot-session/src/manager.rs:352` (conditional=#[cfg(test)])
+- `test_search_all_notes` — `crates/nanobot-session/src/manager.rs:378` (conditional=#[cfg(test)])
+- `test_search_all_notes_by_tag` — `crates/nanobot-session/src/manager.rs:403` (conditional=#[cfg(test)])
+- `test_note_store_new_creates_dir` — `crates/nanobot-session/src/note_store.rs:173` (conditional=#[cfg(test)])
+- `test_save_and_load_notes` — `crates/nanobot-session/src/note_store.rs:184` (conditional=#[cfg(test)])
+- `test_load_notes_nonexistent` — `crates/nanobot-session/src/note_store.rs:210` (conditional=#[cfg(test)])
+- `test_save_empty_removes_file` — `crates/nanobot-session/src/note_store.rs:219` (conditional=#[cfg(test)])
+- `test_delete_notes` — `crates/nanobot-session/src/note_store.rs:234` (conditional=#[cfg(test)])
+- `test_delete_notes_nonexistent` — `crates/nanobot-session/src/note_store.rs:248` (conditional=#[cfg(test)])
+- `test_search_notes_cross_session` — `crates/nanobot-session/src/note_store.rs:256` (conditional=#[cfg(test)])
+- `test_search_notes_by_tag` — `crates/nanobot-session/src/note_store.rs:302` (conditional=#[cfg(test)])
+- `test_search_notes_by_tag_case_insensitive` — `crates/nanobot-session/src/note_store.rs:338` (conditional=#[cfg(test)])
+- `test_list_sessions_with_notes` — `crates/nanobot-session/src/note_store.rs:358` (conditional=#[cfg(test)])
+- `test_safe_key_sanitization` — `crates/nanobot-session/src/note_store.rs:374` (conditional=#[cfg(test)])
+- `test_note_persistence_is_independent` — `crates/nanobot-session/src/note_store.rs:383` (conditional=#[cfg(test)])
+- `test_session_roundtrip` — `crates/nanobot-session/src/store.rs:179` (conditional=#[cfg(test)])
+- `test_session_roundtrip_with_notes` — `crates/nanobot-session/src/store.rs:196` (conditional=#[cfg(test)])
+- `test_session_roundtrip_preserves_metadata` — `crates/nanobot-session/src/store.rs:225` (conditional=#[cfg(test)])
+- `test_backward_compat_load_old_format` — `crates/nanobot-session/src/store.rs:242` (conditional=#[cfg(test)])
+- `test_session_not_found` — `crates/nanobot-session/src/store.rs:260` (conditional=#[cfg(test)])
+- `test_append_entry` — `crates/nanobot-session/src/store.rs:267` (conditional=#[cfg(test)])
+- `test_delete_session` — `crates/nanobot-session/src/store.rs:287` (conditional=#[cfg(test)])
+- `test_delete_nonexistent_session` — `crates/nanobot-session/src/store.rs:302` (conditional=#[cfg(test)])
+- `test_list_keys` — `crates/nanobot-session/src/store.rs:309` (conditional=#[cfg(test)])
+- `test_session_key_sanitization` — `crates/nanobot-session/src/store.rs:329` (conditional=#[cfg(test)])
+- `test_create_store_creates_directory` — `crates/nanobot-session/src/store.rs:342` (conditional=#[cfg(test)])
+- `test_overwrite_session` — `crates/nanobot-session/src/store.rs:353` (conditional=#[cfg(test)])
+- `test_session_new` — `crates/nanobot-session/src/types.rs:405` (conditional=#[cfg(test)])
+- `test_session_add_messages` — `crates/nanobot-session/src/types.rs:413` (conditional=#[cfg(test)])
+- `test_session_to_messages` — `crates/nanobot-session/src/types.rs:429` (conditional=#[cfg(test)])
+- `test_session_truncate_preserves_system` — `crates/nanobot-session/src/types.rs:446` (conditional=#[cfg(test)])
+- `test_session_truncate_noop_when_small` — `crates/nanobot-session/src/types.rs:465` (conditional=#[cfg(test)])
+- `test_session_estimated_tokens` — `crates/nanobot-session/src/types.rs:477` (conditional=#[cfg(test)])
+- `test_session_reset` — `crates/nanobot-session/src/types.rs:488` (conditional=#[cfg(test)])
+- `test_session_entry_default` — `crates/nanobot-session/src/types.rs:502` (conditional=#[cfg(test)])
+- `test_note_new_has_id_and_timestamps` — `crates/nanobot-session/src/types.rs:515` (conditional=#[cfg(test)])
+- `test_note_serde_roundtrip` — `crates/nanobot-session/src/types.rs:530` (conditional=#[cfg(test)])
+- `test_session_new_has_empty_notes` — `crates/nanobot-session/src/types.rs:547` (conditional=#[cfg(test)])
+- `test_save_and_get_note` — `crates/nanobot-session/src/types.rs:553` (conditional=#[cfg(test)])
+- `test_save_updates_existing` — `crates/nanobot-session/src/types.rs:570` (conditional=#[cfg(test)])
+- `test_get_note_missing` — `crates/nanobot-session/src/types.rs:586` (conditional=#[cfg(test)])
+- `test_get_note_by_id` — `crates/nanobot-session/src/types.rs:592` (conditional=#[cfg(test)])
+- `test_delete_note` — `crates/nanobot-session/src/types.rs:602` (conditional=#[cfg(test)])
+- `test_delete_note_missing` — `crates/nanobot-session/src/types.rs:613` (conditional=#[cfg(test)])
+- `test_all_notes` — `crates/nanobot-session/src/types.rs:619` (conditional=#[cfg(test)])
+- `test_notes_by_tag` — `crates/nanobot-session/src/types.rs:628` (conditional=#[cfg(test)])
+- `test_notes_by_tag_case_insensitive` — `crates/nanobot-session/src/types.rs:655` (conditional=#[cfg(test)])
+- `test_search_notes_by_title` — `crates/nanobot-session/src/types.rs:664` (conditional=#[cfg(test)])
+- `test_search_notes_by_content` — `crates/nanobot-session/src/types.rs:675` (conditional=#[cfg(test)])
+- `test_search_notes_by_tag` — `crates/nanobot-session/src/types.rs:688` (conditional=#[cfg(test)])
+- `test_search_notes_case_insensitive` — `crates/nanobot-session/src/types.rs:701` (conditional=#[cfg(test)])
+- `test_search_notes_no_match` — `crates/nanobot-session/src/types.rs:714` (conditional=#[cfg(test)])
+- `test_format_notes_context_empty` — `crates/nanobot-session/src/types.rs:721` (conditional=#[cfg(test)])
+- `test_format_notes_context` — `crates/nanobot-session/src/types.rs:727` (conditional=#[cfg(test)])
+- `test_compact_notes_noop_when_under_limit` — `crates/nanobot-session/src/types.rs:743` (conditional=#[cfg(test)])
+- `test_compact_notes_triggers_when_over_limit` — `crates/nanobot-session/src/types.rs:753` (conditional=#[cfg(test)])
+- `test_note_survives_session_save_reload` — `crates/nanobot-session/src/types.rs:771` (conditional=#[cfg(test)])
+- `test_note_persist_across_new_manager` — `crates/nanobot-session/src/types.rs:792` (conditional=#[cfg(test)])
+
+#### integration
+
+- None
+
+#### doc
+
+- None
+
+### nanobot-skill
+
+- Unit: 52
+- Integration: 0
+- Doc: 0
+
+#### unit
+
+- `test_compile_valid_str` — `crates/nanobot-skill/src/compiler.rs:70` (conditional=#[cfg(test)])
+- `test_compile_file` — `crates/nanobot-skill/src/compiler.rs:78` (conditional=#[cfg(test)])
+- `test_compile_invalid_toml` — `crates/nanobot-skill/src/compiler.rs:89` (conditional=#[cfg(test)])
+- `test_compile_missing_name` — `crates/nanobot-skill/src/compiler.rs:100` (conditional=#[cfg(test)])
+- `test_compile_missing_triggers` — `crates/nanobot-skill/src/compiler.rs:112` (conditional=#[cfg(test)])
+- `test_compile_missing_file` — `crates/nanobot-skill/src/compiler.rs:128` (conditional=#[cfg(test)])
+- `test_compile_minimal_manifest` — `crates/nanobot-skill/src/compiler.rs:135` (conditional=#[cfg(test)])
+- `test_default_config` — `crates/nanobot-skill/src/config.rs:91` (conditional=#[cfg(test)])
+- `test_with_skills_dir` — `crates/nanobot-skill/src/config.rs:99` (conditional=#[cfg(test)])
+- `test_load_from_file` — `crates/nanobot-skill/src/config.rs:105` (conditional=#[cfg(test)])
+- `test_load_missing_file` — `crates/nanobot-skill/src/config.rs:124` (conditional=#[cfg(test)])
+- `test_load_invalid_toml` — `crates/nanobot-skill/src/config.rs:130` (conditional=#[cfg(test)])
+- `test_toml_roundtrip` — `crates/nanobot-skill/src/config.rs:139` (conditional=#[cfg(test)])
+- `test_missing_field_display` — `crates/nanobot-skill/src/error.rs:69` (conditional=#[cfg(test)])
+- `test_parse_failed_display` — `crates/nanobot-skill/src/error.rs:79` (conditional=#[cfg(test)])
+- `test_not_found_display` — `crates/nanobot-skill/src/error.rs:89` (conditional=#[cfg(test)])
+- `test_already_exists_display` — `crates/nanobot-skill/src/error.rs:95` (conditional=#[cfg(test)])
+- `test_validation_failed_display` — `crates/nanobot-skill/src/error.rs:101` (conditional=#[cfg(test)])
+- `test_execution_failed_display` — `crates/nanobot-skill/src/error.rs:110` (conditional=#[cfg(test)])
+- `test_directory_not_found_display` — `crates/nanobot-skill/src/error.rs:119` (conditional=#[cfg(test)])
+- `test_from_io_error` — `crates/nanobot-skill/src/error.rs:125` (conditional=#[cfg(test)])
+- `test_result_alias` — `crates/nanobot-skill/src/error.rs:132` (conditional=#[cfg(test)])
+- `test_load_single_skill` — `crates/nanobot-skill/src/loader.rs:209` (conditional=#[cfg(test)])
+- `test_load_skill_caches` — `crates/nanobot-skill/src/loader.rs:219` (conditional=#[cfg(test)])
+- `test_reload_skill_bypasses_cache` — `crates/nanobot-skill/src/loader.rs:234` (conditional=#[cfg(test)])
+- `test_clear_cache` — `crates/nanobot-skill/src/loader.rs:246` (conditional=#[cfg(test)])
+- `test_load_invalid_manifest` — `crates/nanobot-skill/src/loader.rs:276` (conditional=#[cfg(test)])
+- `test_valid_manifest` — `crates/nanobot-skill/src/manifest.rs:176` (conditional=#[cfg(test)])
+- `test_validate_ok` — `crates/nanobot-skill/src/manifest.rs:188` (conditional=#[cfg(test)])
+- `test_validate_empty_name` — `crates/nanobot-skill/src/manifest.rs:194` (conditional=#[cfg(test)])
+- `test_validate_name_too_long` — `crates/nanobot-skill/src/manifest.rs:202` (conditional=#[cfg(test)])
+- `test_validate_empty_version` — `crates/nanobot-skill/src/manifest.rs:210` (conditional=#[cfg(test)])
+- `test_validate_empty_description` — `crates/nanobot-skill/src/manifest.rs:218` (conditional=#[cfg(test)])
+- `test_validate_description_too_long` — `crates/nanobot-skill/src/manifest.rs:226` (conditional=#[cfg(test)])
+- `test_validate_empty_triggers` — `crates/nanobot-skill/src/manifest.rs:234` (conditional=#[cfg(test)])
+- `test_validate_multiple_errors` — `crates/nanobot-skill/src/manifest.rs:242` (conditional=#[cfg(test)])
+- `test_toml_roundtrip` — `crates/nanobot-skill/src/manifest.rs:257` (conditional=#[cfg(test)])
+- `test_toml_parse_with_defaults` — `crates/nanobot-skill/src/manifest.rs:265` (conditional=#[cfg(test)])
+- `test_default_category` — `crates/nanobot-skill/src/manifest.rs:280` (conditional=#[cfg(test)])
+- `test_name_description_category` — `crates/nanobot-skill/src/skill.rs:213` (conditional=#[cfg(test)])
+- `test_matches_hit` — `crates/nanobot-skill/src/skill.rs:221` (conditional=#[cfg(test)])
+- `test_matches_case_insensitive` — `crates/nanobot-skill/src/skill.rs:228` (conditional=#[cfg(test)])
+- `test_matches_miss` — `crates/nanobot-skill/src/skill.rs:235` (conditional=#[cfg(test)])
+- `test_matches_partial_hit` — `crates/nanobot-skill/src/skill.rs:242` (conditional=#[cfg(test)])
+- `test_confidence_update_success` — `crates/nanobot-skill/src/skill.rs:265` (conditional=#[cfg(test)])
+- `test_confidence_update_failed` — `crates/nanobot-skill/src/skill.rs:274` (conditional=#[cfg(test)])
+- `test_confidence_update_confirmed` — `crates/nanobot-skill/src/skill.rs:282` (conditional=#[cfg(test)])
+- `test_confidence_update_corrected` — `crates/nanobot-skill/src/skill.rs:290` (conditional=#[cfg(test)])
+- `test_confidence_time_decay` — `crates/nanobot-skill/src/skill.rs:298` (conditional=#[cfg(test)])
+- `test_confidence_clamps_high` — `crates/nanobot-skill/src/skill.rs:306` (conditional=#[cfg(test)])
+- `test_confidence_clamps_low` — `crates/nanobot-skill/src/skill.rs:315` (conditional=#[cfg(test)])
+- `test_build_prompt_empty_manifest` — `crates/nanobot-skill/src/skill.rs:324` (conditional=#[cfg(test)])
+
+#### integration
+
+- None
+
+#### doc
+
+- None
+
+### nanobot-tools
+
+- Unit: 166
+- Integration: 0
+- Doc: 0
+
+#### unit
+
+- `test_cron_tool_metadata` — `crates/nanobot-tools/src/builtins/cron.rs:187` (conditional=#[cfg(test)])
+- `test_cron_tool_default` — `crates/nanobot-tools/src/builtins/cron.rs:327` (conditional=#[cfg(test)])
+- `test_parse_schedule_every` — `crates/nanobot-tools/src/builtins/cron.rs:333` (conditional=#[cfg(test)])
+- `test_parse_schedule_at` — `crates/nanobot-tools/src/builtins/cron.rs:343` (conditional=#[cfg(test)])
+- `test_parse_schedule_cron` — `crates/nanobot-tools/src/builtins/cron.rs:350` (conditional=#[cfg(test)])
+- `test_parse_schedule_invalid` — `crates/nanobot-tools/src/builtins/cron.rs:357` (conditional=#[cfg(test)])
+- `test_read_file_tool_schema` — `crates/nanobot-tools/src/builtins/filesystem.rs:330` (conditional=#[cfg(test)])
+- `test_write_file_tool_schema` — `crates/nanobot-tools/src/builtins/filesystem.rs:343` (conditional=#[cfg(test)])
+- `test_edit_file_tool_schema` — `crates/nanobot-tools/src/builtins/filesystem.rs:357` (conditional=#[cfg(test)])
+- `test_list_dir_tool_schema` — `crates/nanobot-tools/src/builtins/filesystem.rs:373` (conditional=#[cfg(test)])
+- `test_message_tool_metadata` — `crates/nanobot-tools/src/builtins/message.rs:137` (conditional=#[cfg(test)])
+- `test_message_tool_default` — `crates/nanobot-tools/src/builtins/message.rs:182` (conditional=#[cfg(test)])
+- `test_message_tool_schema` — `crates/nanobot-tools/src/builtins/message.rs:188` (conditional=#[cfg(test)])
+- `test_truncate_short` — `crates/nanobot-tools/src/builtins/message.rs:298` (conditional=#[cfg(test)])
+- `test_truncate_exact` — `crates/nanobot-tools/src/builtins/message.rs:303` (conditional=#[cfg(test)])
+- `test_truncate_long` — `crates/nanobot-tools/src/builtins/message.rs:308` (conditional=#[cfg(test)])
+- `test_grep_tool_metadata` — `crates/nanobot-tools/src/builtins/search.rs:224` (conditional=#[cfg(test)])
+- `test_grep_tool_default` — `crates/nanobot-tools/src/builtins/search.rs:365` (conditional=#[cfg(test)])
+- `test_glob_tool_metadata` — `crates/nanobot-tools/src/builtins/search.rs:371` (conditional=#[cfg(test)])
+- `test_glob_tool_default` — `crates/nanobot-tools/src/builtins/search.rs:423` (conditional=#[cfg(test)])
+- `test_is_command_safe_normal` — `crates/nanobot-tools/src/builtins/shell.rs:192` (conditional=#[cfg(test)])
+- `test_is_command_safe_blocked` — `crates/nanobot-tools/src/builtins/shell.rs:200` (conditional=#[cfg(test)])
+- `test_exec_tool_construction` — `crates/nanobot-tools/src/builtins/shell.rs:208` (conditional=#[cfg(test)])
+- `test_exec_tool_schema` — `crates/nanobot-tools/src/builtins/shell.rs:215` (conditional=#[cfg(test)])
+- `test_exec_tool_default` — `crates/nanobot-tools/src/builtins/shell.rs:284` (conditional=#[cfg(test)])
+- `test_exec_tool_with_timeout` — `crates/nanobot-tools/src/builtins/shell.rs:290` (conditional=#[cfg(test)])
+- `test_spawn_tool_metadata` — `crates/nanobot-tools/src/builtins/spawn.rs:91` (conditional=#[cfg(test)])
+- `test_spawn_tool_default` — `crates/nanobot-tools/src/builtins/spawn.rs:119` (conditional=#[cfg(test)])
+- `test_web_search_tool_disabled` — `crates/nanobot-tools/src/builtins/web.rs:273` (conditional=#[cfg(test)])
+- `test_web_fetch_tool_schema` — `crates/nanobot-tools/src/builtins/web.rs:285` (conditional=#[cfg(test)])
+- `test_html_to_text` — `crates/nanobot-tools/src/builtins/web.rs:297` (conditional=#[cfg(test)])
+- `test_registry_new` — `crates/nanobot-tools/src/registry.rs:155` (conditional=#[cfg(test)])
+- `test_registry_register_and_get` — `crates/nanobot-tools/src/registry.rs:162` (conditional=#[cfg(test)])
+- `test_registry_unregister` — `crates/nanobot-tools/src/registry.rs:174` (conditional=#[cfg(test)])
+- `test_registry_get_definitions` — `crates/nanobot-tools/src/registry.rs:185` (conditional=#[cfg(test)])
+- `test_registry_tool_names` — `crates/nanobot-tools/src/registry.rs:199` (conditional=#[cfg(test)])
+- `test_registry_default` — `crates/nanobot-tools/src/registry.rs:210` (conditional=#[cfg(test)])
+- `test_registry_get_definitions_for_toolset` — `crates/nanobot-tools/src/registry.rs:266` (conditional=#[cfg(test)])
+- `test_registry_len` — `crates/nanobot-tools/src/registry.rs:320` (conditional=#[cfg(test)])
+- `test_registry_unregister_nonexistent` — `crates/nanobot-tools/src/registry.rs:332` (conditional=#[cfg(test)])
+- `test_parameter_schema_serialization` — `crates/nanobot-tools/src/schema.rs:55` (conditional=#[cfg(test)])
+- `test_tool_parameters_schema` — `crates/nanobot-tools/src/schema.rs:75` (conditional=#[cfg(test)])
+- `test_schema_type_serde` — `crates/nanobot-tools/src/schema.rs:96` (conditional=#[cfg(test)])
+- `test_version_parse_full` — `crates/nanobot-tools/src/skill_loader.rs:1071` (conditional=#[cfg(test)])
+- `test_version_parse_major_minor` — `crates/nanobot-tools/src/skill_loader.rs:1079` (conditional=#[cfg(test)])
+- `test_version_parse_major_only` — `crates/nanobot-tools/src/skill_loader.rs:1087` (conditional=#[cfg(test)])
+- `test_version_parse_empty` — `crates/nanobot-tools/src/skill_loader.rs:1095` (conditional=#[cfg(test)])
+- `test_version_parse_whitespace` — `crates/nanobot-tools/src/skill_loader.rs:1100` (conditional=#[cfg(test)])
+- `test_version_parse_trimmed` — `crates/nanobot-tools/src/skill_loader.rs:1105` (conditional=#[cfg(test)])
+- `test_version_display` — `crates/nanobot-tools/src/skill_loader.rs:1118` (conditional=#[cfg(test)])
+- `test_version_ordering` — `crates/nanobot-tools/src/skill_loader.rs:1128` (conditional=#[cfg(test)])
+- `test_version_equality` — `crates/nanobot-tools/src/skill_loader.rs:1142` (conditional=#[cfg(test)])
+- `test_version_warning_display` — `crates/nanobot-tools/src/skill_loader.rs:1152` (conditional=#[cfg(test)])
+- `test_parse_frontmatter_valid` — `crates/nanobot-tools/src/skill_loader.rs:1165` (conditional=#[cfg(test)])
+- `test_parse_frontmatter_no_frontmatter` — `crates/nanobot-tools/src/skill_loader.rs:1173` (conditional=#[cfg(test)])
+- `test_parse_frontmatter_unclosed` — `crates/nanobot-tools/src/skill_loader.rs:1181` (conditional=#[cfg(test)])
+- `test_parse_frontmatter_multiline_body` — `crates/nanobot-tools/src/skill_loader.rs:1186` (conditional=#[cfg(test)])
+- `test_parse_parameters_structured` — `crates/nanobot-tools/src/skill_loader.rs:1198` (conditional=#[cfg(test)])
+- `test_parse_parameters_string_shorthand` — `crates/nanobot-tools/src/skill_loader.rs:1211` (conditional=#[cfg(test)])
+- `test_parse_parameters_empty` — `crates/nanobot-tools/src/skill_loader.rs:1219` (conditional=#[cfg(test)])
+- `test_hash_content_deterministic` — `crates/nanobot-tools/src/skill_loader.rs:1229` (conditional=#[cfg(test)])
+- `test_hash_content_differs_on_change` — `crates/nanobot-tools/src/skill_loader.rs:1236` (conditional=#[cfg(test)])
+- `test_yaml_string_array_present` — `crates/nanobot-tools/src/skill_loader.rs:1247` (conditional=#[cfg(test)])
+- `test_yaml_string_array_missing` — `crates/nanobot-tools/src/skill_loader.rs:1253` (conditional=#[cfg(test)])
+- `test_collect_md_files_recursive` — `crates/nanobot-tools/src/skill_loader.rs:1263` (conditional=#[cfg(test)])
+- `test_collect_md_files_empty` — `crates/nanobot-tools/src/skill_loader.rs:1275` (conditional=#[cfg(test)])
+- `test_load_all_empty_dir` — `crates/nanobot-tools/src/skill_loader.rs:1286` (conditional=#[cfg(test)])
+- `test_load_all_nonexistent_dir` — `crates/nanobot-tools/src/skill_loader.rs:1295` (conditional=#[cfg(test)])
+- `test_load_all_single_skill` — `crates/nanobot-tools/src/skill_loader.rs:1302` (conditional=#[cfg(test)])
+- `test_load_all_name_defaults_to_file_stem` — `crates/nanobot-tools/src/skill_loader.rs:1322` (conditional=#[cfg(test)])
+- `test_load_all_no_frontmatter` — `crates/nanobot-tools/src/skill_loader.rs:1332` (conditional=#[cfg(test)])
+- `test_load_all_ignores_non_md` — `crates/nanobot-tools/src/skill_loader.rs:1343` (conditional=#[cfg(test)])
+- `test_version_parsed_from_frontmatter` — `crates/nanobot-tools/src/skill_loader.rs:1359` (conditional=#[cfg(test)])
+- `test_version_missing_is_none` — `crates/nanobot-tools/src/skill_loader.rs:1374` (conditional=#[cfg(test)])
+- `test_dependencies_parsed_from_frontmatter` — `crates/nanobot-tools/src/skill_loader.rs:1385` (conditional=#[cfg(test)])
+- `test_dependencies_empty_when_not_set` — `crates/nanobot-tools/src/skill_loader.rs:1400` (conditional=#[cfg(test)])
+- `test_dependency_order_no_deps` — `crates/nanobot-tools/src/skill_loader.rs:1415` (conditional=#[cfg(test)])
+- `test_dependency_order_linear_chain` — `crates/nanobot-tools/src/skill_loader.rs:1430` (conditional=#[cfg(test)])
+- `test_dependency_order_diamond` — `crates/nanobot-tools/src/skill_loader.rs:1457` (conditional=#[cfg(test)])
+- `test_dependency_order_circular` — `crates/nanobot-tools/src/skill_loader.rs:1492` (conditional=#[cfg(test)])
+- `test_dependency_order_missing_dep` — `crates/nanobot-tools/src/skill_loader.rs:1515` (conditional=#[cfg(test)])
+- `test_resolve_dependencies_transitive` — `crates/nanobot-tools/src/skill_loader.rs:1535` (conditional=#[cfg(test)])
+- `test_resolve_dependencies_no_deps` — `crates/nanobot-tools/src/skill_loader.rs:1564` (conditional=#[cfg(test)])
+- `test_resolve_dependencies_unknown_skill` — `crates/nanobot-tools/src/skill_loader.rs:1576` (conditional=#[cfg(test)])
+- `test_load_all_ordered_respects_deps` — `crates/nanobot-tools/src/skill_loader.rs:1587` (conditional=#[cfg(test)])
+- `test_check_versions_warns_no_version` — `crates/nanobot-tools/src/skill_loader.rs:1617` (conditional=#[cfg(test)])
+- `test_check_versions_ok_with_version` — `crates/nanobot-tools/src/skill_loader.rs:1631` (conditional=#[cfg(test)])
+- `test_check_versions_warns_dep_no_version` — `crates/nanobot-tools/src/skill_loader.rs:1647` (conditional=#[cfg(test)])
+- `test_skill_version_parsed` — `crates/nanobot-tools/src/skill_loader.rs:1670` (conditional=#[cfg(test)])
+- `test_skill_version_none_when_missing` — `crates/nanobot-tools/src/skill_loader.rs:1688` (conditional=#[cfg(test)])
+- `test_invalidate_by_name` — `crates/nanobot-tools/src/skill_loader.rs:1703` (conditional=#[cfg(test)])
+- `test_invalidate_by_name_nonexistent` — `crates/nanobot-tools/src/skill_loader.rs:1720` (conditional=#[cfg(test)])
+- `test_invalidate_category` — `crates/nanobot-tools/src/skill_loader.rs:1733` (conditional=#[cfg(test)])
+- `test_invalidate_pattern` — `crates/nanobot-tools/src/skill_loader.rs:1766` (conditional=#[cfg(test)])
+- `test_invalidate_cascade` — `crates/nanobot-tools/src/skill_loader.rs:1783` (conditional=#[cfg(test)])
+- `test_invalidate_cascade_no_dependents` — `crates/nanobot-tools/src/skill_loader.rs:1820` (conditional=#[cfg(test)])
+- `test_category_from_subdirectory` — `crates/nanobot-tools/src/skill_loader.rs:1839` (conditional=#[cfg(test)])
+- `test_category_from_frontmatter_overrides_dir` — `crates/nanobot-tools/src/skill_loader.rs:1854` (conditional=#[cfg(test)])
+- `test_category_uncategorized_when_root_level` — `crates/nanobot-tools/src/skill_loader.rs:1869` (conditional=#[cfg(test)])
+- `test_category_deep_nested_uses_first_dir` — `crates/nanobot-tools/src/skill_loader.rs:1880` (conditional=#[cfg(test)])
+- `test_load_all_nested_dirs` — `crates/nanobot-tools/src/skill_loader.rs:1899` (conditional=#[cfg(test)])
+- `test_get_by_name` — `crates/nanobot-tools/src/skill_loader.rs:1931` (conditional=#[cfg(test)])
+- `test_list_by_category` — `crates/nanobot-tools/src/skill_loader.rs:1945` (conditional=#[cfg(test)])
+- `test_categories_summary` — `crates/nanobot-tools/src/skill_loader.rs:1972` (conditional=#[cfg(test)])
+- `test_all_returns_everything` — `crates/nanobot-tools/src/skill_loader.rs:1989` (conditional=#[cfg(test)])
+- `test_len_and_is_empty` — `crates/nanobot-tools/src/skill_loader.rs:2001` (conditional=#[cfg(test)])
+- `test_parameters_parsed` — `crates/nanobot-tools/src/skill_loader.rs:2018` (conditional=#[cfg(test)])
+- `test_tags_parsed` — `crates/nanobot-tools/src/skill_loader.rs:2038` (conditional=#[cfg(test)])
+- `test_find_by_tag` — `crates/nanobot-tools/src/skill_loader.rs:2053` (conditional=#[cfg(test)])
+- `test_find_by_tag_case_insensitive` — `crates/nanobot-tools/src/skill_loader.rs:2082` (conditional=#[cfg(test)])
+- `test_cache_hit_avoids_reparse` — `crates/nanobot-tools/src/skill_loader.rs:2102` (conditional=#[cfg(test)])
+- `test_cache_invalidated_on_content_change` — `crates/nanobot-tools/src/skill_loader.rs:2127` (conditional=#[cfg(test)])
+- `test_invalidate_all_forces_full_reload` — `crates/nanobot-tools/src/skill_loader.rs:2147` (conditional=#[cfg(test)])
+- `test_invalidate_path_specific` — `crates/nanobot-tools/src/skill_loader.rs:2167` (conditional=#[cfg(test)])
+- `test_cache_prunes_deleted_files` — `crates/nanobot-tools/src/skill_loader.rs:2184` (conditional=#[cfg(test)])
+- `test_new_file_discovered_on_reload` — `crates/nanobot-tools/src/skill_loader.rs:2203` (conditional=#[cfg(test)])
+- `test_root_accessor` — `crates/nanobot-tools/src/skill_loader.rs:2224` (conditional=#[cfg(test)])
+- `test_parse_skill_empty_name_rejected` — `crates/nanobot-tools/src/skill_loader.rs:2234` (conditional=#[cfg(test)])
+- `test_parse_skill_valid_name_ok` — `crates/nanobot-tools/src/skill_loader.rs:2242` (conditional=#[cfg(test)])
+- `test_parse_skill_no_instructions_warns` — `crates/nanobot-tools/src/skill_loader.rs:2251` (conditional=#[cfg(test)])
+- `test_duplicate_name_last_wins` — `crates/nanobot-tools/src/skill_loader.rs:2264` (conditional=#[cfg(test)])
+- `test_parse_parameters_skips_empty_name` — `crates/nanobot-tools/src/skill_loader.rs:2283` (conditional=#[cfg(test)])
+- `test_parse_parameters_skips_empty_shorthand` — `crates/nanobot-tools/src/skill_loader.rs:2294` (conditional=#[cfg(test)])
+- `test_collect_md_files_skips_symlinks` — `crates/nanobot-tools/src/skill_loader.rs:2306` (conditional=#[cfg(test)])
+- `test_watcher_detects_modification` — `crates/nanobot-tools/src/skill_loader.rs:2326` (conditional=#[cfg(test)])
+- `test_watcher_detects_new_file` — `crates/nanobot-tools/src/skill_loader.rs:2362` (conditional=#[cfg(test)])
+- `test_reload_changed_fallback_no_watcher` — `crates/nanobot-tools/src/skill_loader.rs:2396` (conditional=#[cfg(test)])
+- `test_start_stop_watcher` — `crates/nanobot-tools/src/skill_loader.rs:2420` (conditional=#[cfg(test)])
+- `test_watcher_changed_paths_empty_initially` — `crates/nanobot-tools/src/skill_loader.rs:2439` (conditional=#[cfg(test)])
+- `test_parse_frontmatter_valid` — `crates/nanobot-tools/src/skills.rs:480` (conditional=#[cfg(test)])
+- `test_parse_frontmatter_no_frontmatter` — `crates/nanobot-tools/src/skills.rs:488` (conditional=#[cfg(test)])
+- `test_parse_frontmatter_unclosed` — `crates/nanobot-tools/src/skills.rs:496` (conditional=#[cfg(test)])
+- `test_parse_frontmatter_multiline_body` — `crates/nanobot-tools/src/skills.rs:501` (conditional=#[cfg(test)])
+- `test_parse_parameters_structured` — `crates/nanobot-tools/src/skills.rs:513` (conditional=#[cfg(test)])
+- `test_parse_parameters_string_shorthand` — `crates/nanobot-tools/src/skills.rs:531` (conditional=#[cfg(test)])
+- `test_parse_parameters_empty` — `crates/nanobot-tools/src/skills.rs:539` (conditional=#[cfg(test)])
+- `test_load_all_empty_dir` — `crates/nanobot-tools/src/skills.rs:549` (conditional=#[cfg(test)])
+- `test_load_all_nonexistent_dir` — `crates/nanobot-tools/src/skills.rs:558` (conditional=#[cfg(test)])
+- `test_load_all_single_skill` — `crates/nanobot-tools/src/skills.rs:565` (conditional=#[cfg(test)])
+- `test_load_all_name_defaults_to_file_stem` — `crates/nanobot-tools/src/skills.rs:585` (conditional=#[cfg(test)])
+- `test_load_all_no_frontmatter` — `crates/nanobot-tools/src/skills.rs:595` (conditional=#[cfg(test)])
+- `test_load_all_ignores_non_md` — `crates/nanobot-tools/src/skills.rs:606` (conditional=#[cfg(test)])
+- `test_category_from_subdirectory` — `crates/nanobot-tools/src/skills.rs:622` (conditional=#[cfg(test)])
+- `test_category_from_frontmatter_overrides_dir` — `crates/nanobot-tools/src/skills.rs:638` (conditional=#[cfg(test)])
+- `test_category_uncategorized_when_root_level` — `crates/nanobot-tools/src/skills.rs:654` (conditional=#[cfg(test)])
+- `test_category_deep_nested_uses_first_dir` — `crates/nanobot-tools/src/skills.rs:666` (conditional=#[cfg(test)])
+- `test_load_all_nested_dirs` — `crates/nanobot-tools/src/skills.rs:686` (conditional=#[cfg(test)])
+- `test_get_by_name` — `crates/nanobot-tools/src/skills.rs:718` (conditional=#[cfg(test)])
+- `test_list_by_category` — `crates/nanobot-tools/src/skills.rs:732` (conditional=#[cfg(test)])
+- `test_categories_summary` — `crates/nanobot-tools/src/skills.rs:764` (conditional=#[cfg(test)])
+- `test_all_returns_everything` — `crates/nanobot-tools/src/skills.rs:781` (conditional=#[cfg(test)])
+- `test_len_and_is_empty` — `crates/nanobot-tools/src/skills.rs:793` (conditional=#[cfg(test)])
+- `test_parameters_parsed` — `crates/nanobot-tools/src/skills.rs:810` (conditional=#[cfg(test)])
+- `test_tags_parsed` — `crates/nanobot-tools/src/skills.rs:830` (conditional=#[cfg(test)])
+- `test_reload_changed_no_changes` — `crates/nanobot-tools/src/skills.rs:850` (conditional=#[cfg(test)])
+- `test_reload_changed_modified_file` — `crates/nanobot-tools/src/skills.rs:862` (conditional=#[cfg(test)])
+- `test_reload_changed_new_file_discovered` — `crates/nanobot-tools/src/skills.rs:882` (conditional=#[cfg(test)])
+- `test_root_accessor` — `crates/nanobot-tools/src/skills.rs:902` (conditional=#[cfg(test)])
+- `test_yaml_string_array_present` — `crates/nanobot-tools/src/skills.rs:912` (conditional=#[cfg(test)])
+- `test_yaml_string_array_missing` — `crates/nanobot-tools/src/skills.rs:918` (conditional=#[cfg(test)])
+- `test_collect_md_files_recursive` — `crates/nanobot-tools/src/skills.rs:928` (conditional=#[cfg(test)])
+- `test_collect_md_files_empty` — `crates/nanobot-tools/src/skills.rs:940` (conditional=#[cfg(test)])
+- `test_tool_error_display` — `crates/nanobot-tools/src/trait_def.rs:136` (conditional=#[cfg(test)])
+- `test_tool_error_is_send_sync` — `crates/nanobot-tools/src/trait_def.rs:154` (conditional=#[cfg(test)])
+- `test_spawn_status_serde_roundtrip` — `crates/nanobot-tools/src/trait_def.rs:160` (conditional=#[cfg(test)])
+- `test_spawn_status_equality` — `crates/nanobot-tools/src/trait_def.rs:174` (conditional=#[cfg(test)])
+
+#### integration
+
+- None
+
+#### doc
+
+- None
+
+## 3. Error Types And Variants
+
+Error-type definitions found: 4
+
+- `pub enum NanobotError` — `crates/nanobot-core/src/error.rs:7`
+  - `Config` — `crates/nanobot-core/src/error.rs:9` — `Config(String)`
+  - `Provider` — `crates/nanobot-core/src/error.rs:12` — `Provider(String)`
+  - `Tool` — `crates/nanobot-core/src/error.rs:15` — `Tool(String)`
+  - `Session` — `crates/nanobot-core/src/error.rs:18` — `Session(String)`
+  - `Channel` — `crates/nanobot-core/src/error.rs:21` — `Channel(String)`
+  - `Security` — `crates/nanobot-core/src/error.rs:24` — `Security(String)`
+  - `Bus` — `crates/nanobot-core/src/error.rs:27` — `Bus(String)`
+  - `Cron` — `crates/nanobot-core/src/error.rs:30` — `Cron(String)`
+  - `Agent` — `crates/nanobot-core/src/error.rs:33` — `Agent(String)`
+  - `Io` — `crates/nanobot-core/src/error.rs:36` — `Io(#[from] std::io::Error)`
+  - `Serialization` — `crates/nanobot-core/src/error.rs:39` — `Serialization(#[from] serde_json::Error)`
+  - `Yaml` — `crates/nanobot-core/src/error.rs:42` — `Yaml(String)`
+  - `Http` — `crates/nanobot-core/src/error.rs:45` — `Http(String)`
+  - `Timeout` — `crates/nanobot-core/src/error.rs:48` — `Timeout(String)`
+  - `MaxIterations` — `crates/nanobot-core/src/error.rs:51` — `MaxIterations`
+  - `SessionNotFound` — `crates/nanobot-core/src/error.rs:54` — `SessionNotFound(String)`
+  - `ToolNotFound` — `crates/nanobot-core/src/error.rs:57` — `ToolNotFound(String)`
+  - `ProviderNotFound` — `crates/nanobot-core/src/error.rs:60` — `ProviderNotFound(String)`
+  - `ChannelNotFound` — `crates/nanobot-core/src/error.rs:63` — `ChannelNotFound(String)`
+  - `Memory` — `crates/nanobot-core/src/error.rs:66` — `Memory(String)`
+- `pub enum MemoryError` — `crates/nanobot-memory/src/error.rs:7`
+  - `Io` — `crates/nanobot-memory/src/error.rs:10` — `Io(#[from] std::io::Error)`
+  - `Serialization` — `crates/nanobot-memory/src/error.rs:14` — `Serialization(#[from] serde_json::Error)`
+  - `NotFound` — `crates/nanobot-memory/src/error.rs:18` — `NotFound(String)`
+  - `Config` — `crates/nanobot-memory/src/error.rs:40` — `Config(String)`
+- `pub enum SkillError` — `crates/nanobot-skill/src/error.rs:7`
+  - `NotFound` — `crates/nanobot-skill/src/error.rs:28` — `NotFound(String)`
+  - `AlreadyExists` — `crates/nanobot-skill/src/error.rs:32` — `AlreadyExists(String)`
+  - `Io` — `crates/nanobot-skill/src/error.rs:36` — `Io(#[from] std::io::Error)`
+  - `DirectoryNotFound` — `crates/nanobot-skill/src/error.rs:58` — `DirectoryNotFound(String)`
+- `pub enum ToolError` — `crates/nanobot-tools/src/trait_def.rs:11`
+  - `Validation` — `crates/nanobot-tools/src/trait_def.rs:13` — `Validation(String)`
+  - `Execution` — `crates/nanobot-tools/src/trait_def.rs:16` — `Execution(String)`
+  - `Timeout` — `crates/nanobot-tools/src/trait_def.rs:19` — `Timeout(String)`
+  - `PermissionDenied` — `crates/nanobot-tools/src/trait_def.rs:22` — `PermissionDenied(String)`
+  - `NotAvailable` — `crates/nanobot-tools/src/trait_def.rs:25` — `NotAvailable(String)`
+
+### Error-discard / conversion sites
+
+- `unwrap_or_else` — `crates/nanobot-agent/src/heartbeat.rs:420` — `.unwrap_or_else(|_| std::path::PathBuf::from("/dev/null"));`
+- `unwrap_or_else` — `crates/nanobot-agent/src/heartbeat.rs:422` — `nanobot_config::paths::get_data_dir().unwrap_or_else(|_| std::env::temp_dir());`
+- `ignored_result_binding` — `crates/nanobot-agent/src/heartbeat.rs:449` — `let _ = std::fs::remove_file(&probe);`
+- `ignored_result_binding` — `crates/nanobot-agent/src/heartbeat.rs:721` — `let _ = std::fs::remove_file(&probe);`
+- `result_ok_discard` — `crates/nanobot-agent/src/heartbeat.rs:1132` — `.ok();`
+- `result_ok_discard` — `crates/nanobot-agent/src/heartbeat.rs:1160` — `.ok();`
+- `result_ok_discard` — `crates/nanobot-agent/src/heartbeat.rs:1392` — `.ok();`
+- `ignored_result_binding` — `crates/nanobot-agent/src/hook.rs:23` — `let _ = context;`
+- `if_let_err` — `crates/nanobot-agent/src/loop_mod.rs:125` — `if let Err(e) = self.process_message(msg).await {`
+- `if_let_err` — `crates/nanobot-agent/src/loop_mod.rs:342` — `if let Err(e) = self.bus.publish_outbound(outbound).await {`
+- `if_let_err` — `crates/nanobot-agent/src/loop_mod.rs:464` — `if let Err(e) = store.store(entry).await {`
+- `unwrap_or_else` — `crates/nanobot-agent/src/loop_mod.rs:596` — `nanobot_config::paths::get_data_dir().unwrap_or_else(|_| std::env::temp_dir());`
+- `if_let_err` — `crates/nanobot-agent/src/loop_mod.rs:627` — `if let Err(e) = svc_clone.run().await {`
+- `ignored_result_binding` — `crates/nanobot-agent/src/loop_mod.rs:759` — `let _ = self.task.await;`
+- `ignored_result_binding` — `crates/nanobot-agent/src/loop_mod.rs:958` — `let _ = svc_clone.run().await;`
+- `ignored_result_binding` — `crates/nanobot-agent/src/loop_mod.rs:1431` — `let _ = al.recall_memories("anything").await;`
+- `ignored_result_binding` — `crates/nanobot-agent/src/memory.rs:113` — `let _ = store; // just verify it constructed`
+- `unwrap_or_default` — `crates/nanobot-agent/src/notes.rs:498` — `.unwrap_or_default();`
+- `if_let_err` — `crates/nanobot-agent/src/notes.rs:685` — `if let Err(e) = NotesManager::save_structured_note(`
+- `if_let_err` — `crates/nanobot-agent/src/notes.rs:721` — `if let Err(e) = NotesManager::save_structured_note(`
+- `if_let_err` — `crates/nanobot-agent/src/notes.rs:760` — `if let Err(e) = NotesManager::save_structured_note(`
+- `if_let_err` — `crates/nanobot-agent/src/notes.rs:784` — `if let Err(e) = NotesManager::save_structured_note(`
+- `unwrap_or_default` — `crates/nanobot-agent/src/runner.rs:140` — `let content = response.content.unwrap_or_default();`
+- `unwrap_or_default` — `crates/nanobot-agent/src/runner.rs:167` — `content: response.content.unwrap_or_default(),`
+- `unwrap_or_else` — `crates/nanobot-agent/src/skills.rs:190` — `.unwrap_or_else(|| {`
+- `unwrap_or_default` — `crates/nanobot-agent/src/skills.rs:193` — `.unwrap_or_default()`
+- `result_ok_discard` — `crates/nanobot-agent/src/skills.rs:312` — `std::fs::metadata(path).ok().and_then(|m| m.modified().ok())`
+- `unwrap_or_default` — `crates/nanobot-agent/src/skills.rs:373` — `.unwrap_or_default()`
+- `ignored_result_binding` — `crates/nanobot-agent/src/subagent.rs:588` — `let _ = tokio::time::timeout(timeout, notify.notified()).await;`
+- `ignored_result_binding` — `crates/nanobot-agent/src/subagent.rs:1927` — `let _ = h1;`
+- `ignored_result_binding` — `crates/nanobot-agent/src/subagent.rs:1928` — `let _ = h2;`
+- `result_ok_discard` — `crates/nanobot-agent/tests/pipeline_e2e.rs:190` — `.ok();`
+- `ignored_result_binding` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:453` — `let _ = other;`
+- `result_ok_discard` — `crates/nanobot-api/src/server.rs:88` — `.filter_map(|o| o.parse::<HeaderValue>().ok())`
+- `result_ok_discard` — `crates/nanobot-api/src/server.rs:333` — `.and_then(|v| v.to_str().ok())`
+- `unwrap_or_else` — `crates/nanobot-api/src/server.rs:335` — `.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());`
+- `result_ok_discard` — `crates/nanobot-api/src/server.rs:400` — `.and_then(|v| v.to_str().ok())`
+- `if_let_err` — `crates/nanobot-api/src/server.rs:501` — `if let Err(resp) = validate_request(&req) {`
+- `unwrap_or_else` — `crates/nanobot-api/src/server.rs:526` — `.unwrap_or_else(|| "You are a helpful AI assistant.".to_string());`
+- `result_ok_discard` — `crates/nanobot-api/src/server.rs:1633` — `let v: serde_json::Value = serde_json::from_str(json_str).ok()?;`
+- `result_ok_discard` — `crates/nanobot-api/tests/http_integration.rs:423` — `let v: serde_json::Value = serde_json::from_str(json_str).ok()?;`
+- `ignored_result_binding` — `crates/nanobot-bus/src/queue.rs:88` — `let _ = self.event_tx.send(event);`
+- `ignored_result_binding` — `crates/nanobot-bus/src/queue.rs:103` — `let _ = self.stream_tx.send(chunk);`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:105` — `let _ = writeln!(out, "Available commands:\n");`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:106` — `let _ = writeln!(out, "/help     - Show this help message");`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:111` — `let _ = writeln!(out, "/validate - Validate config.yaml and show results");`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:112` — `let _ = writeln!(out, "/settings - Toggle preferences (notifications, model)");`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:113` — `let _ = writeln!(out, "/history  - Browse recent conversation history");`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:114` — `let _ = writeln!(out, "/reset    - Reset conversation context for this chat");`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:115` — `let _ = writeln!(out, "/menu     - Show interactive menu");`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:156` — `let _ = writeln!(out, "Agent: {} | Name: {}", c.agent.model, name);`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:157` — `let _ = writeln!(out, "Streaming: {}", c.agent.streaming);`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:158` — `let _ = writeln!(out, "Max tokens: {}", c.agent.max_tokens);`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:159` — `let _ = writeln!(out, "Temperature: {}", c.agent.temperature);`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:200` — `let _ = writeln!(out, "Settings");`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:201` — `let _ = writeln!(out, "Model: {}", config.agent.model);`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:207` — `let _ = writeln!(out, "\nTap a button to change:");`
+- `if_let_err` — `crates/nanobot-channels/src/commands.rs:237` — `if let Err(e) = save_config_to_default(&config) {`
+- `if_let_err` — `crates/nanobot-channels/src/commands.rs:253` — `if let Err(e) = save_config_to_default(&config) {`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:393` — `let _ = writeln!(text, "  {}", s);`
+- `unwrap_or_default` — `crates/nanobot-channels/src/commands.rs:468` — `let ta = a.1.timestamp.unwrap_or_default();`
+- `unwrap_or_default` — `crates/nanobot-channels/src/commands.rs:469` — `let tb = b.1.timestamp.unwrap_or_default();`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:482` — `let _ = writeln!(out, "History (page {}/{})", page + 1, total_pages);`
+- `unwrap_or_default` — `crates/nanobot-channels/src/commands.rs:494` — `.unwrap_or_default();`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:496` — `let _ = writeln!(out, "[{}] {} {}: {}", ts, role, short_key(key), preview);`
+- `result_ok_discard` — `crates/nanobot-channels/src/commands.rs:513` — `.filter_map(|e| e.ok())`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:582` — `let _ = writeln!(text, "  {}. {}", start + i + 1, key);`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:622` — `let _ = writeln!(out, "Configuration is valid. No issues found.");`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:636` — `let _ = writeln!(out, "\nErrors ({}):", errors.len());`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:638` — `let _ = writeln!(out, "  {}", format_finding(e));`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:645` — `let _ = writeln!(out, "\nWarnings ({}):", warnings.len());`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:647` — `let _ = writeln!(out, "  {}", format_finding(w));`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:652` — `let _ = writeln!(out, "\n{}", build_summary(&config));`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:668` — `let _ = writeln!(out, "Agent: {} | Name: {}", config.agent.model, name);`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:714` — `let _ = writeln!(out, "Providers: {}", providers.join(", "));`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:759` — `let _ = writeln!(out, "Channels: {}", channels.join(", "));`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:787` — `let _ = writeln!(out, "Agent: {} ({})", config.agent.model, name);`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:818` — `let _ = writeln!(out, "Channels: {}", channels.join(", "));`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:864` — `let _ = writeln!(out, "Providers: {}", providers.join(", "));`
+- `ignored_result_binding` — `crates/nanobot-channels/src/commands.rs:872` — `let _ = writeln!(out, "Heartbeat: {}", hb);`
+- `result_ok_discard` — `crates/nanobot-channels/src/commands.rs:939` — `let page: usize = payload.and_then(|p| p.parse().ok()).unwrap_or(0);`
+- `if_let_err` — `crates/nanobot-channels/src/manager.rs:139` — `if let Err(e) = self.stop_channel(&name).await {`
+- `ignored_result_binding` — `crates/nanobot-channels/src/manager.rs:175` — `let _ = ch.send_typing(&cid).await;`
+- `ignored_result_binding` — `crates/nanobot-channels/src/manager.rs:184` — `let _ = ch.send_typing(&chat_id_owned).await;`
+- `if_let_err` — `crates/nanobot-channels/src/manager.rs:249` — `if let Err(e) = channel.send_reaction(chat_id, message_id, emoji).await {`
+- `result_ok_discard` — `crates/nanobot-channels/src/platforms/discord.rs:314` — `.ok();`
+- `result_ok_discard` — `crates/nanobot-channels/src/platforms/discord.rs:335` — `token: std::env::var("DISCORD_BOT_TOKEN").ok(),`
+- `unwrap_or_else` — `crates/nanobot-channels/src/platforms/discord.rs:357` — `.unwrap_or_else(|_| reqwest::Client::new()),`
+- `ignored_result_binding` — `crates/nanobot-channels/src/platforms/discord.rs:500` — `let _ = tx.send(event);`
+- `if_let_err` — `crates/nanobot-channels/src/platforms/discord.rs:676` — `if let Err(e) = ws.send(WsMessage::Text(resume.to_string().into())).await {`
+- `if_let_err` — `crates/nanobot-channels/src/platforms/discord.rs:686` — `if let Err(e) = ws.send(WsMessage::Text(identify.to_string().into())).await {`
+- `if_let_err` — `crates/nanobot-channels/src/platforms/discord.rs:713` — `if let Err(e) = ws.send(WsMessage::Text(hb.to_string().into())).await {`
+- `unwrap_or_default` — `crates/nanobot-channels/src/platforms/discord.rs:751` — `.unwrap_or_default(),`
+- `unwrap_or_default` — `crates/nanobot-channels/src/platforms/discord.rs:892` — `let sender_id = author.map(|a| a.id.clone()).unwrap_or_default();`
+- `if_let_err` — `crates/nanobot-channels/src/platforms/discord.rs:941` — `if let Err(e) = handler.send(inbound).await {`
+- `unwrap_or_default` — `crates/nanobot-channels/src/platforms/discord.rs:984` — `let body = resp.text().await.unwrap_or_default();`
+- `unwrap_or_default` — `crates/nanobot-channels/src/platforms/discord.rs:1056` — `let text = resp.text().await.unwrap_or_default();`
+- `unwrap_or_default` — `crates/nanobot-channels/src/platforms/discord.rs:1085` — `let text = resp.text().await.unwrap_or_default();`
+- `unwrap_or_default` — `crates/nanobot-channels/src/platforms/discord.rs:1121` — `let text = resp.text().await.unwrap_or_default();`
+- `unwrap_or_default` — `crates/nanobot-channels/src/platforms/discord.rs:1155` — `let text = resp.text().await.unwrap_or_default();`
+- `unwrap_or_default` — `crates/nanobot-channels/src/platforms/discord.rs:1221` — `let text = resp.text().await.unwrap_or_default();`
+- `unwrap_or_default` — `crates/nanobot-channels/src/platforms/discord.rs:1263` — `let text = resp.text().await.unwrap_or_default();`
+- `result_ok_discard` — `crates/nanobot-channels/src/platforms/telegram.rs:545` — `.ok();`
+- `result_ok_discard` — `crates/nanobot-channels/src/platforms/telegram.rs:568` — `token: std::env::var("TELEGRAM_BOT_TOKEN").ok(),`
+- `unwrap_or_else` — `crates/nanobot-channels/src/platforms/telegram.rs:590` — `.unwrap_or_else(|_| reqwest::Client::new()),`
+- `if_let_err` — `crates/nanobot-channels/src/platforms/telegram.rs:657` — `if let Err(e) = client.post(&url).json(&body).send().await {`
+- `unwrap_or_default` — `crates/nanobot-channels/src/platforms/telegram.rs:675` — `let reply_markup = keyboard.map(|kb| serde_json::to_value(kb).unwrap_or_default());`
+- `if_let_err` — `crates/nanobot-channels/src/platforms/telegram.rs:683` — `if let Err(e) = client.post(&url).json(&body).send().await {`
+- `unwrap_or_default` — `crates/nanobot-channels/src/platforms/telegram.rs:753` — `let updates = body.result.unwrap_or_default();`
+- `if_let_err` — `crates/nanobot-channels/src/platforms/telegram.rs:800` — `if let Err(e) =`
+- `unwrap_or_default` — `crates/nanobot-channels/src/platforms/telegram.rs:826` — `.unwrap_or_default();`
+- `unwrap_or_default` — `crates/nanobot-channels/src/platforms/telegram.rs:838` — `let text = msg.text.clone().unwrap_or_default();`
+- `unwrap_or_default` — `crates/nanobot-channels/src/platforms/telegram.rs:950` — `.unwrap_or_default();`
+- `unwrap_or_default` — `crates/nanobot-channels/src/platforms/telegram.rs:952` — `let data = cq.data.clone().unwrap_or_default();`
+- `if_let_err` — `crates/nanobot-channels/src/platforms/telegram.rs:1084` — `if let Err(e) = client.post(&url).json(&body).send().await {`
+- `if_let_err` — `crates/nanobot-channels/src/platforms/telegram.rs:1108` — `if let Err(e) = client.post(&url).json(&body).send().await {`
+- `if_let_err` — `crates/nanobot-channels/src/platforms/telegram.rs:1132` — `if let Err(e) = client.post(&url).json(&body).send().await {`
+- `unwrap_or_default` — `crates/nanobot-channels/src/platforms/telegram.rs:1142` — `keyboard.map(|kb| serde_json::to_value(&kb).unwrap_or_default());`
+- `if_let_err` — `crates/nanobot-channels/src/platforms/telegram.rs:1150` — `if let Err(e) = client.post(&url).json(&body).send().await {`
+- `if_let_err` — `crates/nanobot-channels/src/platforms/telegram.rs:1167` — `if let Err(e) = client.post(&url).json(&body).send().await {`
+- `result_ok_discard` — `crates/nanobot-channels/src/platforms/telegram.rs:1220` — `.and_then(|p| p.parse().ok())`
+- `result_ok_discard` — `crates/nanobot-channels/src/platforms/telegram.rs:1240` — `.and_then(|p| p.parse().ok())`
+- `if_let_err` — `crates/nanobot-channels/src/platforms/telegram.rs:1297` — `if let Err(e) = self.validate_token().await {`
+- `result_ok_discard` — `crates/nanobot-channels/src/platforms/telegram.rs:1363` — `let reply_to_id = reply_to.and_then(|r| r.parse::<i64>().ok());`
+- `if_let_err` — `crates/nanobot-channels/src/platforms/telegram.rs:1433` — `if let Err(e) = self.client.post(&url).json(&body).send().await {`
+- `if_let_err` — `crates/nanobot-channels/src/platforms/telegram.rs:1472` — `if let Err(e) = self.client.post(&url).json(&body).send().await {`
+- `result_ok_discard` — `crates/nanobot-channels/src/platforms/telegram.rs:1752` — `let reply_to_id = reply_to.and_then(|r| r.parse::<i64>().ok());`
+- `if_let_err` — `crates/nanobot-channels/src/platforms/telegram.rs:1828` — `if let Err(e) = self.client.post(&url).json(&body).send().await {`
+- `unwrap_or_default` — `crates/nanobot-channels/src/platforms/telegram.rs:2927` — `let payload = ctx.action.payload.unwrap_or_default();`
+- `ignored_result_binding` — `crates/nanobot-channels/src/platforms/telegram.rs:3212` — `let _ = keyboard;`
+- `if_let_err` — `crates/nanobot-channels/src/platforms/websocket.rs:309` — `if let Err(e) = handler.send(inbound).await {`
+- `if_let_err` — `crates/nanobot-channels/src/platforms/websocket.rs:345` — `if let Err(e) = sink.send(WsMessage::Text(msg.into())).await {`
+- `ignored_result_binding` — `crates/nanobot-channels/src/platforms/websocket.rs:353` — `let _ = sink.close().await;`
+- `ignored_result_binding` — `crates/nanobot-channels/src/platforms/websocket.rs:463` — `let _ = client.send(json);`
+- `ignored_result_binding` — `crates/nanobot-channels/tests/discord_mock.rs:34` — `let _ = buf_reader.read_line(&mut request_line).await.unwrap();`
+- `ignored_result_binding` — `crates/nanobot-channels/tests/discord_mock.rs:79` — `let _ = writer.write_all(response.as_bytes()).await;`
+- `if_let_err` — `crates/nanobot-channels/tests/gateway_routing.rs:493` — `if let Err(e) = bus.publish_outbound(reply).await {`
+- `ignored_result_binding` — `crates/nanobot-channels/tests/gateway_routing.rs:576` — `let _ = agent_shutdown.send(true);`
+- `ignored_result_binding` — `crates/nanobot-channels/tests/gateway_routing.rs:674` — `let _ = agent_shutdown.send(true);`
+- `ignored_result_binding` — `crates/nanobot-channels/tests/gateway_routing.rs:756` — `let _ = agent_shutdown.send(true);`
+- `ignored_result_binding` — `crates/nanobot-channels/tests/gateway_routing.rs:828` — `let _ = agent_shutdown.send(true);`
+- `ignored_result_binding` — `crates/nanobot-channels/tests/gateway_routing.rs:887` — `let _ = agent_shutdown.send(true);`
+- `ignored_result_binding` — `crates/nanobot-channels/tests/telegram_mock.rs:34` — `let _ = writer.write_all(resp.as_bytes()).await;`
+- `unwrap_or_else` — `crates/nanobot-config/src/loader.rs:49` — `std::env::var(var).unwrap_or_else(|_| default.to_string())`
+- `unwrap_or_else` — `crates/nanobot-config/src/loader.rs:51` — `std::env::var(expr).unwrap_or_else(|_| String::new())`
+- `unwrap_or_default` — `crates/nanobot-config/src/python_migrate.rs:246` — `.unwrap_or_default();`
+- `unwrap_or_default` — `crates/nanobot-config/src/python_migrate.rs:503` — `token: tg.token.clone().unwrap_or_default(),`
+- `unwrap_or_default` — `crates/nanobot-config/src/python_migrate.rs:504` — `allowed_users: tg.allow_from.clone().unwrap_or_default(),`
+- `unwrap_or_default` — `crates/nanobot-config/src/python_migrate.rs:521` — `token: dc.token.clone().unwrap_or_default(),`
+- `unwrap_or_default` — `crates/nanobot-config/src/python_migrate.rs:522` — `allowed_guilds: dc.allow_from.clone().unwrap_or_default(),`
+- `unwrap_or_default` — `crates/nanobot-config/src/python_migrate.rs:646` — `let base = base.cloned().unwrap_or_default();`
+- `unwrap_or_default` — `crates/nanobot-config/src/python_migrate.rs:661` — `let base = base.cloned().unwrap_or_default();`
+- `unwrap_or_default` — `crates/nanobot-config/src/python_migrate.rs:678` — `let base = base.cloned().unwrap_or_default();`
+- `unwrap_or_else` — `crates/nanobot-config/src/schema.rs:632` — `let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp"));`
+- `unwrap_or_else` — `crates/nanobot-config/src/schema.rs:641` — `let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp"));`
+- `unwrap_or_default` — `crates/nanobot-config/src/validate.rs:268` — `.unwrap_or_default();`
+- `unwrap_or_default` — `crates/nanobot-cron/src/service.rs:44` — `serde_json::from_str(&content).unwrap_or_default()`
+- `unwrap_or_default` — `crates/nanobot-cron/src/service.rs:84` — `serde_json::from_str(&content).unwrap_or_default()`
+- `ignored_result_binding` — `crates/nanobot-cron/src/service.rs:153` — `let _ = self.persist();`
+- `ignored_result_binding` — `crates/nanobot-cron/src/service.rs:258` — `let _ = self.state_store.delete_state(job_id);`
+- `ignored_result_binding` — `crates/nanobot-cron/src/service.rs:385` — `let _ = self.persist();`
+- `ignored_result_binding` — `crates/nanobot-cron/src/service.rs:412` — `let _ = self.persist();`
+- `result_ok_discard` — `crates/nanobot-cron/src/service.rs:467` — `self.state_store.load_state(job_id).ok().flatten()`
+- `unwrap_or_default` — `crates/nanobot-cron/src/service.rs:473` — `let states = self.state_store.list_states().unwrap_or_default();`
+- `unwrap_or_else` — `crates/nanobot-cron/src/service.rs:476` — `let state = states.get(&job.id).cloned().unwrap_or_else(|| {`
+- `if_let_err` — `crates/nanobot-cron/src/service.rs:512` — `if let Err(e) = self.state_store.save_state(&job.id, &state) {`
+- `unwrap_or_default` — `crates/nanobot-cron/src/state_store.rs:49` — `serde_json::from_str(&content).unwrap_or_default()`
+- `result_ok_discard` — `crates/nanobot-daemon/src/daemonize.rs:100` — `close(devnull_fd).ok();`
+- `unwrap_or_else` — `crates/nanobot-daemon/src/logging.rs:41` — `let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level));`
+- `ignored_result_binding` — `crates/nanobot-daemon/src/logging.rs:85` — `let _ = setup_file_logging(log_dir_str, "info");`
+- `unwrap_or_else` — `crates/nanobot-heartbeat/src/service.rs:48` — `nanobot_config::paths::get_data_dir().unwrap_or_else(|_| std::env::temp_dir());`
+- `unwrap_or_default` — `crates/nanobot-heartbeat/src/service.rs:50` — `let state = load_state(&state_path).unwrap_or_default();`
+- `unwrap_or_default` — `crates/nanobot-heartbeat/src/service.rs:67` — `let state = load_state(&state_path).unwrap_or_default();`
+- `ignored_result_binding` — `crates/nanobot-heartbeat/src/service.rs:126` — `let _ = self.persist_state();`
+- `ignored_result_binding` — `crates/nanobot-heartbeat/src/service.rs:170` — `let _ = self.persist_state();`
+- `unwrap_or_else` — `crates/nanobot-heartbeat/src/service.rs:231` — `.unwrap_or_else(|| "unknown".to_string());`
+- `ignored_result_binding` — `crates/nanobot-heartbeat/src/service.rs:262` — `let _ = self.persist_state();`
+- `unwrap_or_else` — `crates/nanobot-learning/src/config.rs:75` — `self.event_log_path.clone().unwrap_or_else(|| {`
+- `unwrap_or_else` — `crates/nanobot-learning/src/config.rs:77` — `.unwrap_or_else(|| PathBuf::from("."))`
+- `unwrap_or_else` — `crates/nanobot-memory/src/config.rs:43` — `.unwrap_or_else(|| PathBuf::from("."))`
+- `unwrap_or_else` — `crates/nanobot-memory/src/config.rs:51` — `.unwrap_or_else(|| PathBuf::from("."))`
+- `ignored_result_binding` — `crates/nanobot-providers/src/anthropic.rs:194` — `let _ = tx.send(Err(anyhow::anyhow!("Stream error: {}", e))).await;`
+- `unwrap_or_else` — `crates/nanobot-providers/src/anthropic.rs:362` — `.unwrap_or_else(|| "2023-06-01".to_string());`
+- `unwrap_or_default` — `crates/nanobot-providers/src/anthropic.rs:387` — `let text = resp.text().await.unwrap_or_default();`
+- `unwrap_or_default` — `crates/nanobot-providers/src/anthropic.rs:433` — `.unwrap_or_default(),`
+- `unwrap_or_else` — `crates/nanobot-providers/src/anthropic.rs:475` — `.unwrap_or_else(|| "2023-06-01".to_string());`
+- `unwrap_or_default` — `crates/nanobot-providers/src/anthropic.rs:502` — `let text = resp.text().await.unwrap_or_default();`
+- `ignored_result_binding` — `crates/nanobot-providers/src/middleware.rs:616` — `let _ = middleware.complete(make_request()).await;`
+- `ignored_result_binding` — `crates/nanobot-providers/src/middleware.rs:710` — `let _ = middleware.complete(make_request()).await;`
+- `ignored_result_binding` — `crates/nanobot-providers/src/middleware.rs:740` — `let _ = middleware.complete(make_request()).await;`
+- `ignored_result_binding` — `crates/nanobot-providers/src/openai_compat.rs:164` — `let _ = tx.send(Err(anyhow::anyhow!("Stream error: {}", e))).await;`
+- `unwrap_or_default` — `crates/nanobot-providers/src/openai_compat.rs:392` — `let text = resp.text().await.unwrap_or_default();`
+- `unwrap_or_default` — `crates/nanobot-providers/src/openai_compat.rs:465` — `let text = resp.text().await.unwrap_or_default();`
+- `ignored_result_binding` — `crates/nanobot-providers/src/openai_compat.rs:476` — `let _ = model;`
+- `unwrap_or_else` — `crates/nanobot-providers/src/registry.rs:64` — `.unwrap_or_else(|| "claude-sonnet-4-20250514".to_string()),`
+- `unwrap_or_else` — `crates/nanobot-providers/src/registry.rs:81` — `.unwrap_or_else(|| "https://api.openai.com/v1".to_string()),`
+- `unwrap_or_default` — `crates/nanobot-providers/src/registry.rs:82` — `model: entry.model.clone().unwrap_or_default(),`
+- `unwrap_or_else` — `crates/nanobot-providers/src/registry.rs:99` — `.unwrap_or_else(|| "https://api.deepseek.com/v1".to_string()),`
+- `unwrap_or_default` — `crates/nanobot-providers/src/registry.rs:100` — `model: entry.model.clone().unwrap_or_default(),`
+- `unwrap_or_else` — `crates/nanobot-providers/src/registry.rs:117` — `.unwrap_or_else(|| "https://api.groq.com/openai/v1".to_string()),`
+- `unwrap_or_default` — `crates/nanobot-providers/src/registry.rs:118` — `model: entry.model.clone().unwrap_or_default(),`
+- `unwrap_or_else` — `crates/nanobot-providers/src/registry.rs:135` — `.unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string()),`
+- `unwrap_or_default` — `crates/nanobot-providers/src/registry.rs:136` — `model: entry.model.clone().unwrap_or_default(),`
+- `unwrap_or_default` — `crates/nanobot-providers/src/registry.rs:148` — `api_key: entry.api_key.clone().unwrap_or_default(),`
+- `unwrap_or_else` — `crates/nanobot-providers/src/registry.rs:152` — `.unwrap_or_else(|| "http://localhost:11434/v1".to_string()),`
+- `unwrap_or_default` — `crates/nanobot-providers/src/registry.rs:153` — `model: entry.model.clone().unwrap_or_default(),`
+- `unwrap_or_default` — `crates/nanobot-providers/src/registry.rs:164` — `api_key: custom.api_key.clone().unwrap_or_default(),`
+- `unwrap_or_default` — `crates/nanobot-providers/src/retry.rs:436` — `.unwrap_or_default()`
+- `result_ok_discard` — `crates/nanobot-providers/src/retry.rs:452` — `let val = headers.get("retry-after")?.to_str().ok()?;`
+- `if_let_err` — `crates/nanobot-providers/src/retry.rs:555` — `if let Err(msg) = cb.allow_request() {`
+- `result_ok_discard` — `crates/nanobot-providers/src/retry.rs:638` — `code_str.parse().ok()`
+- `ignored_result_binding` — `crates/nanobot-providers/tests/anthropic_sse.rs:42` — `let _ = writer.write_all(resp.as_bytes()).await;`
+- `ignored_result_binding` — `crates/nanobot-providers/tests/anthropic_sse.rs:82` — `let _ = writer.write_all(resp.as_bytes()).await;`
+- `ignored_result_binding` — `crates/nanobot-providers/tests/anthropic_sse.rs:89` — `let _ = writer.write_all(resp.as_bytes()).await;`
+- `ignored_result_binding` — `crates/nanobot-providers/tests/openai_sse.rs:43` — `let _ = writer.write_all(resp.as_bytes()).await;`
+- `ignored_result_binding` — `crates/nanobot-providers/tests/openai_sse.rs:83` — `let _ = writer.write_all(resp.as_bytes()).await;`
+- `ignored_result_binding` — `crates/nanobot-providers/tests/openai_sse.rs:90` — `let _ = writer.write_all(resp.as_bytes()).await;`
+- `result_ok_discard` — `crates/nanobot-security/src/network.rs:41` — `.filter_map(|s| s.parse().ok())`
+- `unwrap_or_default` — `crates/nanobot-skill/src/config.rs:41` — `.unwrap_or_else(|_| dirs::home_dir().unwrap_or_default().join(".nanobot-rs"))`
+- `if_let_err` — `crates/nanobot-skill/src/loader.rs:96` — `if let Err(e) = registry.register(skill).await {`
+- `ignored_result_binding` — `crates/nanobot-skill/src/loader.rs:224` — `let _ = loader.load_skill(&path).unwrap();`
+- `ignored_result_binding` — `crates/nanobot-skill/src/loader.rs:239` — `let _ = loader.load_skill(&path).unwrap();`
+- `ignored_result_binding` — `crates/nanobot-skill/src/loader.rs:251` — `let _ = loader.load_skill(&path).unwrap();`
+- `result_ok_discard` — `crates/nanobot-tools/src/builtins/filesystem.rs:300` — `let mut entries: Vec<_> = entries.filter_map(|e| e.ok()).collect();`
+- `unwrap_or_default` — `crates/nanobot-tools/src/builtins/message.rs:96` — `.unwrap_or_default();`
+- `unwrap_or_default` — `crates/nanobot-tools/src/builtins/search.rs:127` — `let name = path.file_name().unwrap_or_default().to_string_lossy();`
+- `result_ok_discard` — `crates/nanobot-tools/src/builtins/search.rs:139` — `let matches = glob.filter_map(|p| p.ok()).any(|p| {`
+- `unwrap_or_default` — `crates/nanobot-tools/src/builtins/search.rs:141` — `.is_some_and(|n| n == path.file_name().unwrap_or_default())`
+- `ignored_result_binding` — `crates/nanobot-tools/src/builtins/search.rs:147` — `let _ = grep_file(&path, re, context, results, max);`
+- `result_ok_discard` — `crates/nanobot-tools/src/builtins/search.rs:206` — `.filter_map(|p| p.ok())`
+- `ignored_result_binding` — `crates/nanobot-tools/src/builtins/spawn.rs:146` — `let _ = context; // accepted but ignored in mock`
+- `result_ok_discard` — `crates/nanobot-tools/src/skill_loader.rs:62` — `let major = parts.first().and_then(|p| p.parse().ok())?;`
+- `result_ok_discard` — `crates/nanobot-tools/src/skill_loader.rs:63` — `let minor = parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(0);`
+- `result_ok_discard` — `crates/nanobot-tools/src/skill_loader.rs:64` — `let patch = parts.get(2).and_then(|p| p.parse().ok()).unwrap_or(0);`
+- `unwrap_or_else` — `crates/nanobot-tools/src/skill_loader.rs:232` — `.map(|p| p.canonicalize().unwrap_or_else(|_| p.clone()))`
+- `unwrap_or_else` — `crates/nanobot-tools/src/skill_loader.rs:241` — `let canonical = path.canonicalize().unwrap_or_else(|_| path.clone());`
+- `result_ok_discard` — `crates/nanobot-tools/src/skill_loader.rs:709` — `|| s.source_path.canonicalize().ok() == p.canonicalize().ok()`
+- `result_ok_discard` — `crates/nanobot-tools/src/skill_loader.rs:737` — `.ok()`
+- `result_ok_discard` — `crates/nanobot-tools/src/skill_loader.rs:738` — `.and_then(|m| m.modified().ok());`
+- `unwrap_or_else` — `crates/nanobot-tools/src/skill_loader.rs:758` — `let canonical = file.canonicalize().unwrap_or_else(|_| file.clone());`
+- `result_ok_discard` — `crates/nanobot-tools/src/skill_loader.rs:784` — `.find(|s| s.source_path.canonicalize().ok() == path.canonicalize().ok())`
+- `unwrap_or_else` — `crates/nanobot-tools/src/skill_loader.rs:835` — `.unwrap_or_else(|| {`
+- `unwrap_or_default` — `crates/nanobot-tools/src/skill_loader.rs:838` — `.unwrap_or_default()`
+- `unwrap_or_else` — `crates/nanobot-tools/src/skill_loader.rs:872` — `.unwrap_or_else(|| {`
+- `unwrap_or_else` — `crates/nanobot-tools/src/skill_loader.rs:878` — `.unwrap_or_else(|| "uncategorized".to_string())`
+- `result_ok_discard` — `crates/nanobot-tools/src/skill_loader.rs:888` — `let modified_at = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());`
+- `unwrap_or_default` — `crates/nanobot-tools/src/skill_loader.rs:1024` — `.unwrap_or_default()`
+- `unwrap_or_else` — `crates/nanobot-tools/src/skills.rs:284` — `.unwrap_or_else(|| {`
+- `unwrap_or_default` — `crates/nanobot-tools/src/skills.rs:287` — `.unwrap_or_default()`
+- `unwrap_or_else` — `crates/nanobot-tools/src/skills.rs:301` — `.unwrap_or_else(|| {`
+- `unwrap_or_else` — `crates/nanobot-tools/src/skills.rs:308` — `.unwrap_or_else(|| "uncategorized".to_string())`
+- `result_ok_discard` — `crates/nanobot-tools/src/skills.rs:368` — `std::fs::metadata(path).ok().and_then(|m| m.modified().ok())`
+- `unwrap_or_default` — `crates/nanobot-tools/src/skills.rs:450` — `.unwrap_or_default()`
+- `ignored_result_binding` — `crates/nanobot-tools/src/trait_def.rs:126` — `let _ = timeout_secs;`
+
+### Taxonomy completeness
+
+- No explicit taxonomy-completeness marker or sealed hierarchy declaration found in the scanned source.
+- Factual completeness basis in this report: all source definitions whose type name matches `*Error*`, plus all enum variants in those definitions.
+
+## 4. YAML Schema Fields
+
+### AgentDefaults
+
+- `model: String` — `crates/nanobot-config/src/schema.rs:409` — used
+  - refs: crates/nanobot-agent/src/heartbeat.rs:659, crates/nanobot-agent/src/heartbeat.rs:691, crates/nanobot-agent/src/heartbeat.rs:696, crates/nanobot-agent/src/heartbeat.rs:1084, crates/nanobot-agent/src/heartbeat.rs:1320, crates/nanobot-agent/src/heartbeat.rs:1340, crates/nanobot-agent/src/heartbeat.rs:1347, crates/nanobot-agent/src/runner.rs:76, crates/nanobot-agent/src/runner.rs:84, crates/nanobot-agent/src/runner.rs:106, crates/nanobot-agent/src/subagent.rs:786, crates/nanobot-agent/src/subagent.rs:1179, crates/nanobot-agent/src/subagent.rs:1194, crates/nanobot-agent/src/subagent.rs:1552, crates/nanobot-agent/src/subagent.rs:1897, crates/nanobot-agent/tests/pipeline_e2e.rs:96, crates/nanobot-agent/tests/runner_e2e.rs:80, crates/nanobot-agent/tests/self_evolution_e2e.rs:254, crates/nanobot-api/src/server.rs:239, crates/nanobot-api/src/server.rs:268, ... (+198 more)
+- `temperature: f32` — `crates/nanobot-config/src/schema.rs:413` — used
+  - refs: crates/nanobot-agent/src/runner.rs:78, crates/nanobot-agent/src/runner.rs:114, crates/nanobot-api/src/server.rs:244, crates/nanobot-api/src/server.rs:470, crates/nanobot-api/src/server.rs:1783, crates/nanobot-api/src/server.rs:1794, crates/nanobot-api/src/server.rs:2272, crates/nanobot-api/src/server.rs:2324, crates/nanobot-channels/src/commands.rs:159, crates/nanobot-channels/src/commands.rs:282, crates/nanobot-config/src/loader.rs:107, crates/nanobot-config/src/python_migrate.rs:697, crates/nanobot-config/src/python_migrate.rs:698, crates/nanobot-config/src/python_migrate.rs:1057, crates/nanobot-config/src/python_migrate.rs:1245, crates/nanobot-config/src/python_migrate.rs:1330, crates/nanobot-config/src/python_schema.rs:349, crates/nanobot-config/src/python_schema.rs:487, crates/nanobot-config/src/schema.rs:444, crates/nanobot-config/src/schema.rs:775, ... (+27 more)
+- `max_tokens: u32` — `crates/nanobot-config/src/schema.rs:417` — used
+  - refs: crates/nanobot-agent/src/runner.rs:79, crates/nanobot-agent/src/runner.rs:113, crates/nanobot-agent/src/subagent.rs:49, crates/nanobot-agent/src/subagent.rs:788, crates/nanobot-agent/src/subagent.rs:789, crates/nanobot-agent/src/subagent.rs:1380, crates/nanobot-agent/src/subagent.rs:1387, crates/nanobot-agent/src/subagent.rs:1394, crates/nanobot-agent/src/subagent.rs:1436, crates/nanobot-agent/src/subagent.rs:1456, crates/nanobot-agent/src/subagent.rs:1492, crates/nanobot-agent/src/subagent.rs:1574, crates/nanobot-agent/src/subagent.rs:1581, crates/nanobot-agent/src/subagent.rs:1588, crates/nanobot-agent/src/subagent.rs:1633, crates/nanobot-agent/src/subagent.rs:1685, crates/nanobot-agent/src/subagent.rs:1692, crates/nanobot-agent/src/subagent.rs:1713, crates/nanobot-agent/src/subagent.rs:1739, crates/nanobot-agent/src/subagent.rs:1762, ... (+51 more)
+- `max_iterations: usize` — `crates/nanobot-config/src/schema.rs:421` — used
+  - refs: crates/nanobot-agent/src/heartbeat.rs:1333, crates/nanobot-agent/src/runner.rs:77, crates/nanobot-agent/src/runner.rs:102, crates/nanobot-agent/src/subagent.rs:1180, crates/nanobot-agent/src/subagent.rs:1195, crates/nanobot-agent/src/subagent.rs:1553, crates/nanobot-agent/src/subagent.rs:1898, crates/nanobot-agent/tests/runner_e2e.rs:190, crates/nanobot-config/src/python_migrate.rs:345, crates/nanobot-config/src/python_migrate.rs:703, crates/nanobot-config/src/python_migrate.rs:704, crates/nanobot-config/src/python_migrate.rs:1059, crates/nanobot-config/src/python_schema.rs:357, crates/nanobot-config/src/schema.rs:446, crates/nanobot-config/src/schema.rs:777, crates/nanobot-config/src/schema.rs:869, crates/nanobot-config/src/schema.rs:898, crates/nanobot-config/src/validate.rs:189, crates/nanobot-config/src/validate.rs:190, crates/nanobot-config/src/validate.rs:191, ... (+17 more)
+- `workspace: Option<String>` — `crates/nanobot-config/src/schema.rs:425` — used
+  - refs: crates/nanobot-config/src/schema.rs:55, crates/nanobot-config/src/schema.rs:87, crates/nanobot-config/src/schema.rs:447, crates/nanobot-config/src/schema.rs:766, crates/nanobot-config/src/schema.rs:778, crates/nanobot-config/src/schema.rs:884, crates/nanobot-config/src/schema.rs:927, crates/nanobot-config/src/validate.rs:804, crates/nanobot-config/src/validate.rs:806, crates/nanobot-config/src/validate.rs:1698, crates/nanobot-config/src/validate.rs:1703
+- `system_prompt: Option<String>` — `crates/nanobot-config/src/schema.rs:429` — used
+  - refs: crates/nanobot-agent/src/context_budget.rs:191, crates/nanobot-agent/src/runner.rs:75, crates/nanobot-api/src/server.rs:524, crates/nanobot-api/src/server.rs:558, crates/nanobot-api/src/server.rs:625, crates/nanobot-config/src/schema.rs:448, crates/nanobot-config/src/schema.rs:779
+- `streaming: bool` — `crates/nanobot-config/src/schema.rs:433` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:827, crates/nanobot-agent/src/loop_mod.rs:851, crates/nanobot-agent/src/loop_mod.rs:857, crates/nanobot-agent/src/loop_mod.rs:899, crates/nanobot-channels/src/commands.rs:157, crates/nanobot-channels/src/commands.rs:205, crates/nanobot-channels/src/commands.rs:214, crates/nanobot-channels/src/commands.rs:251, crates/nanobot-channels/src/commands.rs:280, crates/nanobot-channels/src/commands.rs:1677, crates/nanobot-channels/src/commands.rs:1696, crates/nanobot-channels/src/commands.rs:1702, crates/nanobot-channels/src/commands.rs:1707, crates/nanobot-config/src/python_migrate.rs:507, crates/nanobot-config/src/python_migrate.rs:524, crates/nanobot-config/src/python_migrate.rs:668, crates/nanobot-config/src/python_migrate.rs:706, crates/nanobot-config/src/python_migrate.rs:707, crates/nanobot-config/src/python_migrate.rs:974, crates/nanobot-config/src/python_migrate.rs:1060, ... (+18 more)
+- `tool_timeout: u64` — `crates/nanobot-config/src/schema.rs:437` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:346, crates/nanobot-config/src/python_migrate.rs:709, crates/nanobot-config/src/python_migrate.rs:710, crates/nanobot-config/src/python_migrate.rs:1061, crates/nanobot-config/src/python_schema.rs:365, crates/nanobot-config/src/schema.rs:450, crates/nanobot-config/src/schema.rs:781, crates/nanobot-config/src/schema.rs:871, crates/nanobot-config/src/schema.rs:900, crates/nanobot-config/src/validate.rs:193, crates/nanobot-config/src/validate.rs:194, crates/nanobot-config/src/validate.rs:195, crates/nanobot-config/src/validate.rs:797, crates/nanobot-config/src/validate.rs:799, crates/nanobot-config/src/validate.rs:1687, crates/nanobot-config/src/validate.rs:1692, crates/nanobot-config/src/validate.rs:2060, crates/nanobot-config/src/validate.rs:2071, crates/nanobot-config/src/validate.rs:2080
+
+### ApiConfig
+
+- `host: String` — `crates/nanobot-config/src/schema.rs:554` — used
+  - refs: crates/nanobot-api/src/server.rs:68, crates/nanobot-api/src/server.rs:109, crates/nanobot-api/src/server.rs:136, crates/nanobot-api/src/server.rs:193, crates/nanobot-api/src/server.rs:194, crates/nanobot-config/src/schema.rs:590, crates/nanobot-security/src/network.rs:124
+- `port: u16` — `crates/nanobot-config/src/schema.rs:558` — used
+  - refs: crates/nanobot-api/src/server.rs:69, crates/nanobot-api/src/server.rs:110, crates/nanobot-api/src/server.rs:137, crates/nanobot-api/src/server.rs:197, crates/nanobot-channels/tests/discord_mock.rs:26, crates/nanobot-channels/tests/telegram_mock.rs:11, crates/nanobot-config/src/python_migrate.rs:577, crates/nanobot-config/src/python_schema.rs:262, crates/nanobot-config/src/schema.rs:309, crates/nanobot-config/src/schema.rs:591, crates/nanobot-config/src/validate.rs:578, crates/nanobot-config/src/validate.rs:580, crates/nanobot-config/src/validate.rs:583, crates/nanobot-config/src/validate.rs:585, crates/nanobot-config/src/validate.rs:586, crates/nanobot-config/src/validate.rs:588, crates/nanobot-config/src/validate.rs:589, crates/nanobot-config/src/validate.rs:590, crates/nanobot-config/src/validate.rs:591, crates/nanobot-config/src/validate.rs:592, ... (+21 more)
+- `allowed_origins: Vec<String>` — `crates/nanobot-config/src/schema.rs:562` — used
+  - refs: crates/nanobot-api/src/server.rs:10, crates/nanobot-api/src/server.rs:72, crates/nanobot-api/src/server.rs:80, crates/nanobot-api/src/server.rs:1944, crates/nanobot-api/src/server.rs:1961, crates/nanobot-api/src/server.rs:1981, crates/nanobot-api/src/server.rs:2017, crates/nanobot-config/src/schema.rs:592, crates/nanobot-config/src/validate.rs:1009, crates/nanobot-config/src/validate.rs:1011, crates/nanobot-config/src/validate.rs:1015, crates/nanobot-config/src/validate.rs:1017, crates/nanobot-config/src/validate.rs:1023, crates/nanobot-config/src/validate.rs:2483, crates/nanobot-config/src/validate.rs:2488, crates/nanobot-config/src/validate.rs:2494, crates/nanobot-config/src/validate.rs:2499, crates/nanobot-config/src/validate.rs:2505, crates/nanobot-config/src/validate.rs:2510, crates/nanobot-config/src/validate.rs:2783, ... (+1 more)
+- `max_body_size: usize` — `crates/nanobot-config/src/schema.rs:566` — used
+  - refs: crates/nanobot-api/src/server.rs:11, crates/nanobot-api/src/server.rs:160, crates/nanobot-api/src/server.rs:1914, crates/nanobot-api/src/server.rs:2073, crates/nanobot-api/src/server.rs:2118, crates/nanobot-api/src/server.rs:2147, crates/nanobot-api/src/server.rs:2163, crates/nanobot-api/src/server.rs:2199, crates/nanobot-api/src/server.rs:2215, crates/nanobot-config/src/schema.rs:593, crates/nanobot-config/src/validate.rs:1001, crates/nanobot-config/src/validate.rs:1002, crates/nanobot-config/src/validate.rs:1003, crates/nanobot-config/src/validate.rs:1005, crates/nanobot-config/src/validate.rs:2516, crates/nanobot-config/src/validate.rs:2521, crates/nanobot-config/src/validate.rs:2794, crates/nanobot-config/src/validate.rs:2800
+
+### AzureOpenAIProviderEntry
+
+- `api_key: Option<String>` — `crates/nanobot-config/src/schema.rs:163` — used
+  - refs: crates/nanobot-api/src/server.rs:58, crates/nanobot-api/src/server.rs:117, crates/nanobot-api/src/server.rs:144, crates/nanobot-api/src/server.rs:153, crates/nanobot-api/src/server.rs:392, crates/nanobot-api/src/server.rs:977, crates/nanobot-api/src/server.rs:998, crates/nanobot-api/src/server.rs:1006, crates/nanobot-api/src/server.rs:1449, crates/nanobot-api/src/server.rs:1766, crates/nanobot-api/src/server.rs:1908, crates/nanobot-api/src/server.rs:2067, crates/nanobot-api/src/server.rs:2112, crates/nanobot-api/src/server.rs:2157, crates/nanobot-api/src/server.rs:2209, crates/nanobot-channels/src/commands.rs:823, crates/nanobot-channels/src/commands.rs:826, crates/nanobot-channels/src/commands.rs:829, crates/nanobot-channels/src/commands.rs:832, crates/nanobot-channels/src/commands.rs:835, ... (+135 more)
+- `endpoint: Option<String>` — `crates/nanobot-config/src/schema.rs:166` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:457, crates/nanobot-config/src/python_schema.rs:110, crates/nanobot-config/src/validate.rs:418, crates/nanobot-config/src/validate.rs:420, crates/nanobot-config/src/validate.rs:423, crates/nanobot-config/src/validate.rs:424, crates/nanobot-config/src/validate.rs:1397, crates/nanobot-config/src/validate.rs:1404, crates/nanobot-config/src/validate.rs:2256, crates/nanobot-config/src/validate.rs:2264
+- `deployment: Option<String>` — `crates/nanobot-config/src/schema.rs:169` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:458, crates/nanobot-config/src/python_migrate.rs:939, crates/nanobot-config/src/python_migrate.rs:1166, crates/nanobot-config/src/python_schema.rs:114, crates/nanobot-config/src/validate.rs:426, crates/nanobot-config/src/validate.rs:428, crates/nanobot-config/src/validate.rs:1398, crates/nanobot-config/src/validate.rs:1405, crates/nanobot-config/src/validate.rs:2257
+- `api_version: Option<String>` — `crates/nanobot-config/src/schema.rs:172` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:459, crates/nanobot-config/src/python_schema.rs:118, crates/nanobot-config/src/validate.rs:1399, crates/nanobot-config/src/validate.rs:2258, crates/nanobot-providers/src/anthropic.rs:23, crates/nanobot-providers/src/anthropic.rs:360, crates/nanobot-providers/src/anthropic.rs:473, crates/nanobot-providers/src/anthropic.rs:527, crates/nanobot-providers/src/anthropic.rs:532, crates/nanobot-providers/src/anthropic.rs:541, crates/nanobot-providers/src/anthropic.rs:558, crates/nanobot-providers/src/anthropic.rs:570, crates/nanobot-providers/src/anthropic.rs:604, crates/nanobot-providers/src/anthropic.rs:631, crates/nanobot-providers/src/anthropic.rs:665, crates/nanobot-providers/src/anthropic.rs:688, crates/nanobot-providers/src/anthropic.rs:730, crates/nanobot-providers/src/anthropic.rs:742, crates/nanobot-providers/src/registry.rs:65, crates/nanobot-providers/tests/anthropic_sse.rs:110
+
+### ChannelsConfig
+
+- `telegram: Option<TelegramConfig>` — `crates/nanobot-config/src/schema.rs:181` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:550, crates/nanobot-agent/src/loop_mod.rs:822, crates/nanobot-agent/src/loop_mod.rs:846, crates/nanobot-agent/src/loop_mod.rs:894, crates/nanobot-bus/src/events.rs:235, crates/nanobot-channels/src/commands.rs:12, crates/nanobot-channels/src/commands.rs:332, crates/nanobot-channels/src/commands.rs:527, crates/nanobot-channels/src/commands.rs:718, crates/nanobot-channels/src/commands.rs:791, crates/nanobot-channels/src/commands.rs:801, crates/nanobot-channels/src/commands.rs:1085, crates/nanobot-channels/src/commands.rs:1154, crates/nanobot-channels/src/commands.rs:1169, crates/nanobot-channels/src/commands.rs:1475, crates/nanobot-channels/src/commands.rs:1493, crates/nanobot-channels/src/commands.rs:1524, crates/nanobot-channels/src/commands.rs:1527, crates/nanobot-channels/src/commands.rs:1583, crates/nanobot-channels/src/commands.rs:1623, ... (+74 more)
+- `discord: Option<DiscordConfig>` — `crates/nanobot-config/src/schema.rs:184` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:553, crates/nanobot-agent/src/loop_mod.rs:853, crates/nanobot-bus/src/events.rs:253, crates/nanobot-channels/src/commands.rs:336, crates/nanobot-channels/src/commands.rs:722, crates/nanobot-channels/src/commands.rs:803, crates/nanobot-channels/src/commands.rs:813, crates/nanobot-channels/src/commands.rs:1156, crates/nanobot-channels/src/commands.rs:1524, crates/nanobot-channels/src/commands.rs:1528, crates/nanobot-channels/src/commands.rs:1584, crates/nanobot-channels/src/manager.rs:325, crates/nanobot-channels/src/manager.rs:449, crates/nanobot-channels/src/platforms/discord.rs:36, crates/nanobot-channels/src/platforms/discord.rs:766, crates/nanobot-channels/src/registry.rs:24, crates/nanobot-channels/tests/discord_mock.rs:4, crates/nanobot-config/src/python_migrate.rs:513, crates/nanobot-config/src/python_migrate.rs:516, crates/nanobot-config/src/python_migrate.rs:520, ... (+20 more)
+- `slack: Option<SlackConfig>` — `crates/nanobot-config/src/schema.rs:187` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:556, crates/nanobot-channels/src/commands.rs:340, crates/nanobot-channels/src/commands.rs:726, crates/nanobot-config/src/python_migrate.rs:536, crates/nanobot-config/src/python_migrate.rs:539, crates/nanobot-config/src/python_migrate.rs:543, crates/nanobot-config/src/python_migrate.rs:549, crates/nanobot-config/src/python_migrate.rs:552, crates/nanobot-config/src/python_migrate.rs:989, crates/nanobot-config/src/python_migrate.rs:996, crates/nanobot-config/src/python_migrate.rs:1022, crates/nanobot-config/src/python_schema.rs:135, crates/nanobot-config/src/validate.rs:519, crates/nanobot-config/src/validate.rs:524, crates/nanobot-config/src/validate.rs:1088, crates/nanobot-config/src/validate.rs:1556, crates/nanobot-config/src/validate.rs:1567
+- `matrix: Option<MatrixConfig>` — `crates/nanobot-config/src/schema.rs:190` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:559, crates/nanobot-channels/src/commands.rs:343, crates/nanobot-channels/src/commands.rs:729, crates/nanobot-config/src/python_migrate.rs:559, crates/nanobot-config/src/python_migrate.rs:560, crates/nanobot-config/src/python_migrate.rs:567, crates/nanobot-config/src/python_migrate.rs:1023, crates/nanobot-config/src/python_migrate.rs:1032, crates/nanobot-config/src/python_schema.rs:139, crates/nanobot-config/src/validate.rs:532, crates/nanobot-config/src/validate.rs:537, crates/nanobot-config/src/validate.rs:543, crates/nanobot-config/src/validate.rs:549, crates/nanobot-config/src/validate.rs:700, crates/nanobot-config/src/validate.rs:704, crates/nanobot-config/src/validate.rs:1089, crates/nanobot-config/src/validate.rs:1573, crates/nanobot-config/src/validate.rs:1583, crates/nanobot-config/src/validate.rs:1584, crates/nanobot-config/src/validate.rs:2413, ... (+3 more)
+- `whatsapp: Option<WhatsappConfig>` — `crates/nanobot-config/src/schema.rs:193` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:562, crates/nanobot-channels/src/commands.rs:346, crates/nanobot-channels/src/commands.rs:732, crates/nanobot-config/src/validate.rs:711, crates/nanobot-config/src/validate.rs:714, crates/nanobot-config/src/validate.rs:1097
+- `email: Option<EmailConfig>` — `crates/nanobot-config/src/schema.rs:196` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:565, crates/nanobot-channels/src/commands.rs:349, crates/nanobot-channels/src/commands.rs:735, crates/nanobot-config/src/python_migrate.rs:571, crates/nanobot-config/src/python_migrate.rs:572, crates/nanobot-config/src/python_migrate.rs:580, crates/nanobot-config/src/python_migrate.rs:1024, crates/nanobot-config/src/python_schema.rs:143, crates/nanobot-config/src/validate.rs:557, crates/nanobot-config/src/validate.rs:562, crates/nanobot-config/src/validate.rs:568, crates/nanobot-config/src/validate.rs:574, crates/nanobot-config/src/validate.rs:580, crates/nanobot-config/src/validate.rs:585, crates/nanobot-config/src/validate.rs:595, crates/nanobot-config/src/validate.rs:1090, crates/nanobot-config/src/validate.rs:1590, crates/nanobot-config/src/validate.rs:1601, crates/nanobot-config/src/validate.rs:1602, crates/nanobot-config/src/validate.rs:1603, ... (+8 more)
+- `dingtalk: Option<DingtalkConfig>` — `crates/nanobot-config/src/schema.rs:199` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:568, crates/nanobot-channels/src/commands.rs:352, crates/nanobot-channels/src/commands.rs:738, crates/nanobot-config/src/python_migrate.rs:584, crates/nanobot-config/src/python_migrate.rs:585, crates/nanobot-config/src/python_migrate.rs:590, crates/nanobot-config/src/python_migrate.rs:1025, crates/nanobot-config/src/python_migrate.rs:1036, crates/nanobot-config/src/python_schema.rs:147, crates/nanobot-config/src/validate.rs:606, crates/nanobot-config/src/validate.rs:611, crates/nanobot-config/src/validate.rs:615, crates/nanobot-config/src/validate.rs:1091, crates/nanobot-config/src/validate.rs:2186, crates/nanobot-config/src/validate.rs:2195, crates/nanobot-config/src/validate.rs:2201, crates/nanobot-config/src/validate.rs:2202, crates/nanobot-config/src/validate.rs:2210, crates/nanobot-config/src/validate.rs:2382, crates/nanobot-config/src/validate.rs:2383, ... (+1 more)
+- `feishu: Option<FeishuConfig>` — `crates/nanobot-config/src/schema.rs:202` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:571, crates/nanobot-channels/src/commands.rs:355, crates/nanobot-channels/src/commands.rs:741, crates/nanobot-config/src/python_migrate.rs:594, crates/nanobot-config/src/python_migrate.rs:595, crates/nanobot-config/src/python_migrate.rs:600, crates/nanobot-config/src/python_migrate.rs:1026, crates/nanobot-config/src/python_migrate.rs:1040, crates/nanobot-config/src/python_schema.rs:151, crates/nanobot-config/src/validate.rs:621, crates/nanobot-config/src/validate.rs:626, crates/nanobot-config/src/validate.rs:632, crates/nanobot-config/src/validate.rs:1092, crates/nanobot-config/src/validate.rs:2869, crates/nanobot-config/src/validate.rs:2879, crates/nanobot-config/src/validate.rs:2885, crates/nanobot-config/src/validate.rs:2895
+- `wecom: Option<WecomConfig>` — `crates/nanobot-config/src/schema.rs:205` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:574, crates/nanobot-channels/src/commands.rs:358, crates/nanobot-channels/src/commands.rs:744, crates/nanobot-config/src/python_migrate.rs:604, crates/nanobot-config/src/python_migrate.rs:605, crates/nanobot-config/src/python_migrate.rs:613, crates/nanobot-config/src/python_migrate.rs:1027, crates/nanobot-config/src/python_schema.rs:155, crates/nanobot-config/src/validate.rs:640, crates/nanobot-config/src/validate.rs:645, crates/nanobot-config/src/validate.rs:651, crates/nanobot-config/src/validate.rs:1093, crates/nanobot-config/src/validate.rs:2901, crates/nanobot-config/src/validate.rs:2912, crates/nanobot-config/src/validate.rs:2913
+- `weixin: Option<WeixinConfig>` — `crates/nanobot-config/src/schema.rs:208` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:577, crates/nanobot-channels/src/commands.rs:361, crates/nanobot-channels/src/commands.rs:747, crates/nanobot-config/src/python_migrate.rs:617, crates/nanobot-config/src/python_migrate.rs:618, crates/nanobot-config/src/python_migrate.rs:625, crates/nanobot-config/src/python_migrate.rs:1028, crates/nanobot-config/src/python_schema.rs:159, crates/nanobot-config/src/validate.rs:659, crates/nanobot-config/src/validate.rs:664, crates/nanobot-config/src/validate.rs:1094, crates/nanobot-config/src/validate.rs:2919, crates/nanobot-config/src/validate.rs:2931
+- `qq: Option<QQConfig>` — `crates/nanobot-config/src/schema.rs:211` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:580, crates/nanobot-channels/src/commands.rs:364, crates/nanobot-channels/src/commands.rs:750, crates/nanobot-config/src/python_migrate.rs:629, crates/nanobot-config/src/python_migrate.rs:630, crates/nanobot-config/src/python_migrate.rs:636, crates/nanobot-config/src/python_migrate.rs:1029, crates/nanobot-config/src/python_schema.rs:163, crates/nanobot-config/src/validate.rs:672, crates/nanobot-config/src/validate.rs:677, crates/nanobot-config/src/validate.rs:1095, crates/nanobot-config/src/validate.rs:2937, crates/nanobot-config/src/validate.rs:2948
+- `mochat: Option<MochatConfig>` — `crates/nanobot-config/src/schema.rs:214` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:583, crates/nanobot-channels/src/commands.rs:367, crates/nanobot-channels/src/commands.rs:753, crates/nanobot-config/src/validate.rs:685, crates/nanobot-config/src/validate.rs:690, crates/nanobot-config/src/validate.rs:694, crates/nanobot-config/src/validate.rs:1096, crates/nanobot-config/src/validate.rs:2220, crates/nanobot-config/src/validate.rs:2228, crates/nanobot-config/src/validate.rs:2398, crates/nanobot-config/src/validate.rs:2406
+
+### Config
+
+- `_config_version: Option<u64>` — `crates/nanobot-config/src/schema.rs:15` — used
+  - refs: crates/nanobot-channels/tests/proxy_client.rs:58, crates/nanobot-config/src/migration.rs:10, crates/nanobot-config/src/migration.rs:19, crates/nanobot-config/src/migration.rs:33, crates/nanobot-config/src/migration.rs:35, crates/nanobot-config/src/migration.rs:41, crates/nanobot-config/src/migration.rs:44, crates/nanobot-config/src/python_schema.rs:16, crates/nanobot-config/src/python_schema.rs:408, crates/nanobot-config/src/python_schema.rs:509, crates/nanobot-config/src/schema.rs:77, crates/nanobot-config/src/schema.rs:763, crates/nanobot-config/src/schema.rs:789, crates/nanobot-config/src/schema.rs:851, crates/nanobot-config/src/schema.rs:894, crates/nanobot-config/src/validate.rs:217, crates/nanobot-config/src/validate.rs:218, crates/nanobot-config/src/validate.rs:2064, crates/nanobot-config/src/validate.rs:2075
+- `providers: ProvidersConfig` — `crates/nanobot-config/src/schema.rs:19` — used
+  - refs: crates/nanobot-agent/src/heartbeat.rs:645, crates/nanobot-agent/src/runner.rs:24, crates/nanobot-agent/src/runner.rs:33, crates/nanobot-agent/src/runner.rs:82, crates/nanobot-agent/src/subagent.rs:305, crates/nanobot-agent/src/subagent.rs:323, crates/nanobot-agent/src/subagent.rs:338, crates/nanobot-agent/src/subagent.rs:488, crates/nanobot-agent/src/subagent.rs:792, crates/nanobot-agent/src/subagent.rs:880, crates/nanobot-agent/src/subagent.rs:898, crates/nanobot-api/src/server.rs:761, crates/nanobot-api/src/server.rs:773, crates/nanobot-api/src/server.rs:785, crates/nanobot-api/src/server.rs:797, crates/nanobot-api/src/server.rs:809, crates/nanobot-api/src/server.rs:821, crates/nanobot-channels/src/commands.rs:285, crates/nanobot-channels/src/commands.rs:286, crates/nanobot-channels/src/commands.rs:289, ... (+159 more)
+- `channels: ChannelsConfig` — `crates/nanobot-config/src/schema.rs:23` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:550, crates/nanobot-agent/src/loop_mod.rs:553, crates/nanobot-agent/src/loop_mod.rs:556, crates/nanobot-agent/src/loop_mod.rs:559, crates/nanobot-agent/src/loop_mod.rs:562, crates/nanobot-agent/src/loop_mod.rs:565, crates/nanobot-agent/src/loop_mod.rs:568, crates/nanobot-agent/src/loop_mod.rs:571, crates/nanobot-agent/src/loop_mod.rs:574, crates/nanobot-agent/src/loop_mod.rs:577, crates/nanobot-agent/src/loop_mod.rs:580, crates/nanobot-agent/src/loop_mod.rs:583, crates/nanobot-agent/src/loop_mod.rs:822, crates/nanobot-agent/src/loop_mod.rs:846, crates/nanobot-agent/src/loop_mod.rs:853, crates/nanobot-agent/src/loop_mod.rs:894, crates/nanobot-channels/src/commands.rs:331, crates/nanobot-channels/src/commands.rs:332, crates/nanobot-channels/src/commands.rs:336, crates/nanobot-channels/src/commands.rs:340, ... (+123 more)
+- `agent: AgentDefaults` — `crates/nanobot-config/src/schema.rs:27` — used
+  - refs: crates/nanobot-agent/src/heartbeat.rs:1084, crates/nanobot-agent/src/heartbeat.rs:1320, crates/nanobot-agent/src/heartbeat.rs:1333, crates/nanobot-agent/src/heartbeat.rs:1347, crates/nanobot-agent/src/runner.rs:76, crates/nanobot-agent/src/runner.rs:77, crates/nanobot-agent/src/runner.rs:78, crates/nanobot-agent/src/runner.rs:79, crates/nanobot-agent/src/subagent.rs:786, crates/nanobot-agent/src/subagent.rs:789, crates/nanobot-agent/src/subagent.rs:1179, crates/nanobot-agent/src/subagent.rs:1180, crates/nanobot-agent/src/subagent.rs:1194, crates/nanobot-agent/src/subagent.rs:1195, crates/nanobot-agent/src/subagent.rs:1552, crates/nanobot-agent/src/subagent.rs:1553, crates/nanobot-agent/src/subagent.rs:1897, crates/nanobot-agent/src/subagent.rs:1898, crates/nanobot-agent/tests/pipeline_e2e.rs:96, crates/nanobot-agent/tests/runner_e2e.rs:80, ... (+123 more)
+- `dream: DreamConfig` — `crates/nanobot-config/src/schema.rs:31` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:402, crates/nanobot-config/src/python_migrate.rs:758, crates/nanobot-config/src/python_migrate.rs:761, crates/nanobot-config/src/python_migrate.rs:764, crates/nanobot-config/src/python_migrate.rs:1099, crates/nanobot-config/src/python_migrate.rs:1101, crates/nanobot-config/src/python_migrate.rs:1102, crates/nanobot-config/src/python_migrate.rs:1103, crates/nanobot-config/src/python_schema.rs:40, crates/nanobot-config/src/python_schema.rs:501, crates/nanobot-config/src/python_schema.rs:502, crates/nanobot-config/src/schema.rs:81, crates/nanobot-config/src/schema.rs:872, crates/nanobot-config/src/schema.rs:916, crates/nanobot-config/src/schema.rs:917, crates/nanobot-config/src/validate.rs:155, crates/nanobot-config/src/validate.rs:165, crates/nanobot-config/src/validate.rs:199, crates/nanobot-config/src/validate.rs:200, crates/nanobot-config/src/validate.rs:815, ... (+21 more)
+- `heartbeat: HeartbeatConfig` — `crates/nanobot-config/src/schema.rs:35` — used
+  - refs: crates/nanobot-agent/src/lib.rs:22, crates/nanobot-agent/src/loop_mod.rs:11, crates/nanobot-agent/src/loop_mod.rs:105, crates/nanobot-agent/src/loop_mod.rs:619, crates/nanobot-agent/src/loop_mod.rs:878, crates/nanobot-agent/src/loop_mod.rs:886, crates/nanobot-agent/src/loop_mod.rs:892, crates/nanobot-agent/src/loop_mod.rs:893, crates/nanobot-agent/src/loop_mod.rs:949, crates/nanobot-channels/src/commands.rs:867, crates/nanobot-channels/src/commands.rs:868, crates/nanobot-channels/src/commands.rs:1249, crates/nanobot-channels/src/platforms/discord.rs:661, crates/nanobot-config/src/python_migrate.rs:400, crates/nanobot-config/src/python_migrate.rs:730, crates/nanobot-config/src/python_migrate.rs:733, crates/nanobot-config/src/python_migrate.rs:1074, crates/nanobot-config/src/python_migrate.rs:1076, crates/nanobot-config/src/python_migrate.rs:1077, crates/nanobot-config/src/python_migrate.rs:1144, ... (+32 more)
+- `cron: CronConfig` — `crates/nanobot-config/src/schema.rs:39` — used
+  - refs: crates/nanobot-config/src/schema.rs:83, crates/nanobot-config/src/schema.rs:986, crates/nanobot-config/src/schema.rs:992, crates/nanobot-config/src/schema.rs:994, crates/nanobot-config/src/schema.rs:997, crates/nanobot-config/src/validate.rs:157, crates/nanobot-config/src/validate.rs:211, crates/nanobot-config/src/validate.rs:212, crates/nanobot-config/src/validate.rs:869, crates/nanobot-config/src/validate.rs:1816, crates/nanobot-config/src/validate.rs:1817, crates/nanobot-config/src/validate.rs:1826, crates/nanobot-config/src/validate.rs:1827, crates/nanobot-config/src/validate.rs:1835, crates/nanobot-config/src/validate.rs:1836, crates/nanobot-config/src/validate.rs:1844, crates/nanobot-config/src/validate.rs:1845, crates/nanobot-config/src/validate.rs:2063, crates/nanobot-config/src/validate.rs:2074, crates/nanobot-config/src/validate.rs:2755, ... (+4 more)
+- `security: SecurityConfig` — `crates/nanobot-config/src/schema.rs:43` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:401, crates/nanobot-config/src/python_migrate.rs:744, crates/nanobot-config/src/python_migrate.rs:747, crates/nanobot-config/src/python_migrate.rs:1085, crates/nanobot-config/src/python_migrate.rs:1087, crates/nanobot-config/src/python_migrate.rs:1089, crates/nanobot-config/src/python_schema.rs:36, crates/nanobot-config/src/python_schema.rs:494, crates/nanobot-config/src/python_schema.rs:496, crates/nanobot-config/src/schema.rs:84, crates/nanobot-config/src/schema.rs:878, crates/nanobot-config/src/schema.rs:922, crates/nanobot-config/src/schema.rs:923, crates/nanobot-config/src/validate.rs:158, crates/nanobot-config/src/validate.rs:895, crates/nanobot-config/src/validate.rs:1860, crates/nanobot-config/src/validate.rs:1862, crates/nanobot-config/src/validate.rs:1873, crates/nanobot-config/src/validate.rs:1885, crates/nanobot-config/src/validate.rs:1896, ... (+1 more)
+- `custom_instructions: Option<String>` — `crates/nanobot-config/src/schema.rs:47` — used
+  - refs: crates/nanobot-agent/src/context.rs:123, crates/nanobot-agent/src/context.rs:279, crates/nanobot-agent/src/context.rs:323, crates/nanobot-agent/src/context.rs:478, crates/nanobot-config/src/schema.rs:85, crates/nanobot-config/src/schema.rs:764, crates/nanobot-config/src/schema.rs:882, crates/nanobot-config/src/schema.rs:925
+- `name: Option<String>` — `crates/nanobot-config/src/schema.rs:51` — used
+  - refs: crates/nanobot-agent/src/compaction.rs:193, crates/nanobot-agent/src/context.rs:139, crates/nanobot-agent/src/context.rs:266, crates/nanobot-agent/src/context.rs:302, crates/nanobot-agent/src/context.rs:322, crates/nanobot-agent/src/context_budget.rs:390, crates/nanobot-agent/src/context_budget.rs:405, crates/nanobot-agent/src/context_budget.rs:411, crates/nanobot-agent/src/hook.rs:53, crates/nanobot-agent/src/loop_mod.rs:221, crates/nanobot-agent/src/loop_mod.rs:522, crates/nanobot-agent/src/loop_mod.rs:526, crates/nanobot-agent/src/loop_mod.rs:1475, crates/nanobot-agent/src/runner.rs:90, crates/nanobot-agent/src/runner.rs:159, crates/nanobot-agent/src/runner.rs:168, crates/nanobot-agent/src/runner.rs:183, crates/nanobot-agent/src/runner.rs:297, crates/nanobot-agent/src/skills.rs:21, crates/nanobot-agent/src/skills.rs:34, ... (+388 more)
+- `workspace: Option<String>` — `crates/nanobot-config/src/schema.rs:55` — used
+  - refs: crates/nanobot-config/src/schema.rs:87, crates/nanobot-config/src/schema.rs:425, crates/nanobot-config/src/schema.rs:447, crates/nanobot-config/src/schema.rs:766, crates/nanobot-config/src/schema.rs:778, crates/nanobot-config/src/schema.rs:884, crates/nanobot-config/src/schema.rs:927, crates/nanobot-config/src/validate.rs:804, crates/nanobot-config/src/validate.rs:806, crates/nanobot-config/src/validate.rs:1698, crates/nanobot-config/src/validate.rs:1703
+- `custom_providers: Vec<CustomProviderConfig>` — `crates/nanobot-config/src/schema.rs:59` — used
+  - refs: crates/nanobot-channels/src/commands.rs:322, crates/nanobot-channels/src/commands.rs:708, crates/nanobot-channels/src/commands.rs:858, crates/nanobot-config/src/python_migrate.rs:466, crates/nanobot-config/src/python_migrate.rs:942, crates/nanobot-config/src/python_migrate.rs:943, crates/nanobot-config/src/python_migrate.rs:1118, crates/nanobot-config/src/schema.rs:88, crates/nanobot-config/src/schema.rs:767, crates/nanobot-config/src/schema.rs:942, crates/nanobot-config/src/schema.rs:951, crates/nanobot-config/src/schema.rs:952, crates/nanobot-config/src/validate.rs:152, crates/nanobot-config/src/validate.rs:163, crates/nanobot-config/src/validate.rs:1411, crates/nanobot-config/src/validate.rs:1428, crates/nanobot-config/src/validate.rs:2274, crates/nanobot-config/src/validate.rs:2281, crates/nanobot-config/src/validate.rs:2303, crates/nanobot-providers/src/registry.rs:162
+- `mcp_servers: HashMap<String, McpServerConfig>` — `crates/nanobot-config/src/schema.rs:63` — used
+  - refs: crates/nanobot-config/src/schema.rs:89, crates/nanobot-config/src/schema.rs:768, crates/nanobot-config/src/schema.rs:885, crates/nanobot-config/src/schema.rs:929, crates/nanobot-config/src/schema.rs:930, crates/nanobot-config/src/validate.rs:159, crates/nanobot-config/src/validate.rs:1911, crates/nanobot-config/src/validate.rs:1928, crates/nanobot-config/src/validate.rs:1949, crates/nanobot-config/src/validate.rs:1966, crates/nanobot-config/src/validate.rs:1987, crates/nanobot-config/src/validate.rs:2806, crates/nanobot-config/src/validate.rs:2827, crates/nanobot-config/src/validate.rs:2848
+- `api: ApiConfig` — `crates/nanobot-config/src/schema.rs:67` — used
+  - refs: crates/nanobot-api/src/server.rs:80, crates/nanobot-api/src/server.rs:101, crates/nanobot-api/src/server.rs:109, crates/nanobot-api/src/server.rs:110, crates/nanobot-api/src/server.rs:126, crates/nanobot-api/src/server.rs:136, crates/nanobot-api/src/server.rs:137, crates/nanobot-api/src/server.rs:160, crates/nanobot-api/src/server.rs:1914, crates/nanobot-api/src/server.rs:1944, crates/nanobot-api/src/server.rs:1961, crates/nanobot-api/src/server.rs:1981, crates/nanobot-api/src/server.rs:2017, crates/nanobot-api/src/server.rs:2073, crates/nanobot-api/src/server.rs:2118, crates/nanobot-api/src/server.rs:2147, crates/nanobot-api/src/server.rs:2163, crates/nanobot-api/src/server.rs:2199, crates/nanobot-api/src/server.rs:2215, crates/nanobot-config/src/python_migrate.rs:802, ... (+16 more)
+- `daemon: DaemonConfig` — `crates/nanobot-config/src/schema.rs:71` — no non-schema reference found
+  - refs: crates/nanobot-config/src/schema.rs:91, crates/nanobot-config/src/schema.rs:605, crates/nanobot-config/src/schema.rs:1020, crates/nanobot-config/src/schema.rs:1027, crates/nanobot-config/src/schema.rs:1028, crates/nanobot-config/src/schema.rs:1029, crates/nanobot-config/src/schema.rs:1030
+
+### CronConfig
+
+- `enabled: bool` — `crates/nanobot-config/src/schema.rs:510` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:105, crates/nanobot-agent/src/loop_mod.rs:826, crates/nanobot-agent/src/loop_mod.rs:850, crates/nanobot-agent/src/loop_mod.rs:856, crates/nanobot-agent/src/loop_mod.rs:878, crates/nanobot-agent/src/loop_mod.rs:886, crates/nanobot-agent/src/loop_mod.rs:892, crates/nanobot-agent/src/loop_mod.rs:898, crates/nanobot-agent/src/notes.rs:128, crates/nanobot-agent/src/notes.rs:136, crates/nanobot-agent/src/notes.rs:147, crates/nanobot-agent/src/notes.rs:153, crates/nanobot-agent/src/notes.rs:1465, crates/nanobot-agent/src/notes.rs:1473, crates/nanobot-agent/src/notes.rs:1493, crates/nanobot-agent/src/notes.rs:1886, crates/nanobot-agent/src/notes.rs:2011, crates/nanobot-channels/src/commands.rs:333, crates/nanobot-channels/src/commands.rs:337, crates/nanobot-channels/src/commands.rs:719, ... (+154 more)
+- `state_file: Option<String>` — `crates/nanobot-config/src/schema.rs:514` — used
+  - refs: crates/nanobot-config/src/schema.rs:525, crates/nanobot-config/src/schema.rs:979, crates/nanobot-config/src/schema.rs:988, crates/nanobot-config/src/schema.rs:994, crates/nanobot-config/src/validate.rs:883, crates/nanobot-config/src/validate.rs:885, crates/nanobot-config/src/validate.rs:1845, crates/nanobot-config/src/validate.rs:1850
+- `tick_secs: u64` — `crates/nanobot-config/src/schema.rs:518` — used
+  - refs: crates/nanobot-config/src/schema.rs:526, crates/nanobot-config/src/schema.rs:980, crates/nanobot-config/src/schema.rs:989, crates/nanobot-config/src/schema.rs:997, crates/nanobot-config/src/validate.rs:211, crates/nanobot-config/src/validate.rs:212, crates/nanobot-config/src/validate.rs:213, crates/nanobot-config/src/validate.rs:871, crates/nanobot-config/src/validate.rs:873, crates/nanobot-config/src/validate.rs:876, crates/nanobot-config/src/validate.rs:878, crates/nanobot-config/src/validate.rs:1817, crates/nanobot-config/src/validate.rs:1820, crates/nanobot-config/src/validate.rs:1827, crates/nanobot-config/src/validate.rs:1829, crates/nanobot-config/src/validate.rs:1836, crates/nanobot-config/src/validate.rs:1838, crates/nanobot-config/src/validate.rs:2063, crates/nanobot-config/src/validate.rs:2074, crates/nanobot-config/src/validate.rs:2083, ... (+1 more)
+
+### CustomProviderConfig
+
+- `name: String` — `crates/nanobot-config/src/schema.rs:673` — used
+  - refs: crates/nanobot-agent/src/compaction.rs:193, crates/nanobot-agent/src/context.rs:139, crates/nanobot-agent/src/context.rs:266, crates/nanobot-agent/src/context.rs:302, crates/nanobot-agent/src/context.rs:322, crates/nanobot-agent/src/context_budget.rs:390, crates/nanobot-agent/src/context_budget.rs:405, crates/nanobot-agent/src/context_budget.rs:411, crates/nanobot-agent/src/hook.rs:53, crates/nanobot-agent/src/loop_mod.rs:221, crates/nanobot-agent/src/loop_mod.rs:522, crates/nanobot-agent/src/loop_mod.rs:526, crates/nanobot-agent/src/loop_mod.rs:1475, crates/nanobot-agent/src/runner.rs:90, crates/nanobot-agent/src/runner.rs:159, crates/nanobot-agent/src/runner.rs:168, crates/nanobot-agent/src/runner.rs:183, crates/nanobot-agent/src/runner.rs:297, crates/nanobot-agent/src/skills.rs:21, crates/nanobot-agent/src/skills.rs:34, ... (+388 more)
+- `base_url: String` — `crates/nanobot-config/src/schema.rs:676` — used
+  - refs: crates/nanobot-channels/src/platforms/discord.rs:348, crates/nanobot-channels/src/platforms/telegram.rs:581, crates/nanobot-channels/src/platforms/telegram.rs:643, crates/nanobot-channels/src/platforms/telegram.rs:670, crates/nanobot-channels/src/platforms/telegram.rs:941, crates/nanobot-channels/src/platforms/telegram.rs:1073, crates/nanobot-channels/src/platforms/telegram.rs:1092, crates/nanobot-channels/src/platforms/telegram.rs:1117, crates/nanobot-config/src/python_migrate.rs:412, crates/nanobot-config/src/python_migrate.rs:468, crates/nanobot-config/src/python_migrate.rs:932, crates/nanobot-config/src/python_migrate.rs:943, crates/nanobot-config/src/schema.rs:147, crates/nanobot-config/src/schema.rs:799, crates/nanobot-config/src/schema.rs:804, crates/nanobot-config/src/schema.rs:855, crates/nanobot-config/src/schema.rs:944, crates/nanobot-config/src/schema.rs:954, crates/nanobot-config/src/validate.rs:334, crates/nanobot-config/src/validate.rs:335, ... (+69 more)
+- `api_key: Option<String>` — `crates/nanobot-config/src/schema.rs:680` — used
+  - refs: crates/nanobot-api/src/server.rs:58, crates/nanobot-api/src/server.rs:117, crates/nanobot-api/src/server.rs:144, crates/nanobot-api/src/server.rs:153, crates/nanobot-api/src/server.rs:392, crates/nanobot-api/src/server.rs:977, crates/nanobot-api/src/server.rs:998, crates/nanobot-api/src/server.rs:1006, crates/nanobot-api/src/server.rs:1449, crates/nanobot-api/src/server.rs:1766, crates/nanobot-api/src/server.rs:1908, crates/nanobot-api/src/server.rs:2067, crates/nanobot-api/src/server.rs:2112, crates/nanobot-api/src/server.rs:2157, crates/nanobot-api/src/server.rs:2209, crates/nanobot-channels/src/commands.rs:823, crates/nanobot-channels/src/commands.rs:826, crates/nanobot-channels/src/commands.rs:829, crates/nanobot-channels/src/commands.rs:832, crates/nanobot-channels/src/commands.rs:835, ... (+135 more)
+- `model_patterns: Vec<String>` — `crates/nanobot-config/src/schema.rs:684` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:470, crates/nanobot-config/src/schema.rs:946, crates/nanobot-config/src/schema.rs:956, crates/nanobot-config/src/validate.rs:464, crates/nanobot-config/src/validate.rs:466, crates/nanobot-config/src/validate.rs:1123, crates/nanobot-config/src/validate.rs:1179, crates/nanobot-config/src/validate.rs:1415, crates/nanobot-config/src/validate.rs:1432, crates/nanobot-config/src/validate.rs:2278, crates/nanobot-config/src/validate.rs:2285, crates/nanobot-config/src/validate.rs:2307, crates/nanobot-config/src/validate.rs:2314
+- `no_proxy: Option<bool>` — `crates/nanobot-config/src/schema.rs:688` — used
+  - refs: crates/nanobot-channels/src/platforms/discord.rs:355, crates/nanobot-channels/src/platforms/telegram.rs:588, crates/nanobot-config/src/python_migrate.rs:414, crates/nanobot-config/src/python_migrate.rs:471, crates/nanobot-config/src/schema.rs:154, crates/nanobot-config/src/schema.rs:801, crates/nanobot-config/src/schema.rs:948, crates/nanobot-config/src/schema.rs:957, crates/nanobot-config/src/validate.rs:1231, crates/nanobot-config/src/validate.rs:1338, crates/nanobot-config/src/validate.rs:1354, crates/nanobot-config/src/validate.rs:1370, crates/nanobot-config/src/validate.rs:1386, crates/nanobot-config/src/validate.rs:1416, crates/nanobot-config/src/validate.rs:1433, crates/nanobot-config/src/validate.rs:1446, crates/nanobot-config/src/validate.rs:2024, crates/nanobot-config/src/validate.rs:2041, crates/nanobot-config/src/validate.rs:2114, crates/nanobot-config/src/validate.rs:2139, ... (+26 more)
+
+### DaemonConfig
+
+- `pid_file: String` — `crates/nanobot-config/src/schema.rs:616` — no non-schema reference found
+  - refs: crates/nanobot-config/src/schema.rs:606, crates/nanobot-config/src/schema.rs:660, crates/nanobot-config/src/schema.rs:1011, crates/nanobot-config/src/schema.rs:1021, crates/nanobot-config/src/schema.rs:1027, crates/nanobot-config/src/schema.rs:1038
+- `log_dir: String` — `crates/nanobot-config/src/schema.rs:620` — used
+  - refs: crates/nanobot-config/src/schema.rs:607, crates/nanobot-config/src/schema.rs:661, crates/nanobot-config/src/schema.rs:1012, crates/nanobot-config/src/schema.rs:1022, crates/nanobot-config/src/schema.rs:1028, crates/nanobot-config/src/schema.rs:1039, crates/nanobot-daemon/src/logging.rs:34
+- `working_directory: String` — `crates/nanobot-config/src/schema.rs:624` — no non-schema reference found
+  - refs: crates/nanobot-config/src/schema.rs:608, crates/nanobot-config/src/schema.rs:662, crates/nanobot-config/src/schema.rs:1013, crates/nanobot-config/src/schema.rs:1023, crates/nanobot-config/src/schema.rs:1029, crates/nanobot-config/src/schema.rs:1040
+- `grace_period_secs: u64` — `crates/nanobot-config/src/schema.rs:628` — no non-schema reference found
+  - refs: crates/nanobot-config/src/schema.rs:609, crates/nanobot-config/src/schema.rs:663, crates/nanobot-config/src/schema.rs:1014, crates/nanobot-config/src/schema.rs:1024, crates/nanobot-config/src/schema.rs:1030, crates/nanobot-config/src/schema.rs:1041
+
+### DingtalkConfig
+
+- `webhook: Option<String>` — `crates/nanobot-config/src/schema.rs:320` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:586, crates/nanobot-config/src/python_migrate.rs:1008, crates/nanobot-config/src/python_migrate.rs:1036, crates/nanobot-config/src/python_migrate.rs:1037, crates/nanobot-config/src/python_schema.rs:272, crates/nanobot-config/src/validate.rs:609, crates/nanobot-config/src/validate.rs:611, crates/nanobot-config/src/validate.rs:614, crates/nanobot-config/src/validate.rs:615, crates/nanobot-config/src/validate.rs:2187, crates/nanobot-config/src/validate.rs:2195, crates/nanobot-config/src/validate.rs:2202, crates/nanobot-config/src/validate.rs:2210, crates/nanobot-config/src/validate.rs:2383, crates/nanobot-config/src/validate.rs:2391
+- `secret: Option<String>` — `crates/nanobot-config/src/schema.rs:322` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:587, crates/nanobot-config/src/python_migrate.rs:608, crates/nanobot-config/src/python_schema.rs:274, crates/nanobot-config/src/python_schema.rs:300, crates/nanobot-config/src/schema.rs:350, crates/nanobot-config/src/validate.rs:649, crates/nanobot-config/src/validate.rs:651, crates/nanobot-config/src/validate.rs:2188, crates/nanobot-config/src/validate.rs:2203, crates/nanobot-config/src/validate.rs:2384, crates/nanobot-config/src/validate.rs:2904, crates/nanobot-config/src/validate.rs:2913
+- `enabled: bool` — `crates/nanobot-config/src/schema.rs:325` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:105, crates/nanobot-agent/src/loop_mod.rs:826, crates/nanobot-agent/src/loop_mod.rs:850, crates/nanobot-agent/src/loop_mod.rs:856, crates/nanobot-agent/src/loop_mod.rs:878, crates/nanobot-agent/src/loop_mod.rs:886, crates/nanobot-agent/src/loop_mod.rs:892, crates/nanobot-agent/src/loop_mod.rs:898, crates/nanobot-agent/src/notes.rs:128, crates/nanobot-agent/src/notes.rs:136, crates/nanobot-agent/src/notes.rs:147, crates/nanobot-agent/src/notes.rs:153, crates/nanobot-agent/src/notes.rs:1465, crates/nanobot-agent/src/notes.rs:1473, crates/nanobot-agent/src/notes.rs:1493, crates/nanobot-agent/src/notes.rs:1886, crates/nanobot-agent/src/notes.rs:2011, crates/nanobot-channels/src/commands.rs:333, crates/nanobot-channels/src/commands.rs:337, crates/nanobot-channels/src/commands.rs:719, ... (+154 more)
+
+### DiscordConfig
+
+- `token: String` — `crates/nanobot-config/src/schema.rs:242` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:823, crates/nanobot-agent/src/loop_mod.rs:847, crates/nanobot-agent/src/loop_mod.rs:854, crates/nanobot-agent/src/loop_mod.rs:895, crates/nanobot-channels/src/commands.rs:1086, crates/nanobot-channels/src/commands.rs:1155, crates/nanobot-channels/src/commands.rs:1157, crates/nanobot-channels/src/commands.rs:1170, crates/nanobot-channels/src/platforms/discord.rs:226, crates/nanobot-channels/src/platforms/discord.rs:238, crates/nanobot-channels/src/platforms/discord.rs:292, crates/nanobot-channels/src/platforms/discord.rs:335, crates/nanobot-channels/src/platforms/discord.rs:348, crates/nanobot-channels/src/platforms/discord.rs:350, crates/nanobot-channels/src/platforms/discord.rs:387, crates/nanobot-channels/src/platforms/discord.rs:513, crates/nanobot-channels/src/platforms/discord.rs:605, crates/nanobot-channels/src/platforms/discord.rs:970, crates/nanobot-channels/src/platforms/discord.rs:1001, crates/nanobot-channels/src/platforms/discord.rs:1334, ... (+64 more)
+- `allowed_guilds: Vec<String>` — `crates/nanobot-config/src/schema.rs:245` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:855, crates/nanobot-config/src/python_migrate.rs:522, crates/nanobot-config/src/python_migrate.rs:973, crates/nanobot-config/src/validate.rs:1525, crates/nanobot-config/src/validate.rs:1542
+- `enabled: bool` — `crates/nanobot-config/src/schema.rs:248` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:105, crates/nanobot-agent/src/loop_mod.rs:826, crates/nanobot-agent/src/loop_mod.rs:850, crates/nanobot-agent/src/loop_mod.rs:856, crates/nanobot-agent/src/loop_mod.rs:878, crates/nanobot-agent/src/loop_mod.rs:886, crates/nanobot-agent/src/loop_mod.rs:892, crates/nanobot-agent/src/loop_mod.rs:898, crates/nanobot-agent/src/notes.rs:128, crates/nanobot-agent/src/notes.rs:136, crates/nanobot-agent/src/notes.rs:147, crates/nanobot-agent/src/notes.rs:153, crates/nanobot-agent/src/notes.rs:1465, crates/nanobot-agent/src/notes.rs:1473, crates/nanobot-agent/src/notes.rs:1493, crates/nanobot-agent/src/notes.rs:1886, crates/nanobot-agent/src/notes.rs:2011, crates/nanobot-channels/src/commands.rs:333, crates/nanobot-channels/src/commands.rs:337, crates/nanobot-channels/src/commands.rs:719, ... (+154 more)
+- `streaming: bool` — `crates/nanobot-config/src/schema.rs:251` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:827, crates/nanobot-agent/src/loop_mod.rs:851, crates/nanobot-agent/src/loop_mod.rs:857, crates/nanobot-agent/src/loop_mod.rs:899, crates/nanobot-channels/src/commands.rs:157, crates/nanobot-channels/src/commands.rs:205, crates/nanobot-channels/src/commands.rs:214, crates/nanobot-channels/src/commands.rs:251, crates/nanobot-channels/src/commands.rs:280, crates/nanobot-channels/src/commands.rs:1677, crates/nanobot-channels/src/commands.rs:1696, crates/nanobot-channels/src/commands.rs:1702, crates/nanobot-channels/src/commands.rs:1707, crates/nanobot-config/src/python_migrate.rs:507, crates/nanobot-config/src/python_migrate.rs:524, crates/nanobot-config/src/python_migrate.rs:668, crates/nanobot-config/src/python_migrate.rs:706, crates/nanobot-config/src/python_migrate.rs:707, crates/nanobot-config/src/python_migrate.rs:974, crates/nanobot-config/src/python_migrate.rs:1060, ... (+18 more)
+
+### DreamConfig
+
+- `enabled: bool` — `crates/nanobot-config/src/schema.rs:461` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:105, crates/nanobot-agent/src/loop_mod.rs:826, crates/nanobot-agent/src/loop_mod.rs:850, crates/nanobot-agent/src/loop_mod.rs:856, crates/nanobot-agent/src/loop_mod.rs:878, crates/nanobot-agent/src/loop_mod.rs:886, crates/nanobot-agent/src/loop_mod.rs:892, crates/nanobot-agent/src/loop_mod.rs:898, crates/nanobot-agent/src/notes.rs:128, crates/nanobot-agent/src/notes.rs:136, crates/nanobot-agent/src/notes.rs:147, crates/nanobot-agent/src/notes.rs:153, crates/nanobot-agent/src/notes.rs:1465, crates/nanobot-agent/src/notes.rs:1473, crates/nanobot-agent/src/notes.rs:1493, crates/nanobot-agent/src/notes.rs:1886, crates/nanobot-agent/src/notes.rs:2011, crates/nanobot-channels/src/commands.rs:333, crates/nanobot-channels/src/commands.rs:337, crates/nanobot-channels/src/commands.rs:719, ... (+154 more)
+- `interval_secs: u64` — `crates/nanobot-config/src/schema.rs:465` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:619, crates/nanobot-agent/src/loop_mod.rs:893, crates/nanobot-agent/src/loop_mod.rs:949, crates/nanobot-channels/src/commands.rs:868, crates/nanobot-config/src/python_migrate.rs:728, crates/nanobot-config/src/python_migrate.rs:732, crates/nanobot-config/src/python_migrate.rs:733, crates/nanobot-config/src/python_migrate.rs:756, crates/nanobot-config/src/python_migrate.rs:760, crates/nanobot-config/src/python_migrate.rs:761, crates/nanobot-config/src/python_migrate.rs:1077, crates/nanobot-config/src/python_migrate.rs:1102, crates/nanobot-config/src/python_migrate.rs:1249, crates/nanobot-config/src/python_migrate.rs:1265, crates/nanobot-config/src/python_schema.rs:375, crates/nanobot-config/src/python_schema.rs:395, crates/nanobot-config/src/python_schema.rs:491, crates/nanobot-config/src/schema.rs:476, crates/nanobot-config/src/schema.rs:492, crates/nanobot-config/src/schema.rs:499, ... (+51 more)
+- `model: Option<String>` — `crates/nanobot-config/src/schema.rs:469` — used
+  - refs: crates/nanobot-agent/src/heartbeat.rs:659, crates/nanobot-agent/src/heartbeat.rs:691, crates/nanobot-agent/src/heartbeat.rs:696, crates/nanobot-agent/src/heartbeat.rs:1084, crates/nanobot-agent/src/heartbeat.rs:1320, crates/nanobot-agent/src/heartbeat.rs:1340, crates/nanobot-agent/src/heartbeat.rs:1347, crates/nanobot-agent/src/runner.rs:76, crates/nanobot-agent/src/runner.rs:84, crates/nanobot-agent/src/runner.rs:106, crates/nanobot-agent/src/subagent.rs:786, crates/nanobot-agent/src/subagent.rs:1179, crates/nanobot-agent/src/subagent.rs:1194, crates/nanobot-agent/src/subagent.rs:1552, crates/nanobot-agent/src/subagent.rs:1897, crates/nanobot-agent/tests/pipeline_e2e.rs:96, crates/nanobot-agent/tests/runner_e2e.rs:80, crates/nanobot-agent/tests/self_evolution_e2e.rs:254, crates/nanobot-api/src/server.rs:239, crates/nanobot-api/src/server.rs:268, ... (+198 more)
+
+### EmailConfig
+
+- `imap_host: Option<String>` — `crates/nanobot-config/src/schema.rs:300` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:573, crates/nanobot-config/src/python_schema.rs:254, crates/nanobot-config/src/validate.rs:560, crates/nanobot-config/src/validate.rs:562, crates/nanobot-config/src/validate.rs:1591, crates/nanobot-config/src/validate.rs:1601, crates/nanobot-config/src/validate.rs:2325, crates/nanobot-config/src/validate.rs:2343, crates/nanobot-config/src/validate.rs:2361, crates/nanobot-config/src/validate.rs:2955
+- `smtp_host: Option<String>` — `crates/nanobot-config/src/schema.rs:302` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:574, crates/nanobot-config/src/python_schema.rs:256, crates/nanobot-config/src/validate.rs:566, crates/nanobot-config/src/validate.rs:568, crates/nanobot-config/src/validate.rs:1592, crates/nanobot-config/src/validate.rs:1602, crates/nanobot-config/src/validate.rs:2326, crates/nanobot-config/src/validate.rs:2344, crates/nanobot-config/src/validate.rs:2362, crates/nanobot-config/src/validate.rs:2956
+- `username: Option<String>` — `crates/nanobot-config/src/schema.rs:304` — used
+  - refs: crates/nanobot-channels/src/platforms/discord.rs:51, crates/nanobot-channels/src/platforms/discord.rs:157, crates/nanobot-channels/src/platforms/discord.rs:893, crates/nanobot-channels/src/platforms/discord.rs:994, crates/nanobot-channels/src/platforms/discord.rs:1398, crates/nanobot-channels/src/platforms/discord.rs:1428, crates/nanobot-channels/src/platforms/discord.rs:1563, crates/nanobot-channels/src/platforms/discord.rs:2049, crates/nanobot-channels/src/platforms/telegram.rs:45, crates/nanobot-channels/src/platforms/telegram.rs:84, crates/nanobot-channels/src/platforms/telegram.rs:631, crates/nanobot-channels/src/platforms/telegram.rs:905, crates/nanobot-channels/src/platforms/telegram.rs:1969, crates/nanobot-channels/src/platforms/telegram.rs:2013, crates/nanobot-channels/src/platforms/telegram.rs:2026, crates/nanobot-channels/src/platforms/telegram.rs:2066, crates/nanobot-channels/src/platforms/telegram.rs:2102, crates/nanobot-channels/src/platforms/telegram.rs:2146, crates/nanobot-channels/src/platforms/telegram.rs:2189, crates/nanobot-channels/src/platforms/telegram.rs:2285, ... (+14 more)
+- `password: Option<String>` — `crates/nanobot-config/src/schema.rs:306` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:563, crates/nanobot-config/src/python_migrate.rs:576, crates/nanobot-config/src/python_schema.rs:242, crates/nanobot-config/src/python_schema.rs:260, crates/nanobot-config/src/schema.rs:278, crates/nanobot-config/src/validate.rs:547, crates/nanobot-config/src/validate.rs:1576, crates/nanobot-config/src/validate.rs:1594, crates/nanobot-config/src/validate.rs:2328, crates/nanobot-config/src/validate.rs:2346, crates/nanobot-config/src/validate.rs:2364, crates/nanobot-config/src/validate.rs:2416, crates/nanobot-config/src/validate.rs:2434, crates/nanobot-config/src/validate.rs:2958
+- `port: u16` — `crates/nanobot-config/src/schema.rs:309` — used
+  - refs: crates/nanobot-api/src/server.rs:69, crates/nanobot-api/src/server.rs:110, crates/nanobot-api/src/server.rs:137, crates/nanobot-api/src/server.rs:197, crates/nanobot-channels/tests/discord_mock.rs:26, crates/nanobot-channels/tests/telegram_mock.rs:11, crates/nanobot-config/src/python_migrate.rs:577, crates/nanobot-config/src/python_schema.rs:262, crates/nanobot-config/src/schema.rs:558, crates/nanobot-config/src/schema.rs:591, crates/nanobot-config/src/validate.rs:578, crates/nanobot-config/src/validate.rs:580, crates/nanobot-config/src/validate.rs:583, crates/nanobot-config/src/validate.rs:585, crates/nanobot-config/src/validate.rs:586, crates/nanobot-config/src/validate.rs:588, crates/nanobot-config/src/validate.rs:589, crates/nanobot-config/src/validate.rs:590, crates/nanobot-config/src/validate.rs:591, crates/nanobot-config/src/validate.rs:592, ... (+21 more)
+- `enabled: bool` — `crates/nanobot-config/src/schema.rs:312` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:105, crates/nanobot-agent/src/loop_mod.rs:826, crates/nanobot-agent/src/loop_mod.rs:850, crates/nanobot-agent/src/loop_mod.rs:856, crates/nanobot-agent/src/loop_mod.rs:878, crates/nanobot-agent/src/loop_mod.rs:886, crates/nanobot-agent/src/loop_mod.rs:892, crates/nanobot-agent/src/loop_mod.rs:898, crates/nanobot-agent/src/notes.rs:128, crates/nanobot-agent/src/notes.rs:136, crates/nanobot-agent/src/notes.rs:147, crates/nanobot-agent/src/notes.rs:153, crates/nanobot-agent/src/notes.rs:1465, crates/nanobot-agent/src/notes.rs:1473, crates/nanobot-agent/src/notes.rs:1493, crates/nanobot-agent/src/notes.rs:1886, crates/nanobot-agent/src/notes.rs:2011, crates/nanobot-channels/src/commands.rs:333, crates/nanobot-channels/src/commands.rs:337, crates/nanobot-channels/src/commands.rs:719, ... (+154 more)
+
+### FeishuConfig
+
+- `app_id: Option<String>` — `crates/nanobot-config/src/schema.rs:333` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:596, crates/nanobot-config/src/python_migrate.rs:619, crates/nanobot-config/src/python_migrate.rs:631, crates/nanobot-config/src/python_migrate.rs:1040, crates/nanobot-config/src/python_schema.rs:284, crates/nanobot-config/src/python_schema.rs:310, crates/nanobot-config/src/python_schema.rs:322, crates/nanobot-config/src/schema.rs:365, crates/nanobot-config/src/schema.rs:382, crates/nanobot-config/src/validate.rs:624, crates/nanobot-config/src/validate.rs:626, crates/nanobot-config/src/validate.rs:662, crates/nanobot-config/src/validate.rs:664, crates/nanobot-config/src/validate.rs:675, crates/nanobot-config/src/validate.rs:677, crates/nanobot-config/src/validate.rs:2870, crates/nanobot-config/src/validate.rs:2879, crates/nanobot-config/src/validate.rs:2886, crates/nanobot-config/src/validate.rs:2920, crates/nanobot-config/src/validate.rs:2931, ... (+2 more)
+- `app_secret: Option<String>` — `crates/nanobot-config/src/schema.rs:335` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:597, crates/nanobot-config/src/python_migrate.rs:620, crates/nanobot-config/src/python_migrate.rs:632, crates/nanobot-config/src/python_schema.rs:286, crates/nanobot-config/src/python_schema.rs:312, crates/nanobot-config/src/python_schema.rs:324, crates/nanobot-config/src/schema.rs:367, crates/nanobot-config/src/schema.rs:384, crates/nanobot-config/src/validate.rs:630, crates/nanobot-config/src/validate.rs:632, crates/nanobot-config/src/validate.rs:2871, crates/nanobot-config/src/validate.rs:2887, crates/nanobot-config/src/validate.rs:2895, crates/nanobot-config/src/validate.rs:2921, crates/nanobot-config/src/validate.rs:2939
+- `enabled: bool` — `crates/nanobot-config/src/schema.rs:338` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:105, crates/nanobot-agent/src/loop_mod.rs:826, crates/nanobot-agent/src/loop_mod.rs:850, crates/nanobot-agent/src/loop_mod.rs:856, crates/nanobot-agent/src/loop_mod.rs:878, crates/nanobot-agent/src/loop_mod.rs:886, crates/nanobot-agent/src/loop_mod.rs:892, crates/nanobot-agent/src/loop_mod.rs:898, crates/nanobot-agent/src/notes.rs:128, crates/nanobot-agent/src/notes.rs:136, crates/nanobot-agent/src/notes.rs:147, crates/nanobot-agent/src/notes.rs:153, crates/nanobot-agent/src/notes.rs:1465, crates/nanobot-agent/src/notes.rs:1473, crates/nanobot-agent/src/notes.rs:1493, crates/nanobot-agent/src/notes.rs:1886, crates/nanobot-agent/src/notes.rs:2011, crates/nanobot-channels/src/commands.rs:333, crates/nanobot-channels/src/commands.rs:337, crates/nanobot-channels/src/commands.rs:719, ... (+154 more)
+
+### HeartbeatConfig
+
+- `enabled: bool` — `crates/nanobot-config/src/schema.rs:488` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:105, crates/nanobot-agent/src/loop_mod.rs:826, crates/nanobot-agent/src/loop_mod.rs:850, crates/nanobot-agent/src/loop_mod.rs:856, crates/nanobot-agent/src/loop_mod.rs:878, crates/nanobot-agent/src/loop_mod.rs:886, crates/nanobot-agent/src/loop_mod.rs:892, crates/nanobot-agent/src/loop_mod.rs:898, crates/nanobot-agent/src/notes.rs:128, crates/nanobot-agent/src/notes.rs:136, crates/nanobot-agent/src/notes.rs:147, crates/nanobot-agent/src/notes.rs:153, crates/nanobot-agent/src/notes.rs:1465, crates/nanobot-agent/src/notes.rs:1473, crates/nanobot-agent/src/notes.rs:1493, crates/nanobot-agent/src/notes.rs:1886, crates/nanobot-agent/src/notes.rs:2011, crates/nanobot-channels/src/commands.rs:333, crates/nanobot-channels/src/commands.rs:337, crates/nanobot-channels/src/commands.rs:719, ... (+154 more)
+- `interval_secs: u64` — `crates/nanobot-config/src/schema.rs:492` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:619, crates/nanobot-agent/src/loop_mod.rs:893, crates/nanobot-agent/src/loop_mod.rs:949, crates/nanobot-channels/src/commands.rs:868, crates/nanobot-config/src/python_migrate.rs:728, crates/nanobot-config/src/python_migrate.rs:732, crates/nanobot-config/src/python_migrate.rs:733, crates/nanobot-config/src/python_migrate.rs:756, crates/nanobot-config/src/python_migrate.rs:760, crates/nanobot-config/src/python_migrate.rs:761, crates/nanobot-config/src/python_migrate.rs:1077, crates/nanobot-config/src/python_migrate.rs:1102, crates/nanobot-config/src/python_migrate.rs:1249, crates/nanobot-config/src/python_migrate.rs:1265, crates/nanobot-config/src/python_schema.rs:375, crates/nanobot-config/src/python_schema.rs:395, crates/nanobot-config/src/python_schema.rs:491, crates/nanobot-config/src/schema.rs:465, crates/nanobot-config/src/schema.rs:476, crates/nanobot-config/src/schema.rs:499, ... (+51 more)
+
+### MatrixConfig
+
+- `homeserver: Option<String>` — `crates/nanobot-config/src/schema.rs:274` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:561, crates/nanobot-config/src/python_migrate.rs:1032, crates/nanobot-config/src/python_schema.rs:238, crates/nanobot-config/src/validate.rs:535, crates/nanobot-config/src/validate.rs:537, crates/nanobot-config/src/validate.rs:702, crates/nanobot-config/src/validate.rs:704, crates/nanobot-config/src/validate.rs:1574, crates/nanobot-config/src/validate.rs:1583, crates/nanobot-config/src/validate.rs:2414, crates/nanobot-config/src/validate.rs:2424, crates/nanobot-config/src/validate.rs:2432, crates/nanobot-config/src/validate.rs:2442
+- `user_id: Option<String>` — `crates/nanobot-config/src/schema.rs:276` — used
+  - refs: crates/nanobot-agent/src/memory.rs:41, crates/nanobot-agent/src/memory.rs:52, crates/nanobot-agent/src/memory.rs:60, crates/nanobot-agent/tests/pipeline_e2e.rs:126, crates/nanobot-agent/tests/self_evolution_e2e.rs:284, crates/nanobot-bus/src/events.rs:217, crates/nanobot-channels/src/platforms/discord.rs:911, crates/nanobot-channels/src/platforms/telegram.rs:890, crates/nanobot-channels/src/platforms/telegram.rs:1032, crates/nanobot-channels/src/platforms/websocket.rs:286, crates/nanobot-config/src/python_migrate.rs:562, crates/nanobot-config/src/python_schema.rs:240, crates/nanobot-config/src/validate.rs:541, crates/nanobot-config/src/validate.rs:543, crates/nanobot-config/src/validate.rs:1575, crates/nanobot-config/src/validate.rs:1584, crates/nanobot-config/src/validate.rs:2415, crates/nanobot-config/src/validate.rs:2433, crates/nanobot-core/src/types.rs:235, crates/nanobot-core/src/types.rs:430, ... (+1 more)
+- `password: Option<String>` — `crates/nanobot-config/src/schema.rs:278` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:563, crates/nanobot-config/src/python_migrate.rs:576, crates/nanobot-config/src/python_schema.rs:242, crates/nanobot-config/src/python_schema.rs:260, crates/nanobot-config/src/schema.rs:306, crates/nanobot-config/src/validate.rs:547, crates/nanobot-config/src/validate.rs:1576, crates/nanobot-config/src/validate.rs:1594, crates/nanobot-config/src/validate.rs:2328, crates/nanobot-config/src/validate.rs:2346, crates/nanobot-config/src/validate.rs:2364, crates/nanobot-config/src/validate.rs:2416, crates/nanobot-config/src/validate.rs:2434, crates/nanobot-config/src/validate.rs:2958
+- `access_token: Option<String>` — `crates/nanobot-config/src/schema.rs:280` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:564, crates/nanobot-config/src/python_schema.rs:244, crates/nanobot-config/src/validate.rs:547, crates/nanobot-config/src/validate.rs:1577, crates/nanobot-config/src/validate.rs:2417, crates/nanobot-config/src/validate.rs:2435
+- `enabled: bool` — `crates/nanobot-config/src/schema.rs:283` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:105, crates/nanobot-agent/src/loop_mod.rs:826, crates/nanobot-agent/src/loop_mod.rs:850, crates/nanobot-agent/src/loop_mod.rs:856, crates/nanobot-agent/src/loop_mod.rs:878, crates/nanobot-agent/src/loop_mod.rs:886, crates/nanobot-agent/src/loop_mod.rs:892, crates/nanobot-agent/src/loop_mod.rs:898, crates/nanobot-agent/src/notes.rs:128, crates/nanobot-agent/src/notes.rs:136, crates/nanobot-agent/src/notes.rs:147, crates/nanobot-agent/src/notes.rs:153, crates/nanobot-agent/src/notes.rs:1465, crates/nanobot-agent/src/notes.rs:1473, crates/nanobot-agent/src/notes.rs:1493, crates/nanobot-agent/src/notes.rs:1886, crates/nanobot-agent/src/notes.rs:2011, crates/nanobot-channels/src/commands.rs:333, crates/nanobot-channels/src/commands.rs:337, crates/nanobot-channels/src/commands.rs:719, ... (+154 more)
+
+### McpServerConfig
+
+- `transport: String` — `crates/nanobot-config/src/schema.rs:697` — used
+  - refs: crates/nanobot-config/src/schema.rs:825, crates/nanobot-config/src/schema.rs:831, crates/nanobot-config/src/schema.rs:887, crates/nanobot-config/src/schema.rs:931, crates/nanobot-config/src/validate.rs:939, crates/nanobot-config/src/validate.rs:952, crates/nanobot-config/src/validate.rs:960, crates/nanobot-config/src/validate.rs:1914, crates/nanobot-config/src/validate.rs:1931, crates/nanobot-config/src/validate.rs:1952, crates/nanobot-config/src/validate.rs:1969, crates/nanobot-config/src/validate.rs:1990, crates/nanobot-config/src/validate.rs:2002, crates/nanobot-config/src/validate.rs:2809, crates/nanobot-config/src/validate.rs:2830, crates/nanobot-config/src/validate.rs:2851
+- `command: Option<String>` — `crates/nanobot-config/src/schema.rs:701` — used
+  - refs: crates/nanobot-channels/src/commands.rs:62, crates/nanobot-config/src/schema.rs:826, crates/nanobot-config/src/schema.rs:888, crates/nanobot-config/src/schema.rs:932, crates/nanobot-config/src/validate.rs:941, crates/nanobot-config/src/validate.rs:943, crates/nanobot-config/src/validate.rs:1915, crates/nanobot-config/src/validate.rs:1932, crates/nanobot-config/src/validate.rs:1943, crates/nanobot-config/src/validate.rs:1953, crates/nanobot-config/src/validate.rs:1970, crates/nanobot-config/src/validate.rs:1991, crates/nanobot-config/src/validate.rs:2810, crates/nanobot-config/src/validate.rs:2821, crates/nanobot-config/src/validate.rs:2831, crates/nanobot-config/src/validate.rs:2852, crates/nanobot-tools/src/builtins/shell.rs:47, crates/nanobot-tools/src/builtins/shell.rs:104, crates/nanobot-tools/src/builtins/shell.rs:153
+- `args: Option<Vec<String>>` — `crates/nanobot-config/src/schema.rs:705` — used
+  - refs: crates/nanobot-agent/src/runner.rs:302, crates/nanobot-config/src/schema.rs:827, crates/nanobot-config/src/schema.rs:889, crates/nanobot-config/src/schema.rs:934, crates/nanobot-config/src/validate.rs:1916, crates/nanobot-config/src/validate.rs:1933, crates/nanobot-config/src/validate.rs:1954, crates/nanobot-config/src/validate.rs:1971, crates/nanobot-config/src/validate.rs:1992, crates/nanobot-config/src/validate.rs:2811, crates/nanobot-config/src/validate.rs:2832, crates/nanobot-config/src/validate.rs:2853, crates/nanobot-skill/src/skill.rs:69, crates/nanobot-tools/src/builtins/cron.rs:123, crates/nanobot-tools/src/builtins/filesystem.rs:47, crates/nanobot-tools/src/builtins/filesystem.rs:114, crates/nanobot-tools/src/builtins/filesystem.rs:196, crates/nanobot-tools/src/builtins/filesystem.rs:278, crates/nanobot-tools/src/builtins/message.rs:70, crates/nanobot-tools/src/builtins/search.rs:49, ... (+7 more)
+- `url: Option<String>` — `crates/nanobot-config/src/schema.rs:709` — used
+  - refs: crates/nanobot-channels/src/platforms/discord.rs:86, crates/nanobot-channels/src/platforms/discord.rs:1106, crates/nanobot-channels/src/platforms/discord.rs:1376, crates/nanobot-channels/src/platforms/discord.rs:1496, crates/nanobot-channels/src/platforms/telegram.rs:217, crates/nanobot-channels/src/platforms/telegram.rs:254, crates/nanobot-channels/src/platforms/telegram.rs:260, crates/nanobot-channels/src/platforms/telegram.rs:264, crates/nanobot-channels/src/platforms/telegram.rs:290, crates/nanobot-channels/src/platforms/telegram.rs:295, crates/nanobot-channels/src/platforms/telegram.rs:319, crates/nanobot-channels/src/platforms/telegram.rs:325, crates/nanobot-channels/src/platforms/telegram.rs:331, crates/nanobot-channels/src/platforms/telegram.rs:874, crates/nanobot-channels/src/platforms/telegram.rs:2132, crates/nanobot-channels/src/platforms/telegram.rs:2613, crates/nanobot-channels/src/platforms/telegram.rs:2710, crates/nanobot-channels/src/platforms/telegram.rs:2715, crates/nanobot-channels/src/platforms/websocket.rs:84, crates/nanobot-channels/src/platforms/websocket.rs:489, ... (+24 more)
+- `env: HashMap<String, String>` — `crates/nanobot-config/src/schema.rs:713` — used
+  - refs: crates/nanobot-agent/src/heartbeat.rs:422, crates/nanobot-agent/src/loop_mod.rs:596, crates/nanobot-channels/src/commands.rs:793, crates/nanobot-channels/src/commands.rs:805, crates/nanobot-channels/src/commands.rs:1053, crates/nanobot-channels/src/commands.rs:1060, crates/nanobot-channels/src/commands.rs:1632, crates/nanobot-channels/src/commands.rs:1640, crates/nanobot-channels/src/commands.rs:1666, crates/nanobot-channels/src/commands.rs:1681, crates/nanobot-channels/src/commands.rs:1700, crates/nanobot-channels/src/platforms/discord.rs:308, crates/nanobot-channels/src/platforms/discord.rs:309, crates/nanobot-channels/src/platforms/discord.rs:310, crates/nanobot-channels/src/platforms/discord.rs:311, crates/nanobot-channels/src/platforms/discord.rs:312, crates/nanobot-channels/src/platforms/discord.rs:313, crates/nanobot-channels/src/platforms/discord.rs:335, crates/nanobot-channels/src/platforms/discord.rs:1305, crates/nanobot-channels/src/platforms/telegram.rs:539, ... (+64 more)
+
+### MochatConfig
+
+- `webhook_url: Option<String>` — `crates/nanobot-config/src/schema.rs:397` — used
+  - refs: crates/nanobot-config/src/validate.rs:688, crates/nanobot-config/src/validate.rs:690, crates/nanobot-config/src/validate.rs:693, crates/nanobot-config/src/validate.rs:694, crates/nanobot-config/src/validate.rs:2221, crates/nanobot-config/src/validate.rs:2228, crates/nanobot-config/src/validate.rs:2399, crates/nanobot-config/src/validate.rs:2406
+- `enabled: bool` — `crates/nanobot-config/src/schema.rs:400` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:105, crates/nanobot-agent/src/loop_mod.rs:826, crates/nanobot-agent/src/loop_mod.rs:850, crates/nanobot-agent/src/loop_mod.rs:856, crates/nanobot-agent/src/loop_mod.rs:878, crates/nanobot-agent/src/loop_mod.rs:886, crates/nanobot-agent/src/loop_mod.rs:892, crates/nanobot-agent/src/loop_mod.rs:898, crates/nanobot-agent/src/notes.rs:128, crates/nanobot-agent/src/notes.rs:136, crates/nanobot-agent/src/notes.rs:147, crates/nanobot-agent/src/notes.rs:153, crates/nanobot-agent/src/notes.rs:1465, crates/nanobot-agent/src/notes.rs:1473, crates/nanobot-agent/src/notes.rs:1493, crates/nanobot-agent/src/notes.rs:1886, crates/nanobot-agent/src/notes.rs:2011, crates/nanobot-channels/src/commands.rs:333, crates/nanobot-channels/src/commands.rs:337, crates/nanobot-channels/src/commands.rs:719, ... (+154 more)
+
+### ProviderEntry
+
+- `api_key: Option<String>` — `crates/nanobot-config/src/schema.rs:144` — used
+  - refs: crates/nanobot-api/src/server.rs:58, crates/nanobot-api/src/server.rs:117, crates/nanobot-api/src/server.rs:144, crates/nanobot-api/src/server.rs:153, crates/nanobot-api/src/server.rs:392, crates/nanobot-api/src/server.rs:977, crates/nanobot-api/src/server.rs:998, crates/nanobot-api/src/server.rs:1006, crates/nanobot-api/src/server.rs:1449, crates/nanobot-api/src/server.rs:1766, crates/nanobot-api/src/server.rs:1908, crates/nanobot-api/src/server.rs:2067, crates/nanobot-api/src/server.rs:2112, crates/nanobot-api/src/server.rs:2157, crates/nanobot-api/src/server.rs:2209, crates/nanobot-channels/src/commands.rs:823, crates/nanobot-channels/src/commands.rs:826, crates/nanobot-channels/src/commands.rs:829, crates/nanobot-channels/src/commands.rs:832, crates/nanobot-channels/src/commands.rs:835, ... (+135 more)
+- `base_url: Option<String>` — `crates/nanobot-config/src/schema.rs:147` — used
+  - refs: crates/nanobot-channels/src/platforms/discord.rs:348, crates/nanobot-channels/src/platforms/telegram.rs:581, crates/nanobot-channels/src/platforms/telegram.rs:643, crates/nanobot-channels/src/platforms/telegram.rs:670, crates/nanobot-channels/src/platforms/telegram.rs:941, crates/nanobot-channels/src/platforms/telegram.rs:1073, crates/nanobot-channels/src/platforms/telegram.rs:1092, crates/nanobot-channels/src/platforms/telegram.rs:1117, crates/nanobot-config/src/python_migrate.rs:412, crates/nanobot-config/src/python_migrate.rs:468, crates/nanobot-config/src/python_migrate.rs:932, crates/nanobot-config/src/python_migrate.rs:943, crates/nanobot-config/src/schema.rs:676, crates/nanobot-config/src/schema.rs:799, crates/nanobot-config/src/schema.rs:804, crates/nanobot-config/src/schema.rs:855, crates/nanobot-config/src/schema.rs:944, crates/nanobot-config/src/schema.rs:954, crates/nanobot-config/src/validate.rs:334, crates/nanobot-config/src/validate.rs:335, ... (+69 more)
+- `model: Option<String>` — `crates/nanobot-config/src/schema.rs:150` — used
+  - refs: crates/nanobot-agent/src/heartbeat.rs:659, crates/nanobot-agent/src/heartbeat.rs:691, crates/nanobot-agent/src/heartbeat.rs:696, crates/nanobot-agent/src/heartbeat.rs:1084, crates/nanobot-agent/src/heartbeat.rs:1320, crates/nanobot-agent/src/heartbeat.rs:1340, crates/nanobot-agent/src/heartbeat.rs:1347, crates/nanobot-agent/src/runner.rs:76, crates/nanobot-agent/src/runner.rs:84, crates/nanobot-agent/src/runner.rs:106, crates/nanobot-agent/src/subagent.rs:786, crates/nanobot-agent/src/subagent.rs:1179, crates/nanobot-agent/src/subagent.rs:1194, crates/nanobot-agent/src/subagent.rs:1552, crates/nanobot-agent/src/subagent.rs:1897, crates/nanobot-agent/tests/pipeline_e2e.rs:96, crates/nanobot-agent/tests/runner_e2e.rs:80, crates/nanobot-agent/tests/self_evolution_e2e.rs:254, crates/nanobot-api/src/server.rs:239, crates/nanobot-api/src/server.rs:268, ... (+198 more)
+- `no_proxy: Option<bool>` — `crates/nanobot-config/src/schema.rs:154` — used
+  - refs: crates/nanobot-channels/src/platforms/discord.rs:355, crates/nanobot-channels/src/platforms/telegram.rs:588, crates/nanobot-config/src/python_migrate.rs:414, crates/nanobot-config/src/python_migrate.rs:471, crates/nanobot-config/src/schema.rs:688, crates/nanobot-config/src/schema.rs:801, crates/nanobot-config/src/schema.rs:948, crates/nanobot-config/src/schema.rs:957, crates/nanobot-config/src/validate.rs:1231, crates/nanobot-config/src/validate.rs:1338, crates/nanobot-config/src/validate.rs:1354, crates/nanobot-config/src/validate.rs:1370, crates/nanobot-config/src/validate.rs:1386, crates/nanobot-config/src/validate.rs:1416, crates/nanobot-config/src/validate.rs:1433, crates/nanobot-config/src/validate.rs:1446, crates/nanobot-config/src/validate.rs:2024, crates/nanobot-config/src/validate.rs:2041, crates/nanobot-config/src/validate.rs:2114, crates/nanobot-config/src/validate.rs:2139, ... (+26 more)
+
+### ProvidersConfig
+
+- `anthropic: Option<ProviderEntry>` — `crates/nanobot-config/src/schema.rs:102` — used
+  - refs: crates/nanobot-api/src/server.rs:761, crates/nanobot-channels/src/commands.rs:286, crates/nanobot-channels/src/commands.rs:672, crates/nanobot-channels/src/commands.rs:825, crates/nanobot-channels/src/commands.rs:1141, crates/nanobot-channels/src/commands.rs:1439, crates/nanobot-config/src/python_migrate.rs:429, crates/nanobot-config/src/python_migrate.rs:430, crates/nanobot-config/src/python_migrate.rs:431, crates/nanobot-config/src/python_migrate.rs:924, crates/nanobot-config/src/python_schema.rs:57, crates/nanobot-config/src/schema.rs:844, crates/nanobot-config/src/schema.rs:857, crates/nanobot-config/src/schema.rs:907, crates/nanobot-config/src/validate.rs:340, crates/nanobot-config/src/validate.rs:343, crates/nanobot-config/src/validate.rs:345, crates/nanobot-config/src/validate.rs:348, crates/nanobot-config/src/validate.rs:1048, crates/nanobot-config/src/validate.rs:1366, ... (+9 more)
+- `openai: Option<ProviderEntry>` — `crates/nanobot-config/src/schema.rs:105` — used
+  - refs: crates/nanobot-api/src/server.rs:773, crates/nanobot-channels/src/commands.rs:289, crates/nanobot-channels/src/commands.rs:675, crates/nanobot-channels/src/commands.rs:822, crates/nanobot-channels/src/commands.rs:1082, crates/nanobot-channels/src/commands.rs:1115, crates/nanobot-channels/src/commands.rs:1127, crates/nanobot-channels/src/commands.rs:1139, crates/nanobot-channels/src/commands.rs:1192, crates/nanobot-channels/src/commands.rs:1238, crates/nanobot-channels/src/commands.rs:1243, crates/nanobot-channels/src/commands.rs:1261, crates/nanobot-channels/src/commands.rs:1266, crates/nanobot-channels/src/commands.rs:1271, crates/nanobot-channels/src/commands.rs:1304, crates/nanobot-channels/src/commands.rs:1320, crates/nanobot-channels/src/commands.rs:1346, crates/nanobot-channels/src/commands.rs:1360, crates/nanobot-channels/src/commands.rs:1373, crates/nanobot-channels/src/commands.rs:1393, ... (+83 more)
+- `openrouter: Option<ProviderEntry>` — `crates/nanobot-config/src/schema.rs:108` — used
+  - refs: crates/nanobot-api/src/server.rs:809, crates/nanobot-channels/src/commands.rs:292, crates/nanobot-channels/src/commands.rs:678, crates/nanobot-channels/src/commands.rs:828, crates/nanobot-config/src/python_migrate.rs:419, crates/nanobot-config/src/python_migrate.rs:420, crates/nanobot-config/src/python_migrate.rs:421, crates/nanobot-config/src/python_migrate.rs:908, crates/nanobot-config/src/python_migrate.rs:910, crates/nanobot-config/src/python_schema.rs:49, crates/nanobot-config/src/python_schema.rs:446, crates/nanobot-config/src/python_schema.rs:448, crates/nanobot-config/src/validate.rs:353, crates/nanobot-config/src/validate.rs:357, crates/nanobot-config/src/validate.rs:1051, crates/nanobot-providers/src/registry.rs:128
+- `ollama: Option<ProviderEntry>` — `crates/nanobot-config/src/schema.rs:111` — used
+  - refs: crates/nanobot-api/src/server.rs:821, crates/nanobot-channels/src/commands.rs:295, crates/nanobot-channels/src/commands.rs:681, crates/nanobot-channels/src/commands.rs:831, crates/nanobot-config/src/python_migrate.rs:449, crates/nanobot-config/src/python_migrate.rs:450, crates/nanobot-config/src/python_migrate.rs:451, crates/nanobot-config/src/python_migrate.rs:930, crates/nanobot-config/src/python_migrate.rs:932, crates/nanobot-config/src/python_schema.rs:77, crates/nanobot-config/src/validate.rs:397, crates/nanobot-config/src/validate.rs:402, crates/nanobot-config/src/validate.rs:1054, crates/nanobot-config/src/validate.rs:1442, crates/nanobot-config/src/validate.rs:1452, crates/nanobot-providers/src/registry.rs:146
+- `deepseek: Option<ProviderEntry>` — `crates/nanobot-config/src/schema.rs:114` — used
+  - refs: crates/nanobot-api/src/server.rs:785, crates/nanobot-channels/src/commands.rs:298, crates/nanobot-channels/src/commands.rs:684, crates/nanobot-channels/src/commands.rs:834, crates/nanobot-config/src/python_migrate.rs:434, crates/nanobot-config/src/python_migrate.rs:435, crates/nanobot-config/src/python_migrate.rs:436, crates/nanobot-config/src/python_migrate.rs:925, crates/nanobot-config/src/python_schema.rs:65, crates/nanobot-config/src/validate.rs:364, crates/nanobot-config/src/validate.rs:367, crates/nanobot-config/src/validate.rs:1057, crates/nanobot-providers/src/registry.rs:92, crates/nanobot-providers/src/registry.rs:99
+- `gemini: Option<ProviderEntry>` — `crates/nanobot-config/src/schema.rs:117` — used
+  - refs: crates/nanobot-channels/src/commands.rs:301, crates/nanobot-channels/src/commands.rs:687, crates/nanobot-channels/src/commands.rs:837, crates/nanobot-config/src/python_migrate.rs:444, crates/nanobot-config/src/python_migrate.rs:445, crates/nanobot-config/src/python_migrate.rs:446, crates/nanobot-config/src/python_migrate.rs:927, crates/nanobot-config/src/python_schema.rs:73, crates/nanobot-config/src/validate.rs:380, crates/nanobot-config/src/validate.rs:383, crates/nanobot-config/src/validate.rs:1060
+- `groq: Option<ProviderEntry>` — `crates/nanobot-config/src/schema.rs:120` — used
+  - refs: crates/nanobot-api/src/server.rs:797, crates/nanobot-channels/src/commands.rs:304, crates/nanobot-channels/src/commands.rs:690, crates/nanobot-channels/src/commands.rs:840, crates/nanobot-config/src/python_migrate.rs:439, crates/nanobot-config/src/python_migrate.rs:440, crates/nanobot-config/src/python_migrate.rs:441, crates/nanobot-config/src/python_migrate.rs:926, crates/nanobot-config/src/python_schema.rs:69, crates/nanobot-config/src/validate.rs:372, crates/nanobot-config/src/validate.rs:375, crates/nanobot-config/src/validate.rs:1063, crates/nanobot-providers/src/registry.rs:110, crates/nanobot-providers/src/registry.rs:117
+- `moonshot: Option<ProviderEntry>` — `crates/nanobot-config/src/schema.rs:123` — used
+  - refs: crates/nanobot-channels/src/commands.rs:307, crates/nanobot-channels/src/commands.rs:693, crates/nanobot-channels/src/commands.rs:843, crates/nanobot-config/src/validate.rs:388, crates/nanobot-config/src/validate.rs:1066
+- `minimax: Option<ProviderEntry>` — `crates/nanobot-config/src/schema.rs:126` — used
+  - refs: crates/nanobot-channels/src/commands.rs:310, crates/nanobot-channels/src/commands.rs:696, crates/nanobot-channels/src/commands.rs:846, crates/nanobot-config/src/validate.rs:392, crates/nanobot-config/src/validate.rs:1069
+- `azure_openai: Option<AzureOpenAIProviderEntry>` — `crates/nanobot-config/src/schema.rs:129` — used
+  - refs: crates/nanobot-channels/src/commands.rs:313, crates/nanobot-channels/src/commands.rs:699, crates/nanobot-channels/src/commands.rs:849, crates/nanobot-config/src/python_migrate.rs:454, crates/nanobot-config/src/python_migrate.rs:455, crates/nanobot-config/src/python_migrate.rs:461, crates/nanobot-config/src/python_migrate.rs:937, crates/nanobot-config/src/python_migrate.rs:1164, crates/nanobot-config/src/python_schema.rs:61, crates/nanobot-config/src/validate.rs:410, crates/nanobot-config/src/validate.rs:414, crates/nanobot-config/src/validate.rs:420, crates/nanobot-config/src/validate.rs:424, crates/nanobot-config/src/validate.rs:428, crates/nanobot-config/src/validate.rs:1072, crates/nanobot-config/src/validate.rs:1395, crates/nanobot-config/src/validate.rs:1404, crates/nanobot-config/src/validate.rs:1405, crates/nanobot-config/src/validate.rs:2254, crates/nanobot-config/src/validate.rs:2264
+- `github_copilot: Option<ProviderEntry>` — `crates/nanobot-config/src/schema.rs:132` — used
+  - refs: crates/nanobot-channels/src/commands.rs:316, crates/nanobot-channels/src/commands.rs:702, crates/nanobot-channels/src/commands.rs:852, crates/nanobot-config/src/validate.rs:435
+- `openai_codex: Option<ProviderEntry>` — `crates/nanobot-config/src/schema.rs:135` — used
+  - refs: crates/nanobot-channels/src/commands.rs:319, crates/nanobot-channels/src/commands.rs:705, crates/nanobot-channels/src/commands.rs:855, crates/nanobot-config/src/validate.rs:439
+
+### QQConfig
+
+- `app_id: Option<String>` — `crates/nanobot-config/src/schema.rs:382` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:596, crates/nanobot-config/src/python_migrate.rs:619, crates/nanobot-config/src/python_migrate.rs:631, crates/nanobot-config/src/python_migrate.rs:1040, crates/nanobot-config/src/python_schema.rs:284, crates/nanobot-config/src/python_schema.rs:310, crates/nanobot-config/src/python_schema.rs:322, crates/nanobot-config/src/schema.rs:333, crates/nanobot-config/src/schema.rs:365, crates/nanobot-config/src/validate.rs:624, crates/nanobot-config/src/validate.rs:626, crates/nanobot-config/src/validate.rs:662, crates/nanobot-config/src/validate.rs:664, crates/nanobot-config/src/validate.rs:675, crates/nanobot-config/src/validate.rs:677, crates/nanobot-config/src/validate.rs:2870, crates/nanobot-config/src/validate.rs:2879, crates/nanobot-config/src/validate.rs:2886, crates/nanobot-config/src/validate.rs:2920, crates/nanobot-config/src/validate.rs:2931, ... (+2 more)
+- `app_secret: Option<String>` — `crates/nanobot-config/src/schema.rs:384` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:597, crates/nanobot-config/src/python_migrate.rs:620, crates/nanobot-config/src/python_migrate.rs:632, crates/nanobot-config/src/python_schema.rs:286, crates/nanobot-config/src/python_schema.rs:312, crates/nanobot-config/src/python_schema.rs:324, crates/nanobot-config/src/schema.rs:335, crates/nanobot-config/src/schema.rs:367, crates/nanobot-config/src/validate.rs:630, crates/nanobot-config/src/validate.rs:632, crates/nanobot-config/src/validate.rs:2871, crates/nanobot-config/src/validate.rs:2887, crates/nanobot-config/src/validate.rs:2895, crates/nanobot-config/src/validate.rs:2921, crates/nanobot-config/src/validate.rs:2939
+- `token: Option<String>` — `crates/nanobot-config/src/schema.rs:386` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:823, crates/nanobot-agent/src/loop_mod.rs:847, crates/nanobot-agent/src/loop_mod.rs:854, crates/nanobot-agent/src/loop_mod.rs:895, crates/nanobot-channels/src/commands.rs:1086, crates/nanobot-channels/src/commands.rs:1155, crates/nanobot-channels/src/commands.rs:1157, crates/nanobot-channels/src/commands.rs:1170, crates/nanobot-channels/src/platforms/discord.rs:226, crates/nanobot-channels/src/platforms/discord.rs:238, crates/nanobot-channels/src/platforms/discord.rs:292, crates/nanobot-channels/src/platforms/discord.rs:335, crates/nanobot-channels/src/platforms/discord.rs:348, crates/nanobot-channels/src/platforms/discord.rs:350, crates/nanobot-channels/src/platforms/discord.rs:387, crates/nanobot-channels/src/platforms/discord.rs:513, crates/nanobot-channels/src/platforms/discord.rs:605, crates/nanobot-channels/src/platforms/discord.rs:970, crates/nanobot-channels/src/platforms/discord.rs:1001, crates/nanobot-channels/src/platforms/discord.rs:1334, ... (+64 more)
+- `enabled: bool` — `crates/nanobot-config/src/schema.rs:389` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:105, crates/nanobot-agent/src/loop_mod.rs:826, crates/nanobot-agent/src/loop_mod.rs:850, crates/nanobot-agent/src/loop_mod.rs:856, crates/nanobot-agent/src/loop_mod.rs:878, crates/nanobot-agent/src/loop_mod.rs:886, crates/nanobot-agent/src/loop_mod.rs:892, crates/nanobot-agent/src/loop_mod.rs:898, crates/nanobot-agent/src/notes.rs:128, crates/nanobot-agent/src/notes.rs:136, crates/nanobot-agent/src/notes.rs:147, crates/nanobot-agent/src/notes.rs:153, crates/nanobot-agent/src/notes.rs:1465, crates/nanobot-agent/src/notes.rs:1473, crates/nanobot-agent/src/notes.rs:1493, crates/nanobot-agent/src/notes.rs:1886, crates/nanobot-agent/src/notes.rs:2011, crates/nanobot-channels/src/commands.rs:333, crates/nanobot-channels/src/commands.rs:337, crates/nanobot-channels/src/commands.rs:719, ... (+154 more)
+
+### SecurityConfig
+
+- `ssrf_whitelist: Vec<String>` — `crates/nanobot-config/src/schema.rs:537` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:742, crates/nanobot-config/src/python_migrate.rs:746, crates/nanobot-config/src/python_migrate.rs:747, crates/nanobot-config/src/python_migrate.rs:1089, crates/nanobot-config/src/python_schema.rs:385, crates/nanobot-config/src/python_schema.rs:496, crates/nanobot-config/src/schema.rs:814, crates/nanobot-config/src/schema.rs:880, crates/nanobot-config/src/schema.rs:923, crates/nanobot-config/src/validate.rs:896, crates/nanobot-config/src/validate.rs:898, crates/nanobot-config/src/validate.rs:901, crates/nanobot-config/src/validate.rs:1860, crates/nanobot-config/src/validate.rs:1873, crates/nanobot-config/src/validate.rs:1878, crates/nanobot-config/src/validate.rs:1896
+- `block_private_ips: bool` — `crates/nanobot-config/src/schema.rs:541` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:742, crates/nanobot-config/src/python_migrate.rs:743, crates/nanobot-config/src/python_migrate.rs:744, crates/nanobot-config/src/python_migrate.rs:1087, crates/nanobot-config/src/python_schema.rs:383, crates/nanobot-config/src/python_schema.rs:494, crates/nanobot-config/src/schema.rs:813, crates/nanobot-config/src/schema.rs:819, crates/nanobot-config/src/schema.rs:879, crates/nanobot-config/src/schema.rs:922
+- `blocked_networks: Vec<String>` — `crates/nanobot-config/src/schema.rs:545` — used
+  - refs: crates/nanobot-config/src/schema.rs:815, crates/nanobot-config/src/validate.rs:910, crates/nanobot-config/src/validate.rs:913, crates/nanobot-config/src/validate.rs:918, crates/nanobot-config/src/validate.rs:1862, crates/nanobot-config/src/validate.rs:1885, crates/nanobot-config/src/validate.rs:1890, crates/nanobot-config/src/validate.rs:2973, crates/nanobot-config/src/validate.rs:2978
+
+### SlackConfig
+
+- `bot_token: Option<String>` — `crates/nanobot-config/src/schema.rs:259` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:544, crates/nanobot-config/src/python_migrate.rs:682, crates/nanobot-config/src/python_migrate.rs:990, crates/nanobot-config/src/python_schema.rs:219, crates/nanobot-config/src/validate.rs:522, crates/nanobot-config/src/validate.rs:524, crates/nanobot-config/src/validate.rs:1557, crates/nanobot-config/src/validate.rs:1567
+- `app_token: Option<String>` — `crates/nanobot-config/src/schema.rs:261` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:545, crates/nanobot-config/src/python_migrate.rs:683, crates/nanobot-config/src/python_migrate.rs:991, crates/nanobot-config/src/python_schema.rs:223, crates/nanobot-config/src/validate.rs:1558
+- `signing_secret: Option<String>` — `crates/nanobot-config/src/schema.rs:263` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:546, crates/nanobot-config/src/validate.rs:1559
+- `enabled: bool` — `crates/nanobot-config/src/schema.rs:266` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:105, crates/nanobot-agent/src/loop_mod.rs:826, crates/nanobot-agent/src/loop_mod.rs:850, crates/nanobot-agent/src/loop_mod.rs:856, crates/nanobot-agent/src/loop_mod.rs:878, crates/nanobot-agent/src/loop_mod.rs:886, crates/nanobot-agent/src/loop_mod.rs:892, crates/nanobot-agent/src/loop_mod.rs:898, crates/nanobot-agent/src/notes.rs:128, crates/nanobot-agent/src/notes.rs:136, crates/nanobot-agent/src/notes.rs:147, crates/nanobot-agent/src/notes.rs:153, crates/nanobot-agent/src/notes.rs:1465, crates/nanobot-agent/src/notes.rs:1473, crates/nanobot-agent/src/notes.rs:1493, crates/nanobot-agent/src/notes.rs:1886, crates/nanobot-agent/src/notes.rs:2011, crates/nanobot-channels/src/commands.rs:333, crates/nanobot-channels/src/commands.rs:337, crates/nanobot-channels/src/commands.rs:719, ... (+154 more)
+
+### TelegramConfig
+
+- `token: String` — `crates/nanobot-config/src/schema.rs:222` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:823, crates/nanobot-agent/src/loop_mod.rs:847, crates/nanobot-agent/src/loop_mod.rs:854, crates/nanobot-agent/src/loop_mod.rs:895, crates/nanobot-channels/src/commands.rs:1086, crates/nanobot-channels/src/commands.rs:1155, crates/nanobot-channels/src/commands.rs:1157, crates/nanobot-channels/src/commands.rs:1170, crates/nanobot-channels/src/platforms/discord.rs:226, crates/nanobot-channels/src/platforms/discord.rs:238, crates/nanobot-channels/src/platforms/discord.rs:292, crates/nanobot-channels/src/platforms/discord.rs:335, crates/nanobot-channels/src/platforms/discord.rs:348, crates/nanobot-channels/src/platforms/discord.rs:350, crates/nanobot-channels/src/platforms/discord.rs:387, crates/nanobot-channels/src/platforms/discord.rs:513, crates/nanobot-channels/src/platforms/discord.rs:605, crates/nanobot-channels/src/platforms/discord.rs:970, crates/nanobot-channels/src/platforms/discord.rs:1001, crates/nanobot-channels/src/platforms/discord.rs:1334, ... (+64 more)
+- `allowed_users: Vec<String>` — `crates/nanobot-config/src/schema.rs:225` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:824, crates/nanobot-agent/src/loop_mod.rs:848, crates/nanobot-agent/src/loop_mod.rs:896, crates/nanobot-config/src/python_migrate.rs:504, crates/nanobot-config/src/python_migrate.rs:959, crates/nanobot-config/src/schema.rs:862, crates/nanobot-config/src/schema.rs:912, crates/nanobot-config/src/validate.rs:1236, crates/nanobot-config/src/validate.rs:1473, crates/nanobot-config/src/validate.rs:1491, crates/nanobot-config/src/validate.rs:1508, crates/nanobot-config/src/validate.rs:2684
+- `admin_users: Vec<String>` — `crates/nanobot-config/src/schema.rs:228` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:825, crates/nanobot-agent/src/loop_mod.rs:849, crates/nanobot-agent/src/loop_mod.rs:897, crates/nanobot-config/src/python_migrate.rs:505, crates/nanobot-config/src/python_migrate.rs:961, crates/nanobot-config/src/validate.rs:1237, crates/nanobot-config/src/validate.rs:1474, crates/nanobot-config/src/validate.rs:1492, crates/nanobot-config/src/validate.rs:1509, crates/nanobot-config/src/validate.rs:2685
+- `enabled: bool` — `crates/nanobot-config/src/schema.rs:231` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:105, crates/nanobot-agent/src/loop_mod.rs:826, crates/nanobot-agent/src/loop_mod.rs:850, crates/nanobot-agent/src/loop_mod.rs:856, crates/nanobot-agent/src/loop_mod.rs:878, crates/nanobot-agent/src/loop_mod.rs:886, crates/nanobot-agent/src/loop_mod.rs:892, crates/nanobot-agent/src/loop_mod.rs:898, crates/nanobot-agent/src/notes.rs:128, crates/nanobot-agent/src/notes.rs:136, crates/nanobot-agent/src/notes.rs:147, crates/nanobot-agent/src/notes.rs:153, crates/nanobot-agent/src/notes.rs:1465, crates/nanobot-agent/src/notes.rs:1473, crates/nanobot-agent/src/notes.rs:1493, crates/nanobot-agent/src/notes.rs:1886, crates/nanobot-agent/src/notes.rs:2011, crates/nanobot-channels/src/commands.rs:333, crates/nanobot-channels/src/commands.rs:337, crates/nanobot-channels/src/commands.rs:719, ... (+154 more)
+- `streaming: bool` — `crates/nanobot-config/src/schema.rs:234` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:827, crates/nanobot-agent/src/loop_mod.rs:851, crates/nanobot-agent/src/loop_mod.rs:857, crates/nanobot-agent/src/loop_mod.rs:899, crates/nanobot-channels/src/commands.rs:157, crates/nanobot-channels/src/commands.rs:205, crates/nanobot-channels/src/commands.rs:214, crates/nanobot-channels/src/commands.rs:251, crates/nanobot-channels/src/commands.rs:280, crates/nanobot-channels/src/commands.rs:1677, crates/nanobot-channels/src/commands.rs:1696, crates/nanobot-channels/src/commands.rs:1702, crates/nanobot-channels/src/commands.rs:1707, crates/nanobot-config/src/python_migrate.rs:507, crates/nanobot-config/src/python_migrate.rs:524, crates/nanobot-config/src/python_migrate.rs:668, crates/nanobot-config/src/python_migrate.rs:706, crates/nanobot-config/src/python_migrate.rs:707, crates/nanobot-config/src/python_migrate.rs:974, crates/nanobot-config/src/python_migrate.rs:1060, ... (+18 more)
+
+### WecomConfig
+
+- `corp_id: Option<String>` — `crates/nanobot-config/src/schema.rs:346` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:606, crates/nanobot-config/src/python_schema.rs:296, crates/nanobot-config/src/validate.rs:643, crates/nanobot-config/src/validate.rs:645, crates/nanobot-config/src/validate.rs:2902, crates/nanobot-config/src/validate.rs:2912
+- `agent_id: Option<String>` — `crates/nanobot-config/src/schema.rs:348` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:607, crates/nanobot-config/src/python_schema.rs:298, crates/nanobot-config/src/validate.rs:2903
+- `secret: Option<String>` — `crates/nanobot-config/src/schema.rs:350` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:587, crates/nanobot-config/src/python_migrate.rs:608, crates/nanobot-config/src/python_schema.rs:274, crates/nanobot-config/src/python_schema.rs:300, crates/nanobot-config/src/schema.rs:322, crates/nanobot-config/src/validate.rs:649, crates/nanobot-config/src/validate.rs:651, crates/nanobot-config/src/validate.rs:2188, crates/nanobot-config/src/validate.rs:2203, crates/nanobot-config/src/validate.rs:2384, crates/nanobot-config/src/validate.rs:2904, crates/nanobot-config/src/validate.rs:2913
+- `token: Option<String>` — `crates/nanobot-config/src/schema.rs:352` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:823, crates/nanobot-agent/src/loop_mod.rs:847, crates/nanobot-agent/src/loop_mod.rs:854, crates/nanobot-agent/src/loop_mod.rs:895, crates/nanobot-channels/src/commands.rs:1086, crates/nanobot-channels/src/commands.rs:1155, crates/nanobot-channels/src/commands.rs:1157, crates/nanobot-channels/src/commands.rs:1170, crates/nanobot-channels/src/platforms/discord.rs:226, crates/nanobot-channels/src/platforms/discord.rs:238, crates/nanobot-channels/src/platforms/discord.rs:292, crates/nanobot-channels/src/platforms/discord.rs:335, crates/nanobot-channels/src/platforms/discord.rs:348, crates/nanobot-channels/src/platforms/discord.rs:350, crates/nanobot-channels/src/platforms/discord.rs:387, crates/nanobot-channels/src/platforms/discord.rs:513, crates/nanobot-channels/src/platforms/discord.rs:605, crates/nanobot-channels/src/platforms/discord.rs:970, crates/nanobot-channels/src/platforms/discord.rs:1001, crates/nanobot-channels/src/platforms/discord.rs:1334, ... (+64 more)
+- `encoding_aes_key: Option<String>` — `crates/nanobot-config/src/schema.rs:354` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:610, crates/nanobot-config/src/python_migrate.rs:622, crates/nanobot-config/src/schema.rs:371, crates/nanobot-config/src/validate.rs:2906, crates/nanobot-config/src/validate.rs:2923
+- `enabled: bool` — `crates/nanobot-config/src/schema.rs:357` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:105, crates/nanobot-agent/src/loop_mod.rs:826, crates/nanobot-agent/src/loop_mod.rs:850, crates/nanobot-agent/src/loop_mod.rs:856, crates/nanobot-agent/src/loop_mod.rs:878, crates/nanobot-agent/src/loop_mod.rs:886, crates/nanobot-agent/src/loop_mod.rs:892, crates/nanobot-agent/src/loop_mod.rs:898, crates/nanobot-agent/src/notes.rs:128, crates/nanobot-agent/src/notes.rs:136, crates/nanobot-agent/src/notes.rs:147, crates/nanobot-agent/src/notes.rs:153, crates/nanobot-agent/src/notes.rs:1465, crates/nanobot-agent/src/notes.rs:1473, crates/nanobot-agent/src/notes.rs:1493, crates/nanobot-agent/src/notes.rs:1886, crates/nanobot-agent/src/notes.rs:2011, crates/nanobot-channels/src/commands.rs:333, crates/nanobot-channels/src/commands.rs:337, crates/nanobot-channels/src/commands.rs:719, ... (+154 more)
+
+### WeixinConfig
+
+- `app_id: Option<String>` — `crates/nanobot-config/src/schema.rs:365` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:596, crates/nanobot-config/src/python_migrate.rs:619, crates/nanobot-config/src/python_migrate.rs:631, crates/nanobot-config/src/python_migrate.rs:1040, crates/nanobot-config/src/python_schema.rs:284, crates/nanobot-config/src/python_schema.rs:310, crates/nanobot-config/src/python_schema.rs:322, crates/nanobot-config/src/schema.rs:333, crates/nanobot-config/src/schema.rs:382, crates/nanobot-config/src/validate.rs:624, crates/nanobot-config/src/validate.rs:626, crates/nanobot-config/src/validate.rs:662, crates/nanobot-config/src/validate.rs:664, crates/nanobot-config/src/validate.rs:675, crates/nanobot-config/src/validate.rs:677, crates/nanobot-config/src/validate.rs:2870, crates/nanobot-config/src/validate.rs:2879, crates/nanobot-config/src/validate.rs:2886, crates/nanobot-config/src/validate.rs:2920, crates/nanobot-config/src/validate.rs:2931, ... (+2 more)
+- `app_secret: Option<String>` — `crates/nanobot-config/src/schema.rs:367` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:597, crates/nanobot-config/src/python_migrate.rs:620, crates/nanobot-config/src/python_migrate.rs:632, crates/nanobot-config/src/python_schema.rs:286, crates/nanobot-config/src/python_schema.rs:312, crates/nanobot-config/src/python_schema.rs:324, crates/nanobot-config/src/schema.rs:335, crates/nanobot-config/src/schema.rs:384, crates/nanobot-config/src/validate.rs:630, crates/nanobot-config/src/validate.rs:632, crates/nanobot-config/src/validate.rs:2871, crates/nanobot-config/src/validate.rs:2887, crates/nanobot-config/src/validate.rs:2895, crates/nanobot-config/src/validate.rs:2921, crates/nanobot-config/src/validate.rs:2939
+- `token: Option<String>` — `crates/nanobot-config/src/schema.rs:369` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:823, crates/nanobot-agent/src/loop_mod.rs:847, crates/nanobot-agent/src/loop_mod.rs:854, crates/nanobot-agent/src/loop_mod.rs:895, crates/nanobot-channels/src/commands.rs:1086, crates/nanobot-channels/src/commands.rs:1155, crates/nanobot-channels/src/commands.rs:1157, crates/nanobot-channels/src/commands.rs:1170, crates/nanobot-channels/src/platforms/discord.rs:226, crates/nanobot-channels/src/platforms/discord.rs:238, crates/nanobot-channels/src/platforms/discord.rs:292, crates/nanobot-channels/src/platforms/discord.rs:335, crates/nanobot-channels/src/platforms/discord.rs:348, crates/nanobot-channels/src/platforms/discord.rs:350, crates/nanobot-channels/src/platforms/discord.rs:387, crates/nanobot-channels/src/platforms/discord.rs:513, crates/nanobot-channels/src/platforms/discord.rs:605, crates/nanobot-channels/src/platforms/discord.rs:970, crates/nanobot-channels/src/platforms/discord.rs:1001, crates/nanobot-channels/src/platforms/discord.rs:1334, ... (+64 more)
+- `encoding_aes_key: Option<String>` — `crates/nanobot-config/src/schema.rs:371` — used
+  - refs: crates/nanobot-config/src/python_migrate.rs:610, crates/nanobot-config/src/python_migrate.rs:622, crates/nanobot-config/src/schema.rs:354, crates/nanobot-config/src/validate.rs:2906, crates/nanobot-config/src/validate.rs:2923
+- `enabled: bool` — `crates/nanobot-config/src/schema.rs:374` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:105, crates/nanobot-agent/src/loop_mod.rs:826, crates/nanobot-agent/src/loop_mod.rs:850, crates/nanobot-agent/src/loop_mod.rs:856, crates/nanobot-agent/src/loop_mod.rs:878, crates/nanobot-agent/src/loop_mod.rs:886, crates/nanobot-agent/src/loop_mod.rs:892, crates/nanobot-agent/src/loop_mod.rs:898, crates/nanobot-agent/src/notes.rs:128, crates/nanobot-agent/src/notes.rs:136, crates/nanobot-agent/src/notes.rs:147, crates/nanobot-agent/src/notes.rs:153, crates/nanobot-agent/src/notes.rs:1465, crates/nanobot-agent/src/notes.rs:1473, crates/nanobot-agent/src/notes.rs:1493, crates/nanobot-agent/src/notes.rs:1886, crates/nanobot-agent/src/notes.rs:2011, crates/nanobot-channels/src/commands.rs:333, crates/nanobot-channels/src/commands.rs:337, crates/nanobot-channels/src/commands.rs:719, ... (+154 more)
+
+### WhatsappConfig
+
+- `enabled: bool` — `crates/nanobot-config/src/schema.rs:292` — used
+  - refs: crates/nanobot-agent/src/loop_mod.rs:105, crates/nanobot-agent/src/loop_mod.rs:826, crates/nanobot-agent/src/loop_mod.rs:850, crates/nanobot-agent/src/loop_mod.rs:856, crates/nanobot-agent/src/loop_mod.rs:878, crates/nanobot-agent/src/loop_mod.rs:886, crates/nanobot-agent/src/loop_mod.rs:892, crates/nanobot-agent/src/loop_mod.rs:898, crates/nanobot-agent/src/notes.rs:128, crates/nanobot-agent/src/notes.rs:136, crates/nanobot-agent/src/notes.rs:147, crates/nanobot-agent/src/notes.rs:153, crates/nanobot-agent/src/notes.rs:1465, crates/nanobot-agent/src/notes.rs:1473, crates/nanobot-agent/src/notes.rs:1493, crates/nanobot-agent/src/notes.rs:1886, crates/nanobot-agent/src/notes.rs:2011, crates/nanobot-channels/src/commands.rs:333, crates/nanobot-channels/src/commands.rs:337, crates/nanobot-channels/src/commands.rs:719, ... (+154 more)
+
+## 5. TODO / FIXME / HACK / XXX
+
+- `crates/nanobot-channels/src/platforms/telegram.rs:1840` — `// TODO: Will be used by inline keyboard navigation in production code (currently only in tests).`
+- `crates/nanobot-agent/src/notes.rs:16` — `//! | `ActionItems` | TODO items and follow-ups |`
+- `crates/nanobot-agent/src/notes.rs:53` — `    /// TODO items and follow-ups extracted from the conversation.`
+- `crates/nanobot-agent/src/notes.rs:698` — `    // 2) Action items — lines containing "need to", "should", "TODO", "must"`
+
+## 6. unsafe / unwrap / expect
+
+- `unwrap` — `crates/nanobot-agent/src/compaction.rs:380` — `let result = compact_session(&mut session, &config).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/compaction.rs:397` — `let result = compact_session(&mut session, &config).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/compaction.rs:416` — `let result = compact_session(&mut session, &config).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/compaction.rs:435` — `let result = compact_session(&mut session, &config).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/compaction.rs:450` — `let result = compact_session(&mut session, &config).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/compaction.rs:478` — `let result = compact_session(&mut session, &config).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/compaction.rs:510` — `let result = compact_session(&mut session, &config).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/compaction.rs:532` — `let r1 = compact_session(&mut session, &config).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/compaction.rs:541` — `let r2 = compact_session(&mut session, &config).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/compaction.rs:566` — `let result = compact_session(&mut session, &config).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/context.rs:199` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/context.rs:223` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/context.rs:258` — `let prompt = builder.build_system_prompt(&msg, &session, &tools, None).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/context.rs:272` — `let prompt = builder.build_system_prompt(&msg, &session, &tools, None).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/context.rs:285` — `let prompt = builder.build_system_prompt(&msg, &session, &tools, None).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/context.rs:355` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/context.rs:373` — `let prompt = builder.build_system_prompt(&msg, &session, &tools, None).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/context.rs:388` — `let prompt = builder.build_system_prompt(&msg, &session, &tools, None).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/context.rs:401` — `let prompt = builder.build_system_prompt(&msg, &session, &tools, None).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/context.rs:417` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/context.rs:434` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/context.rs:452` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/context.rs:468` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/context.rs:486` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/context.rs:488` — `let system_pos = prompt.find("## System").unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/context.rs:489` — `let runtime_pos = prompt.find("## Runtime").unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/context.rs:490` — `let instructions_pos = prompt.find("## Additional Instructions").unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/context.rs:507` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/context_budget.rs:474` — `let json = serde_json::to_string(&config).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/context_budget.rs:475` — `let back: ContextBudgetConfig = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:810` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:811` — `let mgr = nanobot_session::SessionManager::new(dir.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:822` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:823` — `let mgr = nanobot_session::SessionManager::new(dir.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:836` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:837` — `let mgr = nanobot_session::SessionManager::new(dir.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1082` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1084` — `std::fs::write(&config_path, "agent:\n  model: test\n").unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1096` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1108` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1110` — `std::fs::write(&config_path, "test").unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1115` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1137` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1139` — `std::fs::create_dir_all(&data_dir).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1144` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1165` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1318` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1320` — `std::fs::write(&config_path, "agent:\n  model: gpt-4\n").unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1331` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1333` — `std::fs::write(&config_path, "agent:\n  max_iterations: 10\n").unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1345` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1347` — `std::fs::write(&config_path, "agent:\n  model: [broken\n").unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1358` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1370` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1372` — `std::fs::create_dir_all(&data_dir).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1377` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1397` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1409` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1421` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1427` — `nanobot_session::SessionManager::new(dir.path().to_path_buf()).unwrap(),`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1478` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1485` — `nanobot_session::SessionManager::new(dir.path().to_path_buf()).unwrap(),`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1490` — `let snapshot = svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1498` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1506` — `nanobot_session::SessionManager::new(dir.path().to_path_buf()).unwrap(),`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1517` — `let snapshot = svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1525` — `let snapshot = svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/heartbeat.rs:1531` — `let f = failure.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:770` — `let session_dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:771` — `let session_manager = SessionManager::new(session_dir.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:830` — `let session_dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:831` — `let session_manager = SessionManager::new(session_dir.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:860` — `let session_dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:861` — `let session_manager = SessionManager::new(session_dir.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:903` — `let session_dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:904` — `let data_dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:905` — `let session_manager = SessionManager::new(session_dir.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:947` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:1107` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:1112` — `let text = result.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:1122` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:1210` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:1212` — `let store = HotStore::new(&config).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:1221` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:1227` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:1233` — `let text = result.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:1239` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:1241` — `let store = HotStore::new(&config).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:1249` — `let store = al.memory_store.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:1253` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:1297` — `registry.register(skill).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:1319` — `registry.register(skill).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:1338` — `)).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:1344` — `)).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:1381` — `.unwrap();`
+- `expect` — `crates/nanobot-agent/src/loop_mod.rs:1392` — `let event = rx.try_recv().expect("should receive MemoryAccessed event");`
+- `expect` — `crates/nanobot-agent/src/loop_mod.rs:1434` — `let event = rx.try_recv().expect("should receive event");`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:1460` — `registry.register(skill).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/loop_mod.rs:1467` — `let registry = al.skill_registry().unwrap();`
+- `expect` — `crates/nanobot-agent/src/loop_mod.rs:1483` — `let event = rx.try_recv().expect("should receive SkillUsed event");`
+- `unwrap` — `crates/nanobot-agent/src/memory.rs:109` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/memory.rs:110` — `let store = MemoryStore::new(dir.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/memory.rs:118` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/memory.rs:119` — `let store = MemoryStore::new(dir.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/memory.rs:120` — `store.write_memory("Hello memory").unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/memory.rs:121` — `let content = store.read_memory().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/memory.rs:127` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/memory.rs:128` — `let store = MemoryStore::new(dir.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/memory.rs:129` — `let content = store.read_memory().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/memory.rs:135` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/memory.rs:136` — `let store = MemoryStore::new(dir.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/memory.rs:137` — `store.write_user_memory("user123", "User data").unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/memory.rs:138` — `let content = store.read_user_memory("user123").unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/memory.rs:141` — `let content2 = store.read_user_memory("other").unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/memory.rs:147` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/memory.rs:148` — `let store = MemoryStore::new(dir.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/memory.rs:149` — `store.write_memory("Main memory content").unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/memory.rs:150` — `store.write_user_memory("alice", "Alice's data").unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/memory.rs:152` — `let ctx = store.get_context(Some("alice")).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/memory.rs:161` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/memory.rs:162` — `let store = MemoryStore::new(dir.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/memory.rs:168` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/memory.rs:169` — `let content = consolidator.memory_store.read_memory().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/memory.rs:177` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/memory.rs:178` — `let content = consolidator.memory_store.read_memory().unwrap();`
+- `expect` — `crates/nanobot-agent/src/notes.rs:485` — `.expect("note extraction regex should compile");`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:884` — `let json = serde_json::to_string(&NoteFormat::Summary).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:886` — `let back: NoteFormat = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:889` — `let json = serde_json::to_string(&NoteFormat::ActionItems).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:891` — `let back: NoteFormat = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:908` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:926` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:933` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:948` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:955` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:972` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:974` — `let deleted = NotesManager::delete_note(&mut session, "to_delete").unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:984` — `let deleted = NotesManager::delete_note(&mut session, "nope").unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1007` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1014` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1016` — `let ctx = NotesManager::format_notes_context(&session).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1035` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1042` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1049` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1066` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1085` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1108` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1134` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1142` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1168` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1176` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1178` — `let section = NotesManager::format_section(&session, NoteFormat::ActionItems).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1199` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1207` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1215` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1223` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1225` — `let ctx = NotesManager::format_structured_context(&session).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1251` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1254` — `let ctx = NotesManager::format_structured_context(&session).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1503` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1507` — `let store = NotesStore::new(notes_dir.clone()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1509` — `assert!(store.list_sessions().unwrap().is_empty());`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1514` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1515` — `let store = NotesStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1530` — `store.save("session:abc", &notes).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1539` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1540` — `let store = NotesStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1546` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1547` — `let store = NotesStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1550` — `store.save("session:x", &notes).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1553` — `store.save("session:x", &[]).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1559` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1560` — `let store = NotesStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1563` — `store.save("session:del", &notes).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1564` — `assert_eq!(store.list_sessions().unwrap().len(), 1);`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1566` — `store.delete("session:del").unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1568` — `assert!(store.list_sessions().unwrap().is_empty());`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1573` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1574` — `let store = NotesStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1580` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1581` — `let store = NotesStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1583` — `assert!(store.list_sessions().unwrap().is_empty());`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1586` — `store.save("platform:chat1", &notes).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1587` — `store.save("platform:chat2", &notes).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1589` — `let mut keys = store.list_sessions().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1596` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1597` — `let store = NotesStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1601` — `store.save("session:atomic", &notes_v1).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1608` — `store.save("session:atomic", &notes_v2).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1617` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1618` — `let store = NotesStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1622` — `std::fs::write(&path, "{invalid json").unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1631` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1632` — `let store = NotesStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1643` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1653` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1665` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1679` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1680` — `let store = NotesStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1687` — `NotesManager::persist_to_store(&store, &session).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1702` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1703` — `let store = NotesStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1713` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1714` — `let store = NotesStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1718` — `NotesManager::persist_to_store(&store, &session).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1719` — `assert_eq!(store.list_sessions().unwrap().len(), 1);`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1723` — `NotesManager::persist_to_store(&store, &session).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1724` — `assert!(store.list_sessions().unwrap().is_empty());`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1729` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1730` — `let store = NotesStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1734` — `NotesManager::persist_to_store(&store, &session).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1913` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1914` — `let store = NotesStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1933` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1938` — `NotesManager::persist_to_store(&store, &session).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1948` — `NotesManager::persist_to_store(&store, &session).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1960` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1961` — `let store = NotesStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1971` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1979` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1987` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:1989` — `NotesManager::persist_to_store(&store, &session).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:2007` — `let json = serde_json::to_string(&config).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:2008` — `let back: NoteCompactionConfig = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:2016` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:2019` — `let store1 = NotesStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:2025` — `store1.save("session:test", &notes).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/notes.rs:2029` — `let store2 = NotesStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:412` — `let (fm, body) = parse_frontmatter(input).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:413` — `assert_eq!(fm.get("name").unwrap().as_str(), Some("test"));`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:420` — `let (fm, body) = parse_frontmatter(input).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:435` — `let (fm, body) = parse_frontmatter(input).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:436` — `assert_eq!(fm.get("name").unwrap().as_str(), Some("test"));`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:444` — `let (fm, body) = parse_frontmatter(input).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:445` — `assert_eq!(fm.get("name").unwrap().as_str(), Some("deploy"));`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:447` — `fm.get("description").unwrap().as_str(),`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:450` — `let params = fm.get("parameters").unwrap().as_sequence().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:472` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:503` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:514` — `let yaml: serde_yaml::Value = serde_yaml::from_str("name: test").unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:530` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:548` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:562` — `fs::create_dir_all(parent).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:564` — `fs::write(&path, content).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:570` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:572` — `let skills = loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:579` — `let skills = loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:585` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:593` — `let skills = loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:605` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:629` — `let skills = loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:640` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:646` — `let skills = loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:653` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:661` — `let skills = loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:668` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:676` — `let skills = loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:684` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:692` — `let skills = loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:706` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:714` — `let skills = loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:728` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:736` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:739` — `let reloaded = loader.reload_changed().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:745` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:753` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:755` — `loader.skills().get("test").unwrap().instructions,`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:764` — `filetime::set_file_mtime(&path, ft).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:767` — `fs::write(&path, "---\nname: test\n---\nUpdated content.").unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:768` — `filetime::set_file_mtime(&path, ft).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:770` — `let reloaded = loader.reload_changed().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:773` — `loader.skills().get("test").unwrap().instructions,`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:780` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:788` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:798` — `let reloaded = loader.reload_changed().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:862` — `let params = defs[0].parameters.as_ref().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:863` — `assert_eq!(params["required"].as_array().unwrap().len(), 1);`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:864` — `assert_eq!(params["required"].as_array().unwrap()[0], "env");`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:886` — `let params = defs[0].parameters.as_ref().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:887` — `let props = params["properties"].as_object().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:935` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:940` — `let files = collect_md_files(tmp.path()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:946` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:952` — `let files = collect_md_files(tmp.path()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:958` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/skills.rs:959` — `let files = collect_md_files(tmp.path()).unwrap();`
+- `expect` — `crates/nanobot-agent/src/subagent.rs:690` — `let task = task_iter.next().expect("peek guaranteed a value");`
+- `expect` — `crates/nanobot-agent/src/subagent.rs:743` — `let task = task_iter.next().expect("peek guaranteed a value");`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1219` — `let status = mgr.get_status(&id).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1223` — `let status = mgr.get_status(&id).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1232` — `let status = mgr.get_status(&id).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1260` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1273` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1276` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1305` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1329` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1357` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1404` — `let summary = mgr.spawn_parallel(tasks, &config).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1440` — `let summary = mgr.spawn_parallel(tasks, &config).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1471` — `.unwrap()`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1472` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1502` — `let summary = mgr.spawn_parallel(tasks, &config).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1598` — `let summary = mgr.spawn_parallel(tasks, &spawn_config).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1613` — `let failed_result = summary.results.iter().find(|r| !r.success).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1650` — `.unwrap()`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1651` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1668` — `let summary = mgr.spawn_parallel(vec![], &config).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1697` — `let summary = mgr.spawn_parallel(tasks, &config).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1717` — `let summary = mgr.spawn_parallel(tasks, &config).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1742` — `let summary = mgr.spawn_parallel(tasks, &config).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1764` — `let json = serde_json::to_string(&task).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1765` — `let back: SubAgentTask = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1813` — `let h1 = mgr.spawn_single("t1", "p1", None, None).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1814` — `let h2 = mgr.spawn_single("t2", "p2", None, None).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1815` — `let h3 = mgr.spawn_single("t3", "p3", None, None).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1835` — `let _h = mgr.spawn_single("fast", "p", None, None).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1917` — `let h1 = mgr.spawn_single("t1", "p1", None, None).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1918` — `let h2 = mgr.spawn_single("t2", "p2", None, None).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1939` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:1950` — `let handle = mgr.spawn_single("fast", "p", None, None).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:2057` — `let json = serde_json::to_string(&msg).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:2058` — `let back: SubAgentMessage = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:2094` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:2097` — `let status = spawner.status(&id).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/src/subagent.rs:2114` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:147` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:148` — `let session_manager = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:164` — `let mut outbound_rx = bus.consume_outbound().await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:168` — `agent_loop.run().await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:174` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:179` — `.unwrap()`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:180` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:199` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:200` — `let session_manager = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:234` — `let mut outbound_rx = bus.consume_outbound().await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:237` — `agent_loop.run().await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:242` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:246` — `.unwrap()`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:247` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:263` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:264` — `let session_manager = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:276` — `let mut outbound_rx = bus.consume_outbound().await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:279` — `agent_loop.run().await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:282` — `bus.publish_inbound(make_inbound("test")).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:287` — `.unwrap()`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:288` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:293` — `.unwrap()`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:294` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:300` — `.unwrap()`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:301` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:312` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:313` — `let session_manager = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:334` — `let mut outbound_rx = bus.consume_outbound().await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:337` — `agent_loop.run().await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:341` — `bus.publish_inbound(make_inbound("msg1")).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:345` — `.unwrap()`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:346` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:350` — `bus.publish_inbound(make_inbound("msg2")).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:354` — `.unwrap()`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:355` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:386` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:387` — `let session_manager = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:399` — `agent_loop.run().await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:402` — `bus.publish_inbound(make_inbound("test")).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:407` — `.unwrap()`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:408` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:414` — `.unwrap()`
+- `unwrap` — `crates/nanobot-agent/tests/pipeline_e2e.rs:415` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/runner_e2e.rs:129` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/runner_e2e.rs:179` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/runner_e2e.rs:223` — `.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:314` — `registry.register(skill).await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:340` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:341` — `let session_manager = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:409` — `let mut outbound_rx = bus.consume_outbound().await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:414` — `agent_loop.run().await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:420` — `.unwrap();`
+- `expect` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:425` — `.expect("timed out waiting for outbound")`
+- `expect` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:426` — `.expect("outbound channel closed");`
+- `expect` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:435` — `.expect("timed out waiting for Started event")`
+- `expect` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:436` — `.expect("events channel closed");`
+- `expect` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:476` — `.expect("should have stored content");`
+- `expect` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:549` — `.expect("should have captured system prompt");`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:579` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:580` — `let session_manager = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:600` — `let mut outbound_rx = bus.consume_outbound().await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:603` — `agent_loop.run().await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:608` — `.unwrap();`
+- `expect` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:612` — `.expect("timed out")`
+- `expect` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:613` — `.expect("closed");`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:670` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:671` — `let session_manager = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:692` — `agent_loop.run().await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:697` — `.unwrap();`
+- `expect` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:702` — `.expect("timed out")`
+- `expect` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:703` — `.expect("closed");`
+- `expect` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:709` — `.expect("timed out")`
+- `expect` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:710` — `.expect("closed");`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:759` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:760` — `let session_manager = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:791` — `let mut outbound_rx = bus.consume_outbound().await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:794` — `agent_loop.run().await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:800` — `.unwrap();`
+- `expect` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:804` — `.expect("timed out on turn 1")`
+- `expect` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:805` — `.expect("closed on turn 1");`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:814` — `.unwrap();`
+- `expect` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:818` — `.expect("timed out on turn 2")`
+- `expect` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:819` — `.expect("closed on turn 2");`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:849` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:850` — `let session_manager = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:885` — `let mut outbound_rx = bus.consume_outbound().await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:888` — `agent_loop.run().await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:894` — `.unwrap();`
+- `expect` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:898` — `.expect("timed out")`
+- `expect` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:899` — `.expect("closed");`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:907` — `let prompt = system_prompt.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:926` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:927` — `let session_manager = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:949` — `let mut outbound_rx = bus.consume_outbound().await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:952` — `agent_loop.run().await.unwrap();`
+- `unwrap` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:958` — `.unwrap();`
+- `expect` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:962` — `.expect("timed out")`
+- `expect` — `crates/nanobot-agent/tests/self_evolution_e2e.rs:963` — `.expect("closed");`
+- `expect` — `crates/nanobot-api/src/server.rs:207` — `.expect("failed to install Ctrl-C handler");`
+- `unwrap` — `crates/nanobot-api/src/server.rs:969` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:970` — `let session_manager = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:987` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:988` — `let session_manager = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1056` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1057` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1059` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1060` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1084` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1085` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1087` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1088` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1112` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1113` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1114` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1115` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1139` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1140` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1141` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1142` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1153` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1154` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1156` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1157` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1177` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1178` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1180` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1181` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1201` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1202` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1204` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1205` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1218` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1219` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1221` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1222` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1233` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1234` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1236` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1237` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1240` — `.unwrap()`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1267` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1268` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1269` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1271` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1272` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1275` — `.unwrap()`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1290` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1291` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1292` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1307` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1308` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1309` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1311` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1312` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1315` — `.unwrap()`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1331` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1332` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1333` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1335` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1336` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1339` — `.unwrap()`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1355` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1356` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1357` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1373` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1374` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1375` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1377` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1378` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1381` — `.unwrap()`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1396` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1397` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1398` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1400` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1401` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1404` — `.unwrap()`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1419` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1420` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1421` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1423` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1424` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1427` — `.unwrap()`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1438` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1439` — `let session_manager = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1467` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1468` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1469` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1471` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1472` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1475` — `.unwrap()`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1498` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1499` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1500` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1502` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1503` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1512` — `assert!(v["id"].as_str().unwrap().starts_with("chatcmpl-"));`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1514` — `assert!(v["created"].as_u64().unwrap() > 1_700_000_000);`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1531` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1532` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1533` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1539` — `.unwrap()`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1541` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1561` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1562` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1563` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1565` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1566` — `let body_str = String::from_utf8(body.to_vec()).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1621` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1622` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1623` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1624` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1625` — `let body_str = String::from_utf8(body.to_vec()).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1664` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1665` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1666` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1668` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1669` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1685` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1686` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1687` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1703` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1704` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1705` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1716` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1717` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1728` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1729` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1739` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1740` — `let session_manager = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1749` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1750` — `let session_manager = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1762` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1763` — `let session_manager = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1780` — `let req: ChatCompletionRequest = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1791` — `let req: ChatCompletionRequest = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1805` — `let json = serde_json::to_string(&msg).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1806` — `let back: ApiMessage = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1825` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1826` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1827` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1843` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1844` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1845` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1866` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1867` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1868` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1885` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1886` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1887` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1903` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1904` — `Arc::new(SessionManager::new(tmp.path().to_path_buf()).unwrap())`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1933` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1934` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1937` — `let acrh = resp.headers().get("access-control-allow-origin").unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1951` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1952` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1954` — `let acrh = resp.headers().get("access-control-allow-origin").unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1968` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1969` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1994` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1995` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:1998` — `let allow_origin = resp.headers().get("access-control-allow-origin").unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2000` — `let allow_methods = resp.headers().get("access-control-allow-methods").unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2001` — `let methods_str = allow_methods.to_str().unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2005` — `let allow_headers = resp.headers().get("access-control-allow-headers").unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2006` — `let headers_str = allow_headers.to_str().unwrap().to_lowercase();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2010` — `let max_age = resp.headers().get("access-control-max-age").unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2026` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2027` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2046` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2047` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2049` — `let allow_origin = resp.headers().get("access-control-allow-origin").unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2062` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2063` — `Arc::new(SessionManager::new(tmp.path().to_path_buf()).unwrap())`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2086` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2087` — `let resp = app.oneshot(req).await.unwrap();`
+- `expect` — `crates/nanobot-api/src/server.rs:2091` — `.expect("response should have x-request-id");`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2092` — `let rid_str = rid.to_str().unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2107` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2108` — `Arc::new(SessionManager::new(tmp.path().to_path_buf()).unwrap())`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2132` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2133` — `let resp = app.oneshot(req).await.unwrap();`
+- `expect` — `crates/nanobot-api/src/server.rs:2138` — `.expect("response should have x-request-id");`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2139` — `assert_eq!(rid.to_str().unwrap(), "my-custom-id-123");`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2152` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2153` — `Arc::new(SessionManager::new(tmp.path().to_path_buf()).unwrap())`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2182` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2183` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2184` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2189` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2190` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2193` — `assert!(v["error"]["message"].as_str().unwrap().contains("maximum"));`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2204` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2205` — `Arc::new(SessionManager::new(tmp.path().to_path_buf()).unwrap())`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2231` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2232` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2233` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2246` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2247` — `SessionManager::new(tmp.path().to_path_buf()).unwrap()`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2291` — `.unwrap()`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2293` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2298` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2299` — `let body_str = String::from_utf8(body.to_vec()).unwrap();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2340` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/src/server.rs:2341` — `let body_str = String::from_utf8(body.to_vec()).unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:59` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:60` — `let session_manager = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:73` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:74` — `let session_manager = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:92` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:93` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:96` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:97` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:110` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:111` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:114` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:115` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:126` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:127` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:130` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:131` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:134` — `.unwrap()`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:157` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:158` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:159` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:162` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:163` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:166` — `.unwrap()`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:181` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:182` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:183` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:186` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:187` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:190` — `.unwrap()`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:206` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:207` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:208` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:210` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:211` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:214` — `.unwrap()`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:230` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:231` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:232` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:234` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:235` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:238` — `.unwrap()`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:255` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:256` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:257` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:261` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:262` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:265` — `.unwrap()`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:278` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:279` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:301` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:302` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:303` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:306` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:307` — `let v: serde_json::Value = serde_json::from_slice(&body).unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:319` — `assert!(v["id"].as_str().unwrap().starts_with("chatcmpl-"));`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:336` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:337` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:338` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:343` — `.unwrap()`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:345` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:361` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:362` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:363` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:366` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:367` — `let body_str = String::from_utf8(body.to_vec()).unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:411` — `.body(Body::from(serde_json::to_string(&req_body).unwrap()))`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:412` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:413` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:414` — `let body = resp.into_body().collect().await.unwrap().to_bytes();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:415` — `let body_str = String::from_utf8(body.to_vec()).unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:442` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:443` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:454` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:455` — `let resp = app.oneshot(req).await.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:466` — `.unwrap();`
+- `unwrap` — `crates/nanobot-api/tests/http_integration.rs:467` — `let resp = app.oneshot(req).await.unwrap();`
+- `expect` — `crates/nanobot-bus/src/events.rs:271` — `let json = serde_json::to_string(&msg).expect("serialize");`
+- `expect` — `crates/nanobot-bus/src/events.rs:272` — `let back: InboundMessage = serde_json::from_str(&json).expect("deserialize");`
+- `expect` — `crates/nanobot-bus/src/events.rs:294` — `let json = serde_json::to_string(&msg).expect("serialize");`
+- `expect` — `crates/nanobot-bus/src/events.rs:295` — `let back: OutboundMessage = serde_json::from_str(&json).expect("deserialize");`
+- `unwrap` — `crates/nanobot-bus/src/events.rs:301` — `assert_eq!(back.metadata.get("key").unwrap(), "value");`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:143` — `let mut inbound_rx = bus.consume_inbound().await.unwrap();`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:144` — `let _outbound_rx = bus.consume_outbound().await.unwrap();`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:160` — `bus.publish_inbound(msg.clone()).await.unwrap();`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:164` — `.unwrap()`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:165` — `.unwrap();`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:172` — `let _rx = bus.consume_inbound().await.unwrap();`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:180` — `let mut outbound_rx = bus.consume_outbound().await.unwrap();`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:190` — `bus.publish_outbound(msg).await.unwrap();`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:194` — `.unwrap()`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:195` — `.unwrap();`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:202` — `let _rx = bus.consume_outbound().await.unwrap();`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:223` — `.unwrap()`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:224` — `.unwrap();`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:229` — `.unwrap()`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:230` — `.unwrap();`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:252` — `.unwrap()`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:253` — `.unwrap();`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:259` — `.unwrap()`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:260` — `.unwrap();`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:268` — `let mut inbound_rx = bus.consume_inbound().await.unwrap();`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:285` — `bus.publish_inbound(msg.clone()).await.unwrap();`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:289` — `.unwrap()`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:290` — `.unwrap();`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:297` — `let mut rx = bus.consume_inbound().await.unwrap();`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:313` — `sender.send(msg).await.unwrap();`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:317` — `.unwrap()`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:318` — `.unwrap();`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:325` — `let mut rx = bus.consume_outbound().await.unwrap();`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:336` — `sender.send(msg).await.unwrap();`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:340` — `.unwrap()`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:341` — `.unwrap();`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:363` — `.unwrap();`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:367` — `.unwrap()`
+- `unwrap` — `crates/nanobot-bus/src/queue.rs:368` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:997` — `let result = try_handle_command("/validate").unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1006` — `let resp = result.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1009` — `let kb = resp.keyboard.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1049` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1051` — `let mut f = std::fs::File::create(&config_path).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1052` — `f.write_all(yaml.as_bytes()).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1059` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1214` — `let r = try_handle_command("/help").unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1364` — `let r = try_handle_command("/settings").unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1378` — `let kb = r.keyboard.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1383` — `assert!(row[0].callback_data.as_ref().unwrap().contains("settings"));`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1384` — `assert!(row[1].callback_data.as_ref().unwrap().contains("settings"));`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1462` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1470` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1472` — `std::fs::create_dir_all(&data_dir).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1474` — `let mgr = SessionManager::new(data_dir.clone()).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1478` — `mgr.save_session(&session).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1488` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1490` — `std::fs::create_dir_all(&data_dir).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1492` — `let mgr = SessionManager::new(data_dir.clone()).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1498` — `mgr.save_session(&session).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1510` — `let resp = result.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1538` — `let kb = resp.keyboard.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1618` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1620` — `std::fs::create_dir_all(&data_dir).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1622` — `let mgr = SessionManager::new(data_dir).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1626` — `mgr.save_session(&session).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1639` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1657` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1659` — `std::fs::create_dir_all(&data_dir).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1661` — `let mgr = SessionManager::new(data_dir.clone()).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1664` — `mgr.save_session(&session).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1667` — `let resp = handle_callback("history:page:0").unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1673` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1680` — `std::fs::write(&config_path, yaml).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1683` — `let resp = handle_callback("settings:model:switch").unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1692` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1699` — `std::fs::write(&config_path, yaml).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1702` — `let resp = handle_callback("settings:streaming:toggle").unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/commands.rs:1707` — `let resp2 = handle_callback("settings:streaming:toggle").unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/manager.rs:311` — `let (platform, chat_id) = parse_session_key("telegram:123").unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/manager.rs:318` — `let (platform, chat_id) = parse_session_key("telegram:-100:42").unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/manager.rs:325` — `let (platform, chat_id) = parse_session_key("discord:-999888").unwrap();`
+- `expect` — `crates/nanobot-channels/src/platforms/discord.rs:319` — `let proxy = reqwest::Proxy::all(url).expect("Failed to create proxy from env var");`
+- `expect` — `crates/nanobot-channels/src/platforms/discord.rs:323` — `.expect("Failed to build HTTP client with proxy")`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1307` — `let result = channel.connect().await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1316` — `channel.disconnect().await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1335` — `let header = channel.auth_header().unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1363` — `let json = serde_json::to_value(&body).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1381` — `let json = serde_json::to_value(&body).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1405` — `let inbound = rx.try_recv().unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1412` — `let src = inbound.source.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1435` — `let inbound = rx.try_recv().unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1437` — `let src = inbound.source.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1485` — `let json = serde_json::to_value(&body).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1501` — `let json = serde_json::to_value(&body).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1513` — `let payload: GatewayPayload = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1515` — `let hello: HelloData = serde_json::from_value(payload.d).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1527` — `let payload: GatewayPayload = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1531` — `let msg: GatewayMessage = serde_json::from_value(payload.d).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1539` — `let payload: GatewayPayload = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1547` — `let payload: GatewayPayload = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1554` — `let resp: DiscordMessageResponse = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1561` — `let user: DiscordUser = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1571` — `let err = result.error.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1672` — `let parsed: serde_json::Value = serde_json::from_str(&serialized).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1739` — `let payload: GatewayPayload = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1748` — `let payload: GatewayPayload = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1757` — `let payload: GatewayPayload = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1770` — `let ready: ReadyData = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1782` — `let payload: GatewayPayload = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1786` — `let ready: ReadyData = serde_json::from_value(payload.d).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1793` — `let payload: GatewayPayload = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1817` — `let event = rx.try_recv().unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1857` — `let event = rx.try_recv().unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1881` — `let event = rx.try_recv().unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1953` — `state.session_id.as_ref().unwrap(),`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1954` — `state.last_seq.unwrap(),`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1988` — `state.session_id.as_ref().unwrap(),`
+- `unwrap` — `crates/nanobot-channels/src/platforms/discord.rs:1989` — `state.last_seq.unwrap(),`
+- `expect` — `crates/nanobot-channels/src/platforms/telegram.rs:550` — `let proxy = reqwest::Proxy::all(url).expect("Failed to create proxy from env var");`
+- `expect` — `crates/nanobot-channels/src/platforms/telegram.rs:554` — `.expect("Failed to build HTTP client with proxy")`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:1884` — `let result = channel.connect().await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:1892` — `channel.disconnect().await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:1903` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:1915` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:1924` — `channel.send_typing("not_a_number").await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:1962` — `let update: TgUpdate = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:1964` — `let msg = update.message.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:1967` — `let from = msg.from.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:1989` — `let update: TgUpdate = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:1990` — `let msg = update.message.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:1991` — `let photos = msg.photo.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2009` — `let resp: TgResponse<TgBotUser> = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2011` — `let bot = resp.result.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2040` — `TelegramChannel::dispatch_message(&tx, &msg).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2042` — `let inbound = rx.try_recv().unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2051` — `let src = inbound.source.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2080` — `TelegramChannel::dispatch_message(&tx, &msg).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2082` — `let inbound = rx.try_recv().unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2085` — `let src = inbound.source.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2127` — `TelegramChannel::dispatch_message(&tx, &msg).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2129` — `let inbound = rx.try_recv().unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2173` — `TelegramChannel::dispatch_message(&tx, &msg).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2175` — `let inbound = rx.try_recv().unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2204` — `let dispatched = TelegramChannel::dispatch_message(&tx, &msg).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2225` — `let dispatched = TelegramChannel::dispatch_message(&tx, &msg).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2250` — `let dispatched = TelegramChannel::dispatch_message(&tx, &msg).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2277` — `let update: TgUpdate = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2280` — `let cq = update.callback_query.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2283` — `let from = cq.from.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2286` — `let msg = cq.message.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2302` — `let update: TgUpdate = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2304` — `let msg = update.message.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2341` — `let inbound = rx.try_recv().unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2349` — `inbound.metadata.get("tg_callback_data").unwrap(),`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2352` — `let src = inbound.source.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2382` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2391` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2402` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2413` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2424` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2439` — `let json = serde_json::to_value(&body).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2453` — `let json = serde_json::to_value(&body).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2466` — `let json = serde_json::to_value(&body).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2479` — `let json = serde_json::to_value(&body).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2491` — `let json = serde_json::to_value(&body).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2511` — `let json = serde_json::to_value(&body).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2514` — `let reaction = json["reaction"].as_array().unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2524` — `channel.send_reaction("abc", "1", "👀").await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2531` — `channel.send_reaction("123", "xyz", "👀").await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2540` — `let json = serde_json::to_value(&rt).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2684` — `let json = serde_json::to_value(&kb).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2685` — `let buttons = json["inline_keyboard"][0].as_array().unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2700` — `let json = serde_json::to_string(&kb).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2701` — `let parsed: InlineKeyboardMarkup = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2726` — `let ca = CallbackAction::parse("confirm:yes").unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2734` — `let ca = CallbackAction::parse("page:goto:5").unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2742` — `let ca = CallbackAction::parse("menu:select:settings:advanced").unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2782` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2829` — `action: CallbackAction::parse("confirm:yes").unwrap(),`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2832` — `let resp = router.dispatch(ctx).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2846` — `action: CallbackAction::parse("cancel:nope").unwrap(),`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2867` — `action: CallbackAction::parse("menu:open").unwrap(),`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2870` — `let resp = router.dispatch(ctx).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2901` — `action: CallbackAction::parse("cancel:abort").unwrap(),`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2903` — `let resp = router.dispatch(ctx_cancel).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2911` — `action: CallbackAction::parse("page:goto:5").unwrap(),`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2913` — `let resp = router.dispatch(ctx_page).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2936` — `action: CallbackAction::parse("echo:say:hello").unwrap(),`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2939` — `let resp = router.dispatch(ctx).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2953` — `action: CallbackAction::parse("del:confirm").unwrap(),`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2956` — `let resp = router.dispatch(ctx).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2976` — `action: CallbackAction::parse("menu:page:1").unwrap(),`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2979` — `let resp = router.dispatch(ctx).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:2984` — `let kb = keyboard.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:3036` — `action: CallbackAction::parse("menu:open").unwrap(),`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:3118` — `let inbound = rx.try_recv().unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:3194` — `std::env::set_var("NANOBOT_RS_HOME", tempfile::tempdir().unwrap().path());`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:3204` — `action: CallbackAction::parse("settings:page:0").unwrap(),`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:3207` — `let resp = router.dispatch(ctx).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:3229` — `action: CallbackAction::parse("history:page:0").unwrap(),`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:3232` — `let resp = router.dispatch(ctx).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:3256` — `action: CallbackAction::parse("history:page:0").unwrap(),`
+- `unwrap` — `crates/nanobot-channels/src/platforms/telegram.rs:3259` — `let resp = router.dispatch(ctx).await.unwrap();`
+- `expect` — `crates/nanobot-channels/src/platforms/websocket.rs:151` — `listener.local_addr().expect("listener was just bound")`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:555` — `channel.disconnect().await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:576` — `let msg: WsInboundMessage = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:584` — `let msg: WsInboundMessage = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:595` — `let json = serde_json::to_string(&msg).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:596` — `let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:604` — `let json = serde_json::to_string(&msg).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:605` — `let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:616` — `let json = serde_json::to_string(&msg).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:617` — `let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:630` — `let json = serde_json::to_string(&msg).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:631` — `let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:641` — `let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:642` — `let addr = listener.local_addr().unwrap().to_string();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:659` — `let result = channel.connect().await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:663` — `channel.disconnect().await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:670` — `channel.connect().await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:675` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:682` — `channel.disconnect().await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:688` — `channel.connect().await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:693` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:703` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:709` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:715` — `.unwrap()`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:716` — `.unwrap()`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:717` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:721` — `let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:728` — `channel.disconnect().await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:734` — `channel.connect().await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:740` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:750` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:754` — `channel.disconnect().await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:760` — `channel.connect().await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:764` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:773` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:778` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:783` — `.unwrap()`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:784` — `.unwrap()`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:785` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:789` — `let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:797` — `channel.disconnect().await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:803` — `channel.connect().await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:807` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:810` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:822` — `let result = channel.send_message(id, "Hello!", None).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:829` — `.unwrap()`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:830` — `.unwrap()`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:831` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:834` — `.unwrap()`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:835` — `.unwrap()`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:836` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:841` — `channel.disconnect().await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/platforms/websocket.rs:854` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/registry.rs:82` — `let channel = registry.create_channel("telegram").unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/registry.rs:91` — `let channel = registry.create_channel("discord").unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/registry.rs:101` — `let err = result.err().unwrap();`
+- `unwrap` — `crates/nanobot-channels/src/registry.rs:116` — `let channel = registry.create_channel("custom").unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/discord_mock.rs:25` — `let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/discord_mock.rs:26` — `let port = listener.local_addr().unwrap().port();`
+- `unwrap` — `crates/nanobot-channels/tests/discord_mock.rs:29` — `let (stream, _) = listener.accept().await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/discord_mock.rs:34` — `let _ = buf_reader.read_line(&mut request_line).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/discord_mock.rs:40` — `if buf_reader.read_line(&mut line).await.unwrap() == 0 {`
+- `unwrap` — `crates/nanobot-channels/tests/discord_mock.rs:95` — `let result = channel.send_message("12345", "Hello!", None).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/discord_mock.rs:114` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/discord_mock.rs:129` — `let result = channel.send_message("12345", "test", None).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/discord_mock.rs:148` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/discord_mock.rs:177` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/discord_mock.rs:196` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/discord_mock.rs:216` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/discord_mock.rs:231` — `let result = channel.delete_message("12345", "111222333").await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/discord_mock.rs:250` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/discord_mock.rs:265` — `let result = channel.delete_message("12345", "other_msg").await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:76` — `self.sent_messages.lock().unwrap().push((`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:99` — `self.sent_messages.lock().unwrap().push((`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:152` — `manager.start_channel("telegram").await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:173` — `bus.publish_outbound(msg).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:179` — `let recorded = sent.lock().unwrap().clone();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:194` — `manager.start_channel("discord").await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:212` — `bus.publish_outbound(msg).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:217` — `let recorded = sent.lock().unwrap().clone();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:233` — `manager.start_channel("telegram").await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:250` — `bus.publish_outbound(msg).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:255` — `let recorded = sent.lock().unwrap().clone();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:279` — `manager.start_channel("telegram").await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:282` — `let mut inbound_rx = bus.consume_inbound().await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:300` — `handler.send(inbound).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:305` — `.unwrap()`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:306` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:326` — `manager.start_channel("telegram").await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:330` — `manager.stop_channel("telegram").await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:334` — `manager.start_channel("telegram").await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:367` — `manager.start_channel("telegram").await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:368` — `manager.start_channel("discord").await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:398` — `manager.start_channel("telegram").await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:401` — `let mut inbound_rx = bus.consume_inbound().await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:425` — `handler.send(inbound).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:430` — `.unwrap()`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:431` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:444` — `bus.publish_outbound(reply).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:449` — `let recorded = telegram_sent.lock().unwrap().clone();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:531` — `manager.start_channel("telegram").await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:558` — `handler.send(inbound).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:564` — `let recorded = telegram_sent.lock().unwrap().clone();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:578` — `agent_handle.await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:601` — `manager.start_channel("telegram").await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:602` — `manager.start_channel("discord").await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:645` — `handler.send(tg_msg).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:646` — `handler.send(dc_msg).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:652` — `let tg_recorded = telegram_sent.lock().unwrap().clone();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:663` — `let dc_recorded = discord_sent.lock().unwrap().clone();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:676` — `agent_handle.await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:697` — `manager.start_channel("telegram").await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:725` — `handler.send(inbound).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:732` — `let recorded = telegram_sent.lock().unwrap().clone();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:758` — `agent_handle.await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:781` — `manager.start_channel("telegram").await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:782` — `manager.start_channel("discord").await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:810` — `handler.send(inbound).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:816` — `let tg_recorded = telegram_sent.lock().unwrap().clone();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:820` — `let dc_recorded = discord_sent.lock().unwrap().clone();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:830` — `agent_handle.await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:851` — `manager.start_channel("telegram").await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:878` — `handler.send(inbound).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:883` — `let recorded = telegram_sent.lock().unwrap().clone();`
+- `unwrap` — `crates/nanobot-channels/tests/gateway_routing.rs:889` — `agent_handle.await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/proxy_client.rs:51` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/proxy_client.rs:69` — `std::fs::write(&config_path, yaml_content).unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/proxy_client.rs:71` — `let config = load_config(Some(&config_path)).unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/proxy_client.rs:73` — `config.channels.telegram.as_ref().unwrap().token,`
+- `unwrap` — `crates/nanobot-channels/tests/proxy_client.rs:77` — `config.providers.openai.as_ref().unwrap().api_key.as_deref(),`
+- `unwrap` — `crates/nanobot-channels/tests/proxy_client.rs:122` — `let connected = channel.connect().await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/telegram_mock.rs:10` — `let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/telegram_mock.rs:11` — `let port = listener.local_addr().unwrap().port();`
+- `unwrap` — `crates/nanobot-channels/tests/telegram_mock.rs:14` — `let (stream, _) = listener.accept().await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/telegram_mock.rs:21` — `if buf_reader.read_line(&mut line).await.unwrap() == 0 {`
+- `unwrap` — `crates/nanobot-channels/tests/telegram_mock.rs:50` — `let result = channel.send_message("123", "Hello!", None).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/telegram_mock.rs:70` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/telegram_mock.rs:85` — `let result = channel.send_message("999", "test", None).await.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/telegram_mock.rs:88` — `assert!(result.error.unwrap().contains("chat not found"));`
+- `unwrap` — `crates/nanobot-channels/tests/telegram_mock.rs:105` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/telegram_mock.rs:135` — `.unwrap();`
+- `unwrap` — `crates/nanobot-channels/tests/telegram_mock.rs:154` — `.unwrap();`
+- `expect` — `crates/nanobot-config/src/loader.rs:45` — `let re = Regex::new(r"\$\{([^}]+)\}").expect("static regex is valid");`
+- `unwrap` — `crates/nanobot-config/src/loader.rs:91` — `let yaml = serde_yaml::to_string(&config).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/loader.rs:92` — `let parsed: Config = serde_yaml::from_str(&yaml).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/loader.rs:98` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-config/src/loader.rs:102` — `save_config(&config, &config_path).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/loader.rs:105` — `let loaded = load_config(Some(&config_path)).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/loader.rs:115` — `.unwrap();`
+- `unwrap` — `crates/nanobot-config/src/loader.rs:122` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-config/src/loader.rs:135` — `std::fs::write(&config_path, yaml_content).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/loader.rs:137` — `let config = load_config(Some(&config_path)).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/loader.rs:139` — `config.providers.openai.as_ref().unwrap().api_key.as_deref(),`
+- `expect` — `crates/nanobot-config/src/migration.rs:34` — `migrate_config(&mut config).expect("migration should succeed");`
+- `expect` — `crates/nanobot-config/src/migration.rs:43` — `migrate_config(&mut config).expect("migration should succeed");`
+- `unwrap` — `crates/nanobot-config/src/paths.rs:112` — `let home = get_nanobot_home().unwrap();`
+- `unwrap` — `crates/nanobot-config/src/paths.rs:119` — `let home = get_nanobot_home().unwrap();`
+- `unwrap` — `crates/nanobot-config/src/paths.rs:127` — `let path = get_config_path().unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:16` — `//! let result = migrate_from_python(Path::new("~/.nanobot"), &opts).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:827` — `serde_json::from_str(make_full_python_json()).unwrap()`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:892` — `opts.output_file.unwrap().to_str(),`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:910` — `config.providers.openrouter.as_ref().unwrap().api_key,`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:916` — `config.providers.openai.as_ref().unwrap().api_key,`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:920` — `config.providers.openai.as_ref().unwrap().model,`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:932` — `config.providers.ollama.as_ref().unwrap().base_url,`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:937` — `let azure = config.providers.azure_openai.as_ref().unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:957` — `let tg = config.channels.telegram.as_ref().unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:971` — `let dc = config.channels.discord.as_ref().unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:989` — `let sl = config.channels.slack.as_ref().unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1015` — `let py: PythonConfig = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1032` — `config.channels.matrix.as_ref().unwrap().homeserver,`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1036` — `config.channels.dingtalk.as_ref().unwrap().webhook,`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1040` — `config.channels.feishu.as_ref().unwrap().app_id,`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1113` — `let py: PythonConfig = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1125` — `let py: PythonConfig = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1138` — `let py: PythonConfig = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1159` — `let py: PythonConfig = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1164` — `let azure = config.providers.azure_openai.as_ref().unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1179` — `let yaml = serde_yaml::to_string(&config).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1180` — `let parsed: Config = serde_yaml::from_str(&yaml).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1186` — `parsed.channels.telegram.as_ref().unwrap().token,`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1197` — `let main: PythonConfig = serde_json::from_str("{}").unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1201` — `.unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1207` — `let tg = config.channels.telegram.as_ref().unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1218` — `let result = migrate_from_str(make_full_python_json()).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1251` — `let result = migrate_from_str(yaml).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1256` — `result.config.providers.openai.as_ref().unwrap().api_key,`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1261` — `result.config.channels.telegram.as_ref().unwrap().token,`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1274` — `let result = migrate_from_str("{}").unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1285` — `let result = migrate_from_str(make_full_python_json()).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1302` — `let result = migrate_from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1323` — `let result = migrate_from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1339` — `let result = migrate_from_str(make_full_python_json()).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1350` — `let result = migrate_from_str("{}").unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1363` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1365` — `fs::create_dir_all(&py_home).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1367` — `fs::write(py_home.join("config.json"), make_full_python_json()).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1375` — `let result = migrate_from_python(&py_home, &opts).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1382` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1384` — `fs::create_dir_all(&py_home).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1395` — `fs::write(py_home.join("config.yaml"), yaml_content).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1402` — `let result = migrate_from_python(&py_home, &opts).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1405` — `result.config.providers.openai.as_ref().unwrap().api_key,`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1410` — `result.config.channels.telegram.as_ref().unwrap().token,`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1417` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1419` — `fs::create_dir_all(&py_home).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1436` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1438` — `fs::create_dir_all(&py_home).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1445` — `.unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1452` — `let result = migrate_from_python(&py_home, &opts).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1458` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1460` — `fs::create_dir_all(&py_home).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1467` — `.unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1474` — `let result = migrate_from_python(&py_home, &opts).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1477` — `result.config.providers.openai.as_ref().unwrap().api_key,`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1488` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1490` — `fs::create_dir_all(&py_home).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1496` — `.unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1505` — `migrate_from_python(&py_home, &opts).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1517` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1519` — `fs::create_dir_all(&py_home).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1525` — `.unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1534` — `migrate_from_python(&py_home, &opts).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1538` — `let content = fs::read_to_string(&output).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1539` — `let parsed: Config = serde_yaml::from_str(&content).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1549` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1551` — `fs::create_dir_all(&py_home).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1554` — `fs::write(py_home.join("config.json"), "{}").unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1558` — `fs::create_dir_all(&tg_dir).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1563` — `.unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1570` — `let result = migrate_from_python(&py_home, &opts).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1573` — `result.config.channels.telegram.as_ref().unwrap().token,`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1585` — `let json = serde_json::to_string(&py).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1586` — `let py2: PythonConfig = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1601` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1607` — `.unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1609` — `let config = read_python_config(&path).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1615` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1617` — `fs::write(&path, "providers:\n  openai:\n    apiKey: sk-yaml-ext\n").unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1619` — `let config = read_python_config(&path).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1625` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1627` — `fs::write(&path, "providers:\n  openai:\n    apiKey: sk-yml-ext\n").unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1629` — `let config = read_python_config(&path).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1635` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1641` — `.unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_migrate.rs:1643` — `let config = read_python_config(&path).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_schema.rs:407` — `let config: PythonConfig = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_schema.rs:443` — `let config: PythonConfig = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_schema.rs:448` — `config.providers.openrouter.as_ref().unwrap().api_key,`
+- `unwrap` — `crates/nanobot-config/src/python_schema.rs:453` — `config.providers.openai.as_ref().unwrap().api_key,`
+- `unwrap` — `crates/nanobot-config/src/python_schema.rs:457` — `config.providers.openai.as_ref().unwrap().model,`
+- `unwrap` — `crates/nanobot-config/src/python_schema.rs:462` — `config.providers.custom.as_ref().unwrap().api_base,`
+- `unwrap` — `crates/nanobot-config/src/python_schema.rs:469` — `config.channels.telegram.as_ref().unwrap().token,`
+- `unwrap` — `crates/nanobot-config/src/python_schema.rs:473` — `config.channels.telegram.as_ref().unwrap().allow_from,`
+- `unwrap` — `crates/nanobot-config/src/python_schema.rs:478` — `config.channels.discord.as_ref().unwrap().group_policy,`
+- `unwrap` — `crates/nanobot-config/src/python_schema.rs:484` — `let defaults = config.agents.defaults.as_ref().unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_schema.rs:508` — `let config: PythonConfig = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_schema.rs:519` — `let config: PythonConfig = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/python_schema.rs:522` — `config.providers.openai.as_ref().unwrap().api_key,`
+- `expect` — `crates/nanobot-config/src/schema.rs:787` — `let yaml = serde_yaml::to_string(&config).expect("serialize to yaml");`
+- `expect` — `crates/nanobot-config/src/schema.rs:788` — `let parsed: Config = serde_yaml::from_str(&yaml).expect("deserialize from yaml");`
+- `unwrap` — `crates/nanobot-config/src/schema.rs:818` — `let from_yaml: SecurityConfig = serde_yaml::from_str("{}").unwrap();`
+- `unwrap` — `crates/nanobot-config/src/schema.rs:841` — `let config: Config = serde_yaml::from_str(yaml).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/schema.rs:893` — `let config: Config = serde_yaml::from_str(yaml).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/schema.rs:904` — `config.providers.openai.as_ref().unwrap().api_key,`
+- `unwrap` — `crates/nanobot-config/src/schema.rs:910` — `let tg = config.channels.telegram.as_ref().unwrap();`
+- `unwrap` — `crates/nanobot-config/src/schema.rs:950` — `let config: Config = serde_yaml::from_str(yaml).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/schema.rs:991` — `let config: Config = serde_yaml::from_str(yaml).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/schema.rs:1003` — `let config: Config = serde_yaml::from_str(yaml).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/schema.rs:1026` — `let config: Config = serde_yaml::from_str(yaml).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/schema.rs:1036` — `let yaml = serde_yaml::to_string(&dc).unwrap();`
+- `unwrap` — `crates/nanobot-config/src/schema.rs:1037` — `let parsed: DaemonConfig = serde_yaml::from_str(&yaml).unwrap();`
+- `expect` — `crates/nanobot-config/src/validate.rs:253` — `.expect("static regex is valid");`
+- `expect` — `crates/nanobot-config/src/validate.rs:260` — `let full_match = cap.get(0).expect("capture group 0 always exists").as_str();`
+- `unwrap` — `crates/nanobot-core/src/error.rs:148` — `assert_eq!(ok_val.unwrap(), 42);`
+- `unwrap` — `crates/nanobot-core/src/types.rs:343` — `let json = serde_json::to_string(&variant).unwrap();`
+- `unwrap` — `crates/nanobot-core/src/types.rs:344` — `let back: Platform = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-core/src/types.rs:364` — `let json = serde_json::to_string(&role).unwrap();`
+- `unwrap` — `crates/nanobot-core/src/types.rs:365` — `let back: MessageRole = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:595` — `CronService::new(dir.to_path_buf()).unwrap()`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:661` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:669` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:680` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:684` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:686` — `let removed = svc.remove_job(&job.id).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:693` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:695` — `let removed = svc.remove_job("nope").unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:701` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:708` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:710` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:716` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:723` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:731` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:732` — `let found = svc.get_job(&job.id).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:741` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:749` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:760` — `.unwrap()`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:761` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:767` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:771` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:776` — `.unwrap()`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:777` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:784` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:786` — `let result = svc.update_job("nope", None, None, None, None).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:794` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:798` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:801` — `let paused = svc.pause_job(&job.id).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:803` — `let found = svc.get_job(&job.id).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:811` — `let resumed = svc.resume_job(&job.id).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:813` — `let found = svc.get_job(&job.id).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:820` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:822` — `assert!(!svc.pause_job("nope").unwrap());`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:823` — `assert!(!svc.resume_job("nope").unwrap());`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:828` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:832` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:833` — `assert!(svc.pause_job(&job.id).unwrap());`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:834` — `assert!(!svc.pause_job(&job.id).unwrap()); // Already paused`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:841` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:844` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:851` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:855` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:866` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:871` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:886` — `assert!(jobs[0].next_run.unwrap() > Local::now());`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:891` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:895` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:909` — `assert!(jobs[0].next_run.unwrap() > Local::now());`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:914` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:917` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:928` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:932` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:944` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:953` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:966` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:969` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:974` — `let content = std::fs::read_to_string(&state_file).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:975` — `let store: CronStore = serde_json::from_str(&content).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:981` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:989` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:991` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1006` — `assert!(next.unwrap() > Local::now());`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1021` — `assert!(next.unwrap() > Local::now());`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1029` — `let next = next.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1041` — `let next = next.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1051` — `let next = next.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1108` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1124` — `let times = upcoming_from_expression("0 0 * * * * *", 3).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1140` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1151` — `svc.add_job(schedule, make_payload(), None).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1171` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1192` — `svc.persist().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1194` — `let removed = svc.remove_job(&job_id).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1203` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1211` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1229` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1237` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1239` — `let state = svc.get_job_state(&job.id).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1248` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1252` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1256` — `let state = svc.get_job_state(&job.id).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1264` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1268` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1270` — `svc.pause_job(&job.id).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1272` — `let state = svc.get_job_state(&job.id).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1278` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1282` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1284` — `svc.pause_job(&job.id).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1285` — `svc.resume_job(&job.id).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1287` — `let state = svc.get_job_state(&job.id).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1294` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1298` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1303` — `svc.remove_job(&job.id).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1311` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1315` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1320` — `let state = svc.get_job_state(&job.id).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1322` — `assert!(state.last_error.unwrap().contains("timeout"));`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1327` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1330` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1332` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1343` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1352` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1366` — `let state = svc2.get_job_state(&job_id).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1373` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1384` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1391` — `svc.persist().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1402` — `svc.state_store.save_state(&job.id, &state).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1409` — `let job = svc2.get_job(&job_id).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1411` — `assert!(job.next_run.unwrap() > Local::now());`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1417` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1419` — `let svc = CronService::with_state_store(dir.path().to_path_buf(), mem_store).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1427` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1429` — `let state = svc.get_job_state(&job.id).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1437` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1447` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1452` — `let loaded = svc.get_job(&job.id).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1458` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1463` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1470` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1475` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1480` — `.unwrap()`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1481` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1485` — `let loaded = svc.get_job(&job.id).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1491` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1514` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1529` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/service.rs:1539` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:183` — `store.save_state("id1", &state).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:185` — `let loaded = store.load_state("id1").unwrap().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:194` — `assert!(store.load_state("nope").unwrap().is_none());`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:200` — `assert!(store.list_states().unwrap().is_empty());`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:206` — `store.save_state("a", &make_state("a", true, 1)).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:207` — `store.save_state("b", &make_state("b", false, 2)).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:209` — `let states = store.list_states().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:218` — `store.save_state("x", &make_state("x", true, 0)).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:219` — `assert!(store.delete_state("x").unwrap());`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:220` — `assert!(store.load_state("x").unwrap().is_none());`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:226` — `assert!(!store.delete_state("nope").unwrap());`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:232` — `store.save_state("id", &make_state("v1", true, 1)).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:233` — `store.save_state("id", &make_state("v2", false, 2)).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:235` — `let loaded = store.load_state("id").unwrap().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:247` — `store.save_all(&batch).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:249` — `let states = store.list_states().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:256` — `assert!(store.list_states().unwrap().is_empty());`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:263` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:265` — `let store = FileStateStore::new(path.clone()).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:268` — `store.save_state("id1", &state).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:273` — `let loaded = store.load_state("id1").unwrap().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:280` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:282` — `let store = FileStateStore::new(path).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:283` — `assert!(store.load_state("nope").unwrap().is_none());`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:288` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:290` — `let store = FileStateStore::new(path).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:292` — `store.save_state("a", &make_state("a", true, 1)).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:293` — `store.save_state("b", &make_state("b", false, 2)).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:295` — `let states = store.list_states().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:301` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:303` — `let store = FileStateStore::new(path).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:305` — `store.save_state("x", &make_state("x", true, 0)).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:306` — `assert!(store.delete_state("x").unwrap());`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:307` — `assert!(store.load_state("x").unwrap().is_none());`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:312` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:314` — `let store = FileStateStore::new(path).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:315` — `assert!(!store.delete_state("nope").unwrap());`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:320` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:324` — `let store = FileStateStore::new(path.clone()).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:327` — `.unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:331` — `let store2 = FileStateStore::new(path).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:332` — `let loaded = store2.load_state("persist").unwrap().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:339` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:341` — `let store = FileStateStore::new(nested.clone()).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:342` — `store.save_state("x", &make_state("x", true, 1)).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:348` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:350` — `let store = FileStateStore::new(path).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:355` — `store.save_all(&batch).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:357` — `let states = store.list_states().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:363` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:367` — `std::fs::write(&path, "{}").unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:369` — `let store = FileStateStore::new(path).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:370` — `assert!(store.list_states().unwrap().is_empty());`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:375` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:377` — `let store = FileStateStore::new(path).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:380` — `store.save_state("err1", &state).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/state_store.rs:382` — `let loaded = store.load_state("err1").unwrap().unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/types.rs:170` — `let json = serde_json::to_string(kind).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/types.rs:171` — `let back: ScheduleKind = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/types.rs:273` — `let job: CronJob = serde_json::from_str(json).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/types.rs:302` — `let json = serde_json::to_string(&job).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/types.rs:303` — `let back: CronJob = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/types.rs:362` — `let json = serde_json::to_string(&state).unwrap();`
+- `unwrap` — `crates/nanobot-cron/src/types.rs:363` — `let back: CronJobState = serde_json::from_str(&json).unwrap();`
+- `unsafe` — `crates/nanobot-daemon/src/daemonize.rs:42` — `match unsafe { fork() }.context("first fork")? {`
+- `unsafe` — `crates/nanobot-daemon/src/daemonize.rs:54` — `match unsafe { fork() }.context("second fork")? {`
+- `unwrap` — `crates/nanobot-daemon/src/daemonize.rs:63` — `umask(Mode::from_bits(0o022).unwrap());`
+- `unwrap` — `crates/nanobot-daemon/src/logging.rs:63` — `let tmp = TempDir::new().unwrap();`
+- `unwrap` — `crates/nanobot-daemon/src/logging.rs:65` — `let log_dir_str = log_dir.to_str().unwrap();`
+- `unwrap` — `crates/nanobot-daemon/src/logging.rs:80` — `let tmp = TempDir::new().unwrap();`
+- `unwrap` — `crates/nanobot-daemon/src/logging.rs:82` — `let log_dir_str = log_dir.to_str().unwrap();`
+- `unwrap` — `crates/nanobot-daemon/src/pid_file.rs:142` — `let tmp = TempDir::new().unwrap();`
+- `unwrap` — `crates/nanobot-daemon/src/pid_file.rs:144` — `let path_str = path.to_str().unwrap();`
+- `unwrap` — `crates/nanobot-daemon/src/pid_file.rs:146` — `let pf = PidFile::create(path_str).unwrap();`
+- `unwrap` — `crates/nanobot-daemon/src/pid_file.rs:150` — `let pid = PidFile::read_pid(path_str).unwrap();`
+- `unwrap` — `crates/nanobot-daemon/src/pid_file.rs:152` — `assert_eq!(pid.unwrap() as u32, std::process::id());`
+- `unwrap` — `crates/nanobot-daemon/src/pid_file.rs:154` — `pf.clean().unwrap();`
+- `unwrap` — `crates/nanobot-daemon/src/pid_file.rs:160` — `let pid = PidFile::read_pid("/tmp/nonexistent_nanobot_test.pid").unwrap();`
+- `unwrap` — `crates/nanobot-daemon/src/pid_file.rs:166` — `let tmp = TempDir::new().unwrap();`
+- `unwrap` — `crates/nanobot-daemon/src/pid_file.rs:168` — `let path_str = path.to_str().unwrap();`
+- `unwrap` — `crates/nanobot-daemon/src/pid_file.rs:170` — `let _first = PidFile::create(path_str).unwrap();`
+- `unwrap` — `crates/nanobot-daemon/src/pid_file.rs:178` — `let tmp = TempDir::new().unwrap();`
+- `unwrap` — `crates/nanobot-daemon/src/pid_file.rs:180` — `let path_str = path.to_str().unwrap();`
+- `unwrap` — `crates/nanobot-daemon/src/pid_file.rs:182` — `let pf = PidFile::create(path_str).unwrap();`
+- `unwrap` — `crates/nanobot-daemon/src/pid_file.rs:185` — `pf.clean().unwrap();`
+- `unwrap` — `crates/nanobot-daemon/src/pid_file.rs:189` — `let pf2 = PidFile::create(path_str).unwrap();`
+- `unwrap` — `crates/nanobot-daemon/src/pid_file.rs:190` — `pf2.clean().unwrap();`
+- `unwrap` — `crates/nanobot-daemon/src/pid_file.rs:205` — `let tmp = TempDir::new().unwrap();`
+- `unwrap` — `crates/nanobot-daemon/src/pid_file.rs:207` — `let path_str = nested.to_str().unwrap();`
+- `unwrap` — `crates/nanobot-daemon/src/pid_file.rs:209` — `let pf = PidFile::create(path_str).unwrap();`
+- `unwrap` — `crates/nanobot-daemon/src/pid_file.rs:211` — `pf.clean().unwrap();`
+- `unsafe` — `crates/nanobot-daemon/src/signal.rs:8` — `//! (which is unsafe and not async-safe).`
+- `expect` — `crates/nanobot-daemon/src/signal.rs:37` — `let mut sigterm = signal(SignalKind::terminate()).expect("install SIGTERM handler");`
+- `expect` — `crates/nanobot-daemon/src/signal.rs:38` — `let mut sigint = signal(SignalKind::interrupt()).expect("install SIGINT handler");`
+- `expect` — `crates/nanobot-daemon/src/signal.rs:39` — `let mut sighup = signal(SignalKind::hangup()).expect("install SIGHUP handler");`
+- `unsafe` — `crates/nanobot-daemon/src/signal.rs:83` — `let mut sa: libc::sigaction = unsafe { std::mem::zeroed() };`
+- `unsafe` — `crates/nanobot-daemon/src/signal.rs:85` — `unsafe {`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:559` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:567` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:575` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:582` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:592` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:601` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:618` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:629` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:647` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:662` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:668` — `let snapshot = svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:676` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:682` — `let snapshot = svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:689` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:691` — `let snapshot = svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:698` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:708` — `let snapshot = svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:716` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:719` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:728` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:736` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:737` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:739` — `let failure = svc.component_failure_state("comp").unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:746` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:753` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:754` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:756` — `let failure = svc.component_failure_state("comp").unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:761` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:763` — `let failure = svc.component_failure_state("comp").unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:772` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:778` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:779` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:780` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:785` — `let failure = svc.component_failure_state("comp").unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:792` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:799` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:808` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:815` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:816` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:817` — `let failure = svc.component_failure_state("comp").unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:823` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:825` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:826` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:828` — `let failure = svc.component_failure_state("comp").unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:834` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:843` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:844` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:847` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:848` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:859` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:870` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:874` — `.unwrap()`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:875` — `.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:884` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:895` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:896` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:903` — `.unwrap()`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:904` — `.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:915` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:926` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:930` — `.unwrap()`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:931` — `.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:943` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:951` — `svc.persist_state().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:957` — `serde_json::from_str(&std::fs::read_to_string(&state_path).unwrap()).unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:963` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:972` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:977` — `serde_json::from_str(&std::fs::read_to_string(&state_path).unwrap()).unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:984` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:993` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:997` — `serde_json::from_str(&std::fs::read_to_string(&state_path).unwrap()).unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1005` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1009` — `svc.persist_state().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1018` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1027` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1037` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1045` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1056` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1067` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1077` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1081` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1088` — `.unwrap()`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1089` — `.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1102` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1112` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1116` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1122` — `.unwrap()`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1123` — `.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1136` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1147` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1152` — `.unwrap()`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1153` — `.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1159` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1171` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1172` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1192` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1202` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1206` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1213` — `.unwrap()`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1214` — `.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1236` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1247` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1248` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1265` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1275` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1279` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1285` — `.unwrap()`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1286` — `.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1310` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1321` — `let report = svc.generate_full_report().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1331` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1342` — `let report = svc.generate_full_report().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1350` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1357` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1364` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1367` — `assert_eq!(report.unwrap().overall_status, "healthy");`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1372` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1380` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1381` — `svc.run_checks().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/service.rs:1383` — `let report = svc.generate_full_report().await.unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/types.rs:349` — `let json = serde_json::to_string(status).unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/types.rs:350` — `let back: CheckStatus = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/types.rs:499` — `let json = serde_json::to_string(&snap).unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/types.rs:500` — `let back: HealthSnapshot = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/types.rs:533` — `let json = serde_json::to_string(&state).unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/types.rs:534` — `let back: ComponentFailureState = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/types.rs:736` — `let comp_c = report.components.iter().find(|c| c.name == "c").unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/types.rs:751` — `let json = serde_json::to_string(&report).unwrap();`
+- `unwrap` — `crates/nanobot-heartbeat/src/types.rs:752` — `let back: FullHealthReport = serde_json::from_str(&json).unwrap();`
+- `expect` — `crates/nanobot-learning/src/config.rs:140` — `let toml_str = toml::to_string(&config).expect("to_toml");`
+- `expect` — `crates/nanobot-learning/src/config.rs:141` — `let parsed: LearningConfig = toml::from_str(&toml_str).expect("from_toml");`
+- `expect` — `crates/nanobot-learning/src/event.rs:203` — `let received = rx.try_recv().expect("should receive event");`
+- `expect` — `crates/nanobot-learning/src/event.rs:261` — `let json = serde_json::to_string(&event).expect("serialize");`
+- `expect` — `crates/nanobot-learning/src/event.rs:262` — `let decoded: LearningEvent = serde_json::from_str(&json).expect("deserialize");`
+- `expect` — `crates/nanobot-learning/src/event.rs:272` — `let json = serde_json::to_string(&action).expect("serialize");`
+- `expect` — `crates/nanobot-learning/src/event.rs:273` — `let decoded: LearningAction = serde_json::from_str(&json).expect("deserialize");`
+- `expect` — `crates/nanobot-learning/src/processor.rs:273` — `let ts = stats.tools.get("shell").expect("shell stats");`
+- `expect` — `crates/nanobot-learning/src/processor.rs:287` — `let ts = stats.tools.get("web").expect("web stats");`
+- `expect` — `crates/nanobot-learning/src/processor.rs:329` — `let corr = stats.corrections.get("formatting").expect("correction");`
+- `expect` — `crates/nanobot-learning/src/prompt.rs:183` — `let json = serde_json::to_string(&section).expect("serialize");`
+- `expect` — `crates/nanobot-learning/src/prompt.rs:184` — `let decoded: PromptSection = serde_json::from_str(&json).expect("deserialize");`
+- `expect` — `crates/nanobot-learning/src/store.rs:228` — `let dir = TempDir::new().expect("tempdir");`
+- `expect` — `crates/nanobot-learning/src/store.rs:234` — `store.append(&e1).await.expect("append 1");`
+- `expect` — `crates/nanobot-learning/src/store.rs:235` — `store.append(&e2).await.expect("append 2");`
+- `expect` — `crates/nanobot-learning/src/store.rs:237` — `let events = store.read_all().await.expect("read all");`
+- `expect` — `crates/nanobot-learning/src/store.rs:244` — `let dir = TempDir::new().expect("tempdir");`
+- `expect` — `crates/nanobot-learning/src/store.rs:251` — `store.append_batch(&events).await.expect("batch append");`
+- `expect` — `crates/nanobot-learning/src/store.rs:253` — `let read = store.read_all().await.expect("read");`
+- `expect` — `crates/nanobot-learning/src/store.rs:259` — `let dir = TempDir::new().expect("tempdir");`
+- `expect` — `crates/nanobot-learning/src/store.rs:266` — `store.append_batch(&events).await.expect("batch");`
+- `expect` — `crates/nanobot-learning/src/store.rs:268` — `let page = store.read_range(2, 3).await.expect("range");`
+- `expect` — `crates/nanobot-learning/src/store.rs:274` — `let dir = TempDir::new().expect("tempdir");`
+- `expect` — `crates/nanobot-learning/src/store.rs:278` — `assert_eq!(store.count().await.expect("empty count"), 0);`
+- `expect` — `crates/nanobot-learning/src/store.rs:284` — `.expect("append");`
+- `expect` — `crates/nanobot-learning/src/store.rs:286` — `assert_eq!(store.count().await.expect("count"), 7);`
+- `expect` — `crates/nanobot-learning/src/store.rs:291` — `let dir = TempDir::new().expect("tempdir");`
+- `expect` — `crates/nanobot-learning/src/store.rs:299` — `store.append_batch(&events).await.expect("batch");`
+- `expect` — `crates/nanobot-learning/src/store.rs:301` — `store.prune().await.expect("prune");`
+- `expect` — `crates/nanobot-learning/src/store.rs:303` — `let remaining = store.read_all().await.expect("read");`
+- `expect` — `crates/nanobot-learning/src/store.rs:313` — `let dir = TempDir::new().expect("tempdir");`
+- `expect` — `crates/nanobot-learning/src/store.rs:320` — `.expect("append with nested dirs");`
+- `expect` — `crates/nanobot-learning/src/store.rs:328` — `let events = store.read_all().await.expect("should not error");`
+- `expect` — `crates/nanobot-learning/src/store.rs:335` — `let dir = TempDir::new().expect("tempdir");`
+- `expect` — `crates/nanobot-learning/src/store.rs:348` — `store_clone.append(&event).await.expect("append");`
+- `expect` — `crates/nanobot-learning/src/store.rs:360` — `forward_handle.await.expect("join");`
+- `expect` — `crates/nanobot-learning/src/store.rs:362` — `let events = store.read_all().await.expect("read");`
+- `expect` — `crates/nanobot-learning/src/store.rs:369` — `let dir = TempDir::new().expect("tempdir");`
+- `expect` — `crates/nanobot-learning/src/store.rs:388` — `let event = rx.recv().await.expect("recv");`
+- `expect` — `crates/nanobot-learning/src/store.rs:389` — `store.append(&event).await.expect("append");`
+- `expect` — `crates/nanobot-learning/src/store.rs:394` — `let stored = store.read_all().await.expect("read");`
+- `expect` — `crates/nanobot-learning/src/store.rs:406` — `let dir = TempDir::new().expect("tempdir");`
+- `expect` — `crates/nanobot-learning/src/store.rs:416` — `.expect("append");`
+- `expect` — `crates/nanobot-learning/src/store.rs:419` — `assert_eq!(store.count().await.expect("count before prune"), 50);`
+- `expect` — `crates/nanobot-learning/src/store.rs:422` — `store.prune().await.expect("prune");`
+- `expect` — `crates/nanobot-learning/src/store.rs:424` — `let remaining = store.read_all().await.expect("read");`
+- `expect` — `crates/nanobot-learning/src/store.rs:439` — `let dir = TempDir::new().expect("tempdir");`
+- `expect` — `crates/nanobot-learning/src/store.rs:450` — `.expect("append via original");`
+- `expect` — `crates/nanobot-learning/src/store.rs:454` — `.expect("append via clone");`
+- `expect` — `crates/nanobot-learning/src/store.rs:456` — `let events = cloned.read_all().await.expect("read");`
+- `unwrap` — `crates/nanobot-memory/src/config.rs:131` — `let toml_str = config.to_toml().unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/config.rs:132` — `let parsed = MemoryConfig::from_toml(&toml_str).unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/config.rs:142` — `let config = MemoryConfig::from_toml(toml_str).unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/error.rs:82` — `assert_eq!(ok.unwrap(), 42);`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:223` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:225` — `let store = HotStore::new(&config).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:235` — `store.store(entry).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:236` — `let recalled = store.recall(&id).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:238` — `assert_eq!(recalled.unwrap().content, "hello world");`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:244` — `let result = store.recall("nonexistent-id").await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:254` — `store.store(entry).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:255` — `assert_eq!(store.recall(&id).await.unwrap().unwrap().access_count, 1);`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:256` — `assert_eq!(store.recall(&id).await.unwrap().unwrap().access_count, 2);`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:261` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:269` — `let store = HotStore::new(&config).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:270` — `store.store(entry).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:274` — `let content = std::fs::read_to_string(&path).unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:278` — `let store2 = HotStore::new(&config).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:279` — `let recalled = store2.recall(&id).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:281` — `assert_eq!(recalled.unwrap().content, "persisted");`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:290` — `store.store(entry).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:293` — `store.delete(&id).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:295` — `assert!(store.recall(&id).await.unwrap().is_none());`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:302` — `store.delete("no-such-id").await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:311` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:315` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:318` — `store.clear().await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:329` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:333` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:338` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:349` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:353` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:358` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:369` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:373` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:378` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:392` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:399` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:408` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:416` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:420` — `let store = HotStore::new(&config).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:424` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:428` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:439` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:443` — `let store = HotStore::new(&config).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:446` — `store.store(entry).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:451` — `store.store(entry).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:453` — `let recalled = store.recall(&id).await.unwrap().unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:460` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:467` — `let mut content = serde_json::to_string(&valid_entry).unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:470` — `std::fs::write(&path, &content).unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:472` — `let store = HotStore::new(&config).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:473` — `let recalled = store.recall(&valid_id).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/hot_store.rs:475` — `assert_eq!(recalled.unwrap().content, "valid");`
+- `unwrap` — `crates/nanobot-memory/src/types.rs:225` — `let json = serde_json::to_string(&entry).unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/types.rs:226` — `let back: MemoryEntry = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/types.rs:248` — `let json = serde_json::to_string(&cat).unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/types.rs:249` — `let back: MemoryCategory = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:165` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:176` — `store.store(entry).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:177` — `let recalled = store.recall(&id).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:179` — `assert_eq!(recalled.unwrap().content, "warm entry");`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:185` — `let result = store.recall("no-id").await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:195` — `store.store(entry).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:196` — `assert_eq!(store.recall(&id).await.unwrap().unwrap().access_count, 1);`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:197` — `assert_eq!(store.recall(&id).await.unwrap().unwrap().access_count, 2);`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:206` — `store.store(entry).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:209` — `store.delete(&id).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:219` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:223` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:225` — `store.clear().await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:241` — `store.store(e1).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:242` — `store.store(e2).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:243` — `store.store(e3).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:250` — `let results = store.search(&query).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:263` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:267` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:272` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:283` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:287` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:292` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:304` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:310` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:330` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:338` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:342` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:357` — `store.store(e1).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:363` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:368` — `.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:375` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:382` — `store.store(entry).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:387` — `store.store(entry).await.unwrap();`
+- `unwrap` — `crates/nanobot-memory/src/warm_store.rs:389` — `let recalled = store.recall(&id).await.unwrap().unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/anthropic.rs:544` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/anthropic.rs:561` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/anthropic.rs:573` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/anthropic.rs:607` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/anthropic.rs:621` — `let content = converted[0]["content"].as_array().unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/anthropic.rs:634` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/anthropic.rs:654` — `let content = converted[0]["content"].as_array().unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/anthropic.rs:668` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/anthropic.rs:691` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/anthropic.rs:733` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/anthropic.rs:745` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/base.rs:140` — `let json = serde_json::to_string(&req).unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/base.rs:141` — `let back: CompletionRequest = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/base.rs:144` — `assert_eq!(back.tools.as_ref().unwrap().len(), 1);`
+- `unwrap` — `crates/nanobot-providers/src/base.rs:162` — `let json = serde_json::to_string(&resp).unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/base.rs:163` — `let back: CompletionResponse = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/base.rs:166` — `assert_eq!(back.usage.unwrap().total_tokens, Some(15));`
+- `unwrap` — `crates/nanobot-providers/src/middleware.rs:470` — `let result = middleware.complete(make_request()).await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/middleware.rs:482` — `let result = middleware.complete(make_request()).await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/middleware.rs:512` — `let r1 = middleware.complete(make_request()).await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/middleware.rs:514` — `let r2 = middleware.complete(make_request()).await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/middleware.rs:527` — `let stream = middleware.complete_stream(make_request()).await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/middleware.rs:531` — `let chunk = chunks[0].as_ref().unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/middleware.rs:581` — `mw.complete(make_request()).await.unwrap()`
+- `unwrap` — `crates/nanobot-providers/src/middleware.rs:587` — `let result = handle.await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/middleware.rs:643` — `let result = middleware.complete(make_request()).await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/middleware.rs:654` — `config.circuit_breaker.as_ref().unwrap().state_name(),`
+- `unwrap` — `crates/nanobot-providers/src/middleware.rs:689` — `let result = middleware.complete(make_request()).await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/middleware.rs:747` — `.unwrap()`
+- `unwrap` — `crates/nanobot-providers/src/middleware.rs:753` — `let result = middleware.complete(make_request()).await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/openai_compat.rs:510` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/openai_compat.rs:525` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/openai_compat.rs:538` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/openai_compat.rs:540` — `assert_eq!(headers.get("Authorization").unwrap(), "Bearer sk-secret");`
+- `unwrap` — `crates/nanobot-providers/src/openai_compat.rs:541` — `assert_eq!(headers.get("Content-Type").unwrap(), "application/json");`
+- `unwrap` — `crates/nanobot-providers/src/openai_compat.rs:542` — `assert_eq!(headers.get("OpenAI-Organization").unwrap(), "org-test");`
+- `unwrap` — `crates/nanobot-providers/src/openai_compat.rs:554` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/openai_compat.rs:583` — `let temp = body["temperature"].as_f64().unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/openai_compat.rs:585` — `let messages = body["messages"].as_array().unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/openai_compat.rs:600` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/openai_compat.rs:618` — `let messages = body["messages"].as_array().unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/openai_compat.rs:633` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/openai_compat.rs:635` — `assert_eq!(headers.get("Authorization").unwrap(), "Bearer sk-test");`
+- `unwrap` — `crates/nanobot-providers/src/rate_limit.rs:277` — `let total: u64 = handles.into_iter().map(|h| h.join().unwrap()).sum();`
+- `unwrap` — `crates/nanobot-providers/src/retry.rs:791` — `headers.insert("retry-after", "30".parse().unwrap());`
+- `unwrap` — `crates/nanobot-providers/src/retry.rs:804` — `headers.insert("retry-after", "not-a-number".parse().unwrap());`
+- `unwrap` — `crates/nanobot-providers/src/retry.rs:939` — `cb.allow_request().unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/retry.rs:975` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/retry.rs:998` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/retry.rs:1044` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/retry.rs:1069` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/retry.rs:1095` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/retry.rs:1159` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/retry.rs:1231` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/retry.rs:1288` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/retry.rs:1335` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/retry.rs:1360` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/src/retry.rs:1443` — `.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/anthropic_sse.rs:17` — `let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/anthropic_sse.rs:18` — `let port = listener.local_addr().unwrap().port();`
+- `unwrap` — `crates/nanobot-providers/tests/anthropic_sse.rs:21` — `let (stream, _) = listener.accept().await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/anthropic_sse.rs:28` — `if buf_reader.read_line(&mut line).await.unwrap() == 0 {`
+- `unwrap` — `crates/nanobot-providers/tests/anthropic_sse.rs:56` — `let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/anthropic_sse.rs:57` — `let port = listener.local_addr().unwrap().port();`
+- `unwrap` — `crates/nanobot-providers/tests/anthropic_sse.rs:62` — `let (stream, _) = listener.accept().await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/anthropic_sse.rs:69` — `if buf_reader.read_line(&mut line).await.unwrap() == 0 {`
+- `unwrap` — `crates/nanobot-providers/tests/anthropic_sse.rs:103` — `.unwrap()`
+- `unwrap` — `crates/nanobot-providers/tests/anthropic_sse.rs:148` — `let response = provider.complete(make_request(false)).await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/anthropic_sse.rs:151` — `let usage = response.usage.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/anthropic_sse.rs:164` — `let response = provider.complete(make_request(false)).await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/anthropic_sse.rs:169` — `let tool_calls = response.tool_calls.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/anthropic_sse.rs:200` — `let mut stream = provider.complete_stream(make_request(true)).await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/anthropic_sse.rs:204` — `let chunk = chunk_result.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/anthropic_sse.rs:247` — `let mut stream = provider.complete_stream(make_request(true)).await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/anthropic_sse.rs:251` — `let chunk = chunk_result.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/anthropic_sse.rs:282` — `let response = provider.complete(make_request(false)).await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/anthropic_sse.rs:295` — `let response = provider.complete(make_request(false)).await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/openai_sse.rs:18` — `let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/openai_sse.rs:19` — `let port = listener.local_addr().unwrap().port();`
+- `unwrap` — `crates/nanobot-providers/tests/openai_sse.rs:22` — `let (stream, _) = listener.accept().await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/openai_sse.rs:29` — `if buf_reader.read_line(&mut line).await.unwrap() == 0 {`
+- `unwrap` — `crates/nanobot-providers/tests/openai_sse.rs:57` — `let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/openai_sse.rs:58` — `let port = listener.local_addr().unwrap().port();`
+- `unwrap` — `crates/nanobot-providers/tests/openai_sse.rs:63` — `let (stream, _) = listener.accept().await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/openai_sse.rs:70` — `if buf_reader.read_line(&mut line).await.unwrap() == 0 {`
+- `unwrap` — `crates/nanobot-providers/tests/openai_sse.rs:104` — `.unwrap()`
+- `unwrap` — `crates/nanobot-providers/tests/openai_sse.rs:150` — `let response = provider.complete(make_request(false)).await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/openai_sse.rs:153` — `let usage = response.usage.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/openai_sse.rs:167` — `let response = provider.complete(make_request(false)).await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/openai_sse.rs:169` — `let tool_calls = response.tool_calls.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/openai_sse.rs:191` — `let mut stream = provider.complete_stream(make_request(true)).await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/openai_sse.rs:195` — `let chunk = chunk_result.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/openai_sse.rs:228` — `let mut stream = provider.complete_stream(make_request(true)).await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/openai_sse.rs:232` — `let chunk = chunk_result.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/openai_sse.rs:263` — `let response = provider.complete(make_request(false)).await.unwrap();`
+- `unwrap` — `crates/nanobot-providers/tests/openai_sse.rs:276` — `let response = provider.complete(make_request(false)).await.unwrap();`
+- `unwrap` — `crates/nanobot-security/src/network.rs:137` — `assert!(!guard.is_ip_allowed(&"127.0.0.1".parse().unwrap()));`
+- `unwrap` — `crates/nanobot-security/src/network.rs:138` — `assert!(!guard.is_ip_allowed(&"10.0.0.1".parse().unwrap()));`
+- `unwrap` — `crates/nanobot-security/src/network.rs:139` — `assert!(!guard.is_ip_allowed(&"172.16.0.1".parse().unwrap()));`
+- `unwrap` — `crates/nanobot-security/src/network.rs:140` — `assert!(!guard.is_ip_allowed(&"192.168.1.1".parse().unwrap()));`
+- `unwrap` — `crates/nanobot-security/src/network.rs:141` — `assert!(!guard.is_ip_allowed(&"169.254.169.254".parse().unwrap()));`
+- `unwrap` — `crates/nanobot-security/src/network.rs:147` — `assert!(guard.is_ip_allowed(&"8.8.8.8".parse().unwrap()));`
+- `unwrap` — `crates/nanobot-security/src/network.rs:148` — `assert!(guard.is_ip_allowed(&"1.1.1.1".parse().unwrap()));`
+- `unwrap` — `crates/nanobot-security/src/network.rs:154` — `guard.add_whitelist("100.64.0.0/10").unwrap();`
+- `unwrap` — `crates/nanobot-security/src/network.rs:155` — `let tailscale_ip: IpAddr = "100.100.100.100".parse().unwrap();`
+- `unwrap` — `crates/nanobot-security/src/network.rs:157` — `assert!(!guard.is_ip_allowed(&"10.0.0.1".parse().unwrap()));`
+- `unwrap` — `crates/nanobot-security/src/network.rs:183` — `let loopback: IpAddr = "::1".parse().unwrap();`
+- `unwrap` — `crates/nanobot-security/src/network.rs:190` — `let link_local: IpAddr = "fe80::1".parse().unwrap();`
+- `unwrap` — `crates/nanobot-security/src/network.rs:198` — `let public: IpAddr = "2001:4860:4860::8888".parse().unwrap();`
+- `unwrap` — `crates/nanobot-security/src/network.rs:230` — `assert!(!guard.is_ip_allowed(&"127.0.0.1".parse().unwrap()));`
+- `unwrap` — `crates/nanobot-security/src/network.rs:231` — `assert!(guard.is_ip_allowed(&"8.8.8.8".parse().unwrap()));`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:247` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:248` — `let mgr = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:258` — `mgr.save_session(&session).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:267` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:268` — `let mgr = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:272` — `mgr.save_session(&session).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:274` — `mgr.reset_session("test:reset").unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:282` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:283` — `let mgr = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:292` — `mgr.save_session(&s1).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:293` — `mgr.save_session(&s2).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:306` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:307` — `let mgr = SessionManager::with_max_history(tmp.path().to_path_buf(), 3).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:315` — `mgr.save_session(&session).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:323` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:324` — `let mgr = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:337` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:338` — `let mgr = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:353` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:354` — `let mgr = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:367` — `mgr.save_session(&session).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:379` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:380` — `let mgr = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:388` — `mgr.save_session(&s1).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:396` — `mgr.save_session(&s2).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:404` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:405` — `let mgr = SessionManager::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:413` — `mgr.save_session(&s1).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/manager.rs:421` — `mgr.save_session(&s2).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:174` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:178` — `let store = NoteStore::new(notes_dir.clone()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:180` — `assert!(store.list_sessions_with_notes().unwrap().is_empty());`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:185` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:186` — `let store = NoteStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:201` — `store.save_notes("session:abc", &notes).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:203` — `let loaded = store.load_notes("session:abc").unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:211` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:212` — `let store = NoteStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:214` — `let notes = store.load_notes("nonexistent").unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:220` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:221` — `let store = NoteStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:225` — `store.save_notes("session:x", &notes).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:226` — `assert!(store.load_notes("session:x").unwrap().len() == 1);`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:229` — `store.save_notes("session:x", &[]).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:230` — `assert!(store.load_notes("session:x").unwrap().is_empty());`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:235` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:236` — `let store = NoteStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:239` — `store.save_notes("session:del", &notes).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:240` — `assert_eq!(store.list_sessions_with_notes().unwrap().len(), 1);`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:242` — `store.delete_notes("session:del").unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:243` — `assert!(store.load_notes("session:del").unwrap().is_empty());`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:244` — `assert!(store.list_sessions_with_notes().unwrap().is_empty());`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:249` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:250` — `let store = NoteStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:257` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:258` — `let store = NoteStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:269` — `.unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:279` — `.unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:289` — `.unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:291` — `let results = store.search_notes("rest").unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:296` — `let results = store.search_notes("postgresql").unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:303` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:304` — `let store = NoteStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:318` — `.unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:328` — `.unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:330` — `let decisions = store.search_notes_by_tag("decision").unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:333` — `let todos = store.search_notes_by_tag("todo").unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:339` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:340` — `let store = NoteStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:351` — `.unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:353` — `assert_eq!(store.search_notes_by_tag("backend").unwrap().len(), 1);`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:354` — `assert_eq!(store.search_notes_by_tag("BACKEND").unwrap().len(), 1);`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:359` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:360` — `let store = NoteStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:362` — `assert!(store.list_sessions_with_notes().unwrap().is_empty());`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:365` — `store.save_notes("platform:chat1", &notes).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:366` — `store.save_notes("platform:chat2", &notes).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:368` — `let mut keys = store.list_sessions_with_notes().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:384` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:385` — `let store = NoteStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:397` — `.unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:409` — `.unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:421` — `.unwrap();`
+- `unwrap` — `crates/nanobot-session/src/note_store.rs:424` — `let b_notes = store.load_notes("session:b").unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:180` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:181` — `let store = SessionStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:187` — `store.save(&session).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:189` — `let loaded = store.load("test:session1").unwrap().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:197` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:198` — `let store = SessionStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:213` — `store.save(&session).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:215` — `let loaded = store.load("test:notes_persist").unwrap().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:219` — `let note = loaded.get_note("lang").unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:226` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:227` — `let store = SessionStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:234` — `store.save(&session).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:236` — `let loaded = store.load("test:meta").unwrap().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:243` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:244` — `let store = SessionStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:251` — `std::fs::write(&path, old_content).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:253` — `let loaded = store.load("test_old").unwrap().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:261` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:262` — `let store = SessionStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:263` — `assert!(store.load("nonexistent").unwrap().is_none());`
+- `unwrap` — `crates/nanobot-session/src/store.rs:268` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:269` — `let store = SessionStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:273` — `store.save(&session).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:280` — `store.append_entry("test:append", &entry).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:282` — `let loaded = store.load("test:append").unwrap().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:288` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:289` — `let store = SessionStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:293` — `store.save(&session).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:295` — `assert!(store.load("test:delete_me").unwrap().is_some());`
+- `unwrap` — `crates/nanobot-session/src/store.rs:297` — `store.delete("test:delete_me").unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:298` — `assert!(store.load("test:delete_me").unwrap().is_none());`
+- `unwrap` — `crates/nanobot-session/src/store.rs:303` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:304` — `let store = SessionStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:310` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:311` — `let store = SessionStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:313` — `assert!(store.list_keys().unwrap().is_empty());`
+- `unwrap` — `crates/nanobot-session/src/store.rs:317` — `store.save(&s1).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:321` — `store.save(&s2).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:323` — `let mut keys = store.list_keys().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:330` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:331` — `let store = SessionStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:335` — `store.save(&session).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:337` — `let loaded = store.load("telegram:chat/123:thread_456").unwrap().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:343` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:347` — `let store = SessionStore::new(new_dir.clone()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:349` — `assert!(store.list_keys().unwrap().is_empty());`
+- `unwrap` — `crates/nanobot-session/src/store.rs:354` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:355` — `let store = SessionStore::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:359` — `store.save(&session).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:364` — `store.save(&session).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/store.rs:366` — `let loaded = store.load("test:overwrite").unwrap().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/types.rs:539` — `let json = serde_json::to_string(&note).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/types.rs:540` — `let back: Note = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/types.rs:561` — `let note = session.get_note("lang").unwrap();`
+- `unwrap` — `crates/nanobot-session/src/types.rs:580` — `let note = session.get_note("key1").unwrap();`
+- `unwrap` — `crates/nanobot-session/src/types.rs:597` — `let found = session.get_note_by_id(&id).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/types.rs:736` — `let ctx = session.format_notes_context().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/types.rs:772` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/types.rs:773` — `let mgr = crate::manager::SessionManager::new(dir.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/types.rs:782` — `mgr.save_session(&session).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/types.rs:786` — `let note = loaded.get_note("persist").unwrap();`
+- `unwrap` — `crates/nanobot-session/src/types.rs:793` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-session/src/types.rs:797` — `let mgr = crate::manager::SessionManager::new(dir.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/types.rs:804` — `mgr.save_session(&session).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/types.rs:808` — `let mgr2 = crate::manager::SessionManager::new(dir.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-session/src/types.rs:810` — `let note = loaded.get_note("survives_restart").unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/compiler.rs:72` — `let skill = compiler.compile_str("test", VALID_TOML).unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/compiler.rs:79` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/compiler.rs:81` — `std::fs::write(&path, VALID_TOML).unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/compiler.rs:84` — `let skill = compiler.compile_file(&path).unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/compiler.rs:143` — `let skill = compiler.compile_str("test", toml).unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/config.rs:106` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/config.rs:116` — `.unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/config.rs:117` — `let config = SkillConfig::load_from_file(&path).unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/config.rs:131` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/config.rs:133` — `std::fs::write(&path, "not valid toml [[[[").unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/config.rs:145` — `let toml_str = toml::to_string(&config).unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/config.rs:146` — `let parsed: SkillConfig = toml::from_str(&toml_str).unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/error.rs:134` — `assert_eq!(ok.unwrap(), 42);`
+- `unwrap` — `crates/nanobot-skill/src/loader.rs:178` — `std::fs::write(&path, toml::to_string(&manifest).unwrap()).unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/loader.rs:184` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/loader.rs:190` — `let loaded = loader.load_all(&registry).await.unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/loader.rs:210` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/loader.rs:214` — `let skill = loader.load_skill(&path).unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/loader.rs:220` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/loader.rs:224` — `let _ = loader.load_skill(&path).unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/loader.rs:228` — `let skill = loader.load_skill(&path).unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/loader.rs:235` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/loader.rs:239` — `let _ = loader.load_skill(&path).unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/loader.rs:241` — `let skill = loader.reload_skill(&path).unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/loader.rs:247` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/loader.rs:251` — `let _ = loader.load_skill(&path).unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/loader.rs:260` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/loader.rs:263` — `std::fs::write(dir.path().join("bad.toml"), "not valid toml [[[[").unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/loader.rs:265` — `std::fs::write(dir.path().join("readme.md"), "# Skills").unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/loader.rs:269` — `let loaded = loader.load_all(&registry).await.unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/loader.rs:277` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/loader.rs:279` — `std::fs::write(&path, "not valid toml [[[[ ").unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/manifest.rs:259` — `let toml_str = toml::to_string(&m).unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/manifest.rs:260` — `let parsed: SkillManifest = toml::from_str(&toml_str).unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/manifest.rs:272` — `let m: SkillManifest = toml::from_str(toml_str).unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/registry.rs:144` — `registry.register(skill).await.unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/registry.rs:148` — `assert_eq!(got.unwrap().read().name(), "deploy");`
+- `unwrap` — `crates/nanobot-skill/src/registry.rs:154` — `registry.register(make_skill("dup", &["x"])).await.unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/registry.rs:168` — `registry.register(make_skill("rm", &["x"])).await.unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/registry.rs:180` — `registry.register(make_skill("a", &["a"])).await.unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/registry.rs:191` — `.unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/registry.rs:192` — `registry.register(make_skill("beta", &["b"])).await.unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/registry.rs:204` — `.unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/registry.rs:208` — `.unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/registry.rs:222` — `.unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/registry.rs:226` — `.unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/registry.rs:240` — `.unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/registry.rs:257` — `registry.register(s1).await.unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/registry.rs:258` — `registry.register(s2).await.unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/registry.rs:269` — `registry.register(make_skill("conf", &["x"])).await.unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/registry.rs:273` — `.unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/registry.rs:275` — `let skill = registry.get("conf").await.unwrap();`
+- `unwrap` — `crates/nanobot-skill/src/skill.rs:253` — `let output = skill.execute(serde_json::Value::Null).await.unwrap();`
+- `expect` — `crates/nanobot-tools/src/builtins/cron.rs:80` — `let dt = d.and_hms_opt(0, 0, 0).expect("midnight is always valid");`
+- `unwrap` — `crates/nanobot-tools/src/builtins/cron.rs:205` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/cron.rs:234` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/cron.rs:252` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/cron.rs:272` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/cron.rs:294` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/cron.rs:307` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/cron.rs:334` — `let result = parse_schedule("every 5 minutes").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/cron.rs:338` — `let result = parse_schedule("every 1 hour").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/cron.rs:344` — `let result = parse_schedule("at 2025-06-15 09:30").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/cron.rs:351` — `let result = parse_schedule("*/5 * * * *").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:337` — `let required = schema["required"].as_array().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:338` — `let required_names: Vec<&str> = required.iter().map(|v| v.as_str().unwrap()).collect();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:350` — `let required = schema["required"].as_array().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:351` — `let required_names: Vec<&str> = required.iter().map(|v| v.as_str().unwrap()).collect();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:365` — `let required = schema["required"].as_array().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:366` — `let required_names: Vec<&str> = required.iter().map(|v| v.as_str().unwrap()).collect();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:379` — `let required = schema["required"].as_array().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:380` — `let required_names: Vec<&str> = required.iter().map(|v| v.as_str().unwrap()).collect();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:386` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:390` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:395` — `"path": file_path.to_str().unwrap()`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:398` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:406` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:410` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:415` — `"path": file_path.to_str().unwrap(),`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:420` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:448` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:454` — `"path": file_path.to_str().unwrap(),`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:458` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:461` — `let content = tokio::fs::read_to_string(&file_path).await.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:467` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:472` — `"path": file_path.to_str().unwrap(),`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:476` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:478` — `"path": file_path.to_str().unwrap(),`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:483` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:485` — `let content = tokio::fs::read_to_string(&file_path).await.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:491` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:497` — `"path": file_path.to_str().unwrap(),`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:501` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:504` — `let content = tokio::fs::read_to_string(&file_path).await.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:510` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:512` — `tokio::fs::write(&file_path, "hello world").await.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:517` — `"path": file_path.to_str().unwrap(),`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:522` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:525` — `let content = tokio::fs::read_to_string(&file_path).await.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:531` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:535` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:540` — `"path": file_path.to_str().unwrap(),`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:546` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:549` — `let content = tokio::fs::read_to_string(&file_path).await.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:555` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:557` — `tokio::fs::write(&file_path, "hello world").await.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:562` — `"path": file_path.to_str().unwrap(),`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:573` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:576` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:577` — `tokio::fs::write(dir.path().join("b.rs"), "").await.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:580` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:585` — `"path": dir.path().to_str().unwrap()`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:588` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:596` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:597` — `tokio::fs::create_dir(dir.path().join("sub")).await.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:600` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:605` — `"path": dir.path().to_str().unwrap(),`
+- `unwrap` — `crates/nanobot-tools/src/builtins/filesystem.rs:609` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/message.rs:151` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/message.rs:164` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/message.rs:193` — `.unwrap()`
+- `unwrap` — `crates/nanobot-tools/src/builtins/message.rs:228` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/message.rs:230` — `let msg = rx.try_recv().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/message.rs:250` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/message.rs:252` — `let msg = rx.try_recv().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/message.rs:269` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/message.rs:271` — `let msg = rx.try_recv().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:232` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:238` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:244` — `"path": file_path.to_str().unwrap(),`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:248` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:255` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:257` — `fs::write(&file_path, "foo\nbar\nbaz\n").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:263` — `"path": file_path.to_str().unwrap()`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:266` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:284` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:285` — `fs::write(dir.path().join("a.txt"), "findme in a\n").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:286` — `fs::write(dir.path().join("b.txt"), "findme in b\nother\n").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:287` — `fs::write(dir.path().join("c.rs"), "findme in c\n").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:293` — `"path": dir.path().to_str().unwrap()`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:296` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:304` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:305` — `fs::write(dir.path().join("a.txt"), "findme in a\n").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:306` — `fs::write(dir.path().join("b.rs"), "findme in b\n").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:312` — `"path": dir.path().to_str().unwrap(),`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:316` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:324` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:326` — `fs::write(&file_path, "line1\nline2\nMATCH\nline4\nline5\n").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:332` — `"path": file_path.to_str().unwrap(),`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:336` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:345` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:347` — `fs::write(&file_path, "match1\nmatch2\nmatch3\nmatch4\nmatch5\n").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:353` — `"path": file_path.to_str().unwrap(),`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:357` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:379` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:380` — `fs::write(dir.path().join("a.rs"), "").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:381` — `fs::write(dir.path().join("b.rs"), "").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:382` — `fs::write(dir.path().join("c.txt"), "").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:388` — `"path": dir.path().to_str().unwrap()`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:391` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:399` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:404` — `"path": dir.path().to_str().unwrap()`
+- `unwrap` — `crates/nanobot-tools/src/builtins/search.rs:407` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/shell.rs:219` — `let required = schema["required"].as_array().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/shell.rs:220` — `let required_names: Vec<&str> = required.iter().map(|v| v.as_str().unwrap()).collect();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/shell.rs:229` — `assert!(result.unwrap().contains("hello world"));`
+- `unwrap` — `crates/nanobot-tools/src/builtins/shell.rs:256` — `assert!(result.unwrap().contains("exit code: 42"));`
+- `unwrap` — `crates/nanobot-tools/src/builtins/shell.rs:264` — `let output = result.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/shell.rs:271` — `let dir = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/shell.rs:276` — `"cwd": dir.path().to_str().unwrap()`
+- `unwrap` — `crates/nanobot-tools/src/builtins/shell.rs:280` — `assert!(result.unwrap().contains(dir.path().to_str().unwrap()));`
+- `unwrap` — `crates/nanobot-tools/src/builtins/spawn.rs:105` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/spawn.rs:175` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/spawn.rs:191` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/spawn.rs:237` — `.unwrap();`
+- `expect` — `crates/nanobot-tools/src/builtins/web.rs:260` — `let re = regex::Regex::new(r"<[^>]+>").expect("static regex is valid");`
+- `expect` — `crates/nanobot-tools/src/builtins/web.rs:263` — `let ws = regex::Regex::new(r"\s+").expect("static regex is valid");`
+- `unwrap` — `crates/nanobot-tools/src/builtins/web.rs:291` — `let required = schema["required"].as_array().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/builtins/web.rs:292` — `let required_names: Vec<&str> = required.iter().map(|v| v.as_str().unwrap()).collect();`
+- `unwrap` — `crates/nanobot-tools/src/registry.rs:168` — `assert_eq!(tool.unwrap().name(), "test_tool");`
+- `unwrap` — `crates/nanobot-tools/src/registry.rs:222` — `assert_eq!(result.unwrap(), "mock result");`
+- `unwrap` — `crates/nanobot-tools/src/schema.rs:65` — `let json = serde_json::to_value(&schema).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/schema.rs:106` — `let json = serde_json::to_value(&schema_type).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/schema.rs:108` — `let deserialized: SchemaType = serde_json::from_value(json).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1060` — `fs::create_dir_all(parent).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1062` — `fs::write(&path, content).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1072` — `let v = Version::parse("1.2.3").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1080` — `let v = Version::parse("2.5").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1088` — `let v = Version::parse("3").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1106` — `let v = Version::parse("  1.0.0  ").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1129` — `let v1 = Version::parse("1.0.0").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1130` — `let v2 = Version::parse("1.1.0").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1131` — `let v3 = Version::parse("2.0.0").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1132` — `let v4 = Version::parse("1.0.1").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1167` — `let (fm, body) = parse_frontmatter(input).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1168` — `assert_eq!(fm.get("name").unwrap().as_str(), Some("test"));`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1175` — `let (fm, body) = parse_frontmatter(input).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1188` — `let (fm, body) = parse_frontmatter(input).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1189` — `assert_eq!(fm.get("name").unwrap().as_str(), Some("test"));`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1202` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1212` — `let yaml = serde_yaml::from_str("parameters:\n  - query\n  - limit\n").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1220` — `let yaml: serde_yaml::Value = serde_yaml::from_str("name: x").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1248` — `let yaml: serde_yaml::Value = serde_yaml::from_str("tags:\n  - a\n  - b\n").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1254` — `let yaml: serde_yaml::Value = serde_yaml::from_str("name: x\n").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1264` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1270` — `let files = collect_md_files(tmp.path()).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1276` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1277` — `let files = collect_md_files(tmp.path()).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1287` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1289` — `let skills = loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1297` — `let skills = loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1303` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1311` — `let skills = loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1323` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1327` — `let skills = loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1333` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1337` — `let skills = loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1344` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1350` — `let skills = loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1360` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1368` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1370` — `assert_eq!(loader.get("v").unwrap().version.as_deref(), Some("1.2.3"));`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1375` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1379` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1381` — `assert!(loader.get("nov").unwrap().version.is_none());`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1386` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1394` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1396` — `assert_eq!(loader.get("c").unwrap().dependencies, vec!["a", "b"]);`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1401` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1405` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1407` — `assert!(loader.get("solo").unwrap().dependencies.is_empty());`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1416` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1421` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1432` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1446` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1449` — `let pos_a = order.iter().position(|n| n == "a").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1450` — `let pos_b = order.iter().position(|n| n == "b").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1451` — `let pos_c = order.iter().position(|n| n == "c").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1459` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1478` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1481` — `let pos_a = order.iter().position(|n| n == "a").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1482` — `let pos_b = order.iter().position(|n| n == "b").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1483` — `let pos_c = order.iter().position(|n| n == "c").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1484` — `let pos_d = order.iter().position(|n| n == "d").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1494` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1507` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1516` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1524` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1536` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1550` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1558` — `let pos_a = deps.iter().position(|n| n == "a").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1559` — `let pos_b = deps.iter().position(|n| n == "b").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1565` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1569` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1588` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1602` — `let skills = loader.load_all_ordered().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1605` — `let pos_base = names.iter().position(|&n| n == "base").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1606` — `let pos_mid = names.iter().position(|&n| n == "mid").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1607` — `let pos_top = names.iter().position(|&n| n == "top").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1618` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1622` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1632` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1640` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1648` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1657` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1671` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1679` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1681` — `let v = loader.skill_version("v").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1689` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1693` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1704` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1709` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1721` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1725` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1734` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1752` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1767` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1772` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1784` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1803` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1821` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1826` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1840` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1848` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1850` — `assert_eq!(loader.get("deploy").unwrap().category, "devops");`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1855` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1863` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1865` — `assert_eq!(loader.get("deploy").unwrap().category, "infrastructure");`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1870` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1874` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1876` — `assert_eq!(loader.get("tool").unwrap().category, "uncategorized");`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1881` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1889` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1891` — `assert_eq!(loader.get("k8s_deploy").unwrap().category, "devops");`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1900` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1918` — `let skills = loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1932` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1937` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1939` — `assert_eq!(loader.get("alpha").unwrap().instructions, "Alpha.");`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1940` — `assert_eq!(loader.get("beta").unwrap().instructions, "Beta.");`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1946` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1964` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1973` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1980` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1990` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:1995` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2002` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2008` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2019` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2027` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2029` — `let skill = loader.get("search").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2039` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2047` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2049` — `assert_eq!(loader.get("deploy").unwrap().tags, vec!["deploy", "cicd"]);`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2054` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2072` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2083` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2091` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2103` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2113` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2116` — `loader.get("cached").unwrap().instructions,`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2121` — `let skills = loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2128` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2136` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2137` — `assert_eq!(loader.get("change").unwrap().instructions, "Version 1.");`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2140` — `fs::write(&path, "---\nname: change\n---\nVersion 2.").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2142` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2143` — `assert_eq!(loader.get("change").unwrap().instructions, "Version 2.");`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2148` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2152` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2161` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2163` — `assert_eq!(loader.get("a").unwrap().instructions, "Alpha.");`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2168` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2173` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2185` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2190` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2194` — `fs::remove_file(&path_a).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2196` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2204` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2208` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2213` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2246` — `let skill = SkillLoader::parse_skill(content, path, relative).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2255` — `let skill = SkillLoader::parse_skill(content, path, relative).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2265` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2270` — `let skills = loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2275` — `assert_eq!(loader.get("dup").unwrap().instructions, "Second.");`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2287` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2295` — `let yaml = serde_yaml::from_str("parameters:\n  - ''\n  - valid\n").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2307` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2313` — `symlink(tmp.path().join("real.md"), &link).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2316` — `let files = collect_md_files(tmp.path()).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2327` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2335` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2336` — `assert_eq!(loader.get("watched").unwrap().instructions, "Original.");`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2339` — `loader.start_watcher().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2346` — `fs::write(&path, "---\nname: watched\n---\nUpdated.").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2351` — `let reloaded = loader.reload_changed().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2353` — `!reloaded.is_empty() || loader.get("watched").unwrap().instructions == "Updated.",`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2363` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2371` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2374` — `loader.start_watcher().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2386` — `let reloaded = loader.reload_changed().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2388` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2397` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2405` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2410` — `filetime::set_file_mtime(&path, filetime::FileTime::from_system_time(new_time)).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2411` — `fs::write(&path, "---\nname: fallback\n---\nUpdated.").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2412` — `filetime::set_file_mtime(&path, filetime::FileTime::from_system_time(new_time)).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2414` — `let reloaded = loader.reload_changed().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2416` — `assert_eq!(loader.get("fallback").unwrap().instructions, "Updated.");`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2421` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2425` — `loader.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2428` — `loader.start_watcher().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2440` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skill_loader.rs:2441` — `let watcher = SkillWatcher::new(tmp.path().to_path_buf()).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:469` — `fs::create_dir_all(parent).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:471` — `fs::write(&path, content).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:482` — `let (fm, body) = parse_frontmatter(input).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:483` — `assert_eq!(fm.get("name").unwrap().as_str(), Some("test"));`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:490` — `let (fm, body) = parse_frontmatter(input).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:503` — `let (fm, body) = parse_frontmatter(input).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:504` — `assert_eq!(fm.get("name").unwrap().as_str(), Some("test"));`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:517` — `.unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:532` — `let yaml = serde_yaml::from_str("parameters:\n  - query\n  - limit\n").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:540` — `let yaml: serde_yaml::Value = serde_yaml::from_str("name: x").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:550` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:552` — `let skills = store.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:560` — `let skills = store.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:566` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:574` — `let skills = store.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:586` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:590` — `let skills = store.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:596` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:600` — `let skills = store.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:607` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:613` — `let skills = store.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:623` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:631` — `store.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:633` — `let skill = store.get("deploy").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:639` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:647` — `store.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:649` — `let skill = store.get("deploy").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:655` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:659` — `store.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:661` — `let skill = store.get("tool").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:667` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:675` — `store.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:677` — `let skill = store.get("k8s_deploy").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:687` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:705` — `let skills = store.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:719` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:724` — `store.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:726` — `assert_eq!(store.get("alpha").unwrap().instructions, "Alpha.");`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:727` — `assert_eq!(store.get("beta").unwrap().instructions, "Beta.");`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:733` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:751` — `store.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:765` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:772` — `store.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:782` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:787` — `store.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:794` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:800` — `store.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:811` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:819` — `store.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:821` — `let skill = store.get("search").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:831` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:839` — `store.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:841` — `let skill = store.get("deploy").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:851` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:855` — `store.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:857` — `let reloaded = store.reload_changed().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:863` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:867` — `store.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:868` — `assert_eq!(store.get("test").unwrap().instructions, "Original.");`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:872` — `filetime::set_file_mtime(&path, filetime::FileTime::from_system_time(new_time)).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:873` — `fs::write(&path, "---\nname: test\n---\nUpdated.").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:874` — `filetime::set_file_mtime(&path, filetime::FileTime::from_system_time(new_time)).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:876` — `let reloaded = store.reload_changed().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:878` — `assert_eq!(store.get("test").unwrap().instructions, "Updated.");`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:883` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:887` — `store.load_all().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:892` — `let reloaded = store.reload_changed().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:913` — `let yaml: serde_yaml::Value = serde_yaml::from_str("tags:\n  - a\n  - b\n").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:919` — `let yaml: serde_yaml::Value = serde_yaml::from_str("name: x\n").unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:929` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:935` — `let files = collect_md_files(tmp.path()).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:941` — `let tmp = tempfile::tempdir().unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/skills.rs:942` — `let files = collect_md_files(tmp.path()).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/trait_def.rs:167` — `let json = serde_json::to_string(s).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/trait_def.rs:168` — `let back: SpawnStatus = serde_json::from_str(&json).unwrap();`
+- `unwrap` — `crates/nanobot-tools/src/trait_def.rs:212` — `.unwrap();`
+
+## 7. clone() On Likely Large Types
+
+Heuristic basis: direct `.clone()` receiver with locally inferable type `String`, `Vec<_>`, `HashMap<_,_>`, `BTreeMap<_,_>`, `Option<String>`, or `Option<Vec<_>>`.
+
+- `skill_sections.clone()` type `Option<String>` — `crates/nanobot-agent/src/context.rs:105` — `content: skill_sections.clone(),`
+- `tool_call_messages.clone()` type `Vec<SessionEntry>` — `crates/nanobot-agent/src/context_budget.rs:284` — `kept.extend(tool_call_messages.clone());`
+- `kept.clone()` type `Vec<SessionEntry>` — `crates/nanobot-agent/src/context_budget.rs:329` — `kept.clone()`
+- `tool_calls.clone()` type `Vec<CoreToolCall>` — `crates/nanobot-agent/src/runner.rs:170` — `tool_calls: Some(tool_calls.clone()),`
+- `skill.name.clone()` type `String` — `crates/nanobot-agent/src/skills.rs:110` — `self.skills.insert(skill.name.clone(), skill.clone());`
+- `name.clone()` type `String` — `crates/nanobot-agent/src/skills.rs:135` — `reloaded.push(name.clone());`
+- `skill.name.clone()` type `String` — `crates/nanobot-agent/src/skills.rs:163` — `reloaded.push(skill.name.clone());`
+- `skill.name.clone()` type `String` — `crates/nanobot-agent/src/skills.rs:164` — `self.skills.insert(skill.name.clone(), skill);`
+- `p.name.clone()` type `String` — `crates/nanobot-agent/src/skills.rs:250` — `p.name.clone(),`
+- `skill.description.clone()` type `String` — `crates/nanobot-agent/src/skills.rs:268` — `description: Some(skill.description.clone()),`
+- `id.clone()` type `String` — `crates/nanobot-agent/src/subagent.rs:361` — `id: id.clone(),`
+- `t.id.clone()` type `String` — `crates/nanobot-agent/src/subagent.rs:422` — `.map(|t| (t.id.clone(), t.name.clone(), t.status.clone()))`
+- `t.name.clone()` type `String` — `crates/nanobot-agent/src/subagent.rs:422` — `.map(|t| (t.id.clone(), t.name.clone(), t.status.clone()))`
+- `id.clone()` type `String` — `crates/nanobot-agent/src/subagent.rs:469` — `id: id.clone(),`
+- `id.clone()` type `String` — `crates/nanobot-agent/src/subagent.rs:526` — `let task_id = id.clone();`
+- `task.id.clone()` type `String` — `crates/nanobot-agent/src/subagent.rs:693` — `let _task_id = task.id.clone();`
+- `content.clone()` type `String` — `crates/nanobot-agent/src/subagent.rs:824` — `.push(SubAgentMessage::new(from, content.clone()));`
+- `self.tasks.clone()` type `Vec<SubAgentTask>` — `crates/nanobot-agent/src/subagent.rs:882` — `tasks: self.tasks.clone(),`
+- `self.tasks.clone()` type `Vec<SubAgentTask>` — `crates/nanobot-agent/src/subagent.rs:900` — `tasks: self.tasks.clone(),`
+- `t.id.clone()` type `String` — `crates/nanobot-agent/src/subagent.rs:947` — `.map(|t| (t.id.clone(), t.name.clone(), SpawnStatus::from(&t.status)))`
+- `t.name.clone()` type `String` — `crates/nanobot-agent/src/subagent.rs:947` — `.map(|t| (t.id.clone(), t.name.clone(), SpawnStatus::from(&t.status)))`
+- `task.id.clone()` type `String` — `crates/nanobot-agent/src/subagent.rs:958` — `let task_id = task.id.clone();`
+- `task.prompt.clone()` type `String` — `crates/nanobot-agent/src/subagent.rs:979` — `content: task.prompt.clone(),`
+- `self.text.clone()` type `String` — `crates/nanobot-agent/src/subagent.rs:1149` — `content: Some(self.text.clone()),`
+- `config.api.host.clone()` type `String` — `crates/nanobot-api/src/server.rs:109` — `let host = config.api.host.clone();`
+- `config.api.host.clone()` type `String` — `crates/nanobot-api/src/server.rs:136` — `let host = config.api.host.clone();`
+- `m.content.clone()` type `String` — `crates/nanobot-api/src/server.rs:539` — `content: m.content.clone(),`
+- `req.model.clone()` type `String` — `crates/nanobot-api/src/server.rs:573` — `model: req.model.clone(),`
+- `req.model.clone()` type `String` — `crates/nanobot-api/src/server.rs:629` — `let model = req.model.clone();`
+- `model.clone()` type `String` — `crates/nanobot-api/src/server.rs:763` — `if seen_ids.insert(model.clone()) {`
+- `model.clone()` type `String` — `crates/nanobot-api/src/server.rs:765` — `id: model.clone(),`
+- `model.clone()` type `String` — `crates/nanobot-api/src/server.rs:775` — `if seen_ids.insert(model.clone()) {`
+- `model.clone()` type `String` — `crates/nanobot-api/src/server.rs:777` — `id: model.clone(),`
+- `model.clone()` type `String` — `crates/nanobot-api/src/server.rs:787` — `if seen_ids.insert(model.clone()) {`
+- `model.clone()` type `String` — `crates/nanobot-api/src/server.rs:789` — `id: model.clone(),`
+- `model.clone()` type `String` — `crates/nanobot-api/src/server.rs:799` — `if seen_ids.insert(model.clone()) {`
+- `model.clone()` type `String` — `crates/nanobot-api/src/server.rs:801` — `id: model.clone(),`
+- `model.clone()` type `String` — `crates/nanobot-api/src/server.rs:811` — `if seen_ids.insert(model.clone()) {`
+- `model.clone()` type `String` — `crates/nanobot-api/src/server.rs:813` — `id: model.clone(),`
+- `model.clone()` type `String` — `crates/nanobot-api/src/server.rs:823` — `if !model.is_empty() && seen_ids.insert(model.clone()) {`
+- `model.clone()` type `String` — `crates/nanobot-api/src/server.rs:825` — `id: model.clone(),`
+- `a.id.clone()` type `String` — `crates/nanobot-channels/src/platforms/discord.rs:892` — `let sender_id = author.map(|a| a.id.clone()).unwrap_or_default();`
+- `a.username.clone()` type `String` — `crates/nanobot-channels/src/platforms/discord.rs:893` — `let user_name = author.map(|a| a.username.clone());`
+- `msg.channel_id.clone()` type `String` — `crates/nanobot-channels/src/platforms/discord.rs:903` — `chat_id: msg.channel_id.clone(),`
+- `msg.guild_id.clone()` type `Option<String>` — `crates/nanobot-channels/src/platforms/discord.rs:904` — `chat_name: msg.guild_id.clone(),`
+- `msg.channel_id.clone()` type `String` — `crates/nanobot-channels/src/platforms/discord.rs:930` — `chat_id: msg.channel_id.clone(),`
+- `msg.content.clone()` type `String` — `crates/nanobot-channels/src/platforms/discord.rs:931` — `content: msg.content.clone(),`
+- `msg.id.clone()` type `String` — `crates/nanobot-channels/src/platforms/discord.rs:936` — `message_id: Some(msg.id.clone()),`
+- `self.token.clone()` type `String` — `crates/nanobot-channels/src/platforms/discord.rs:1001` — `let token = match self.token.clone() {`
+- `msg.text.clone()` type `Option<String>` — `crates/nanobot-channels/src/platforms/telegram.rs:838` — `let text = msg.text.clone().unwrap_or_default();`
+- `largest.file_id.clone()` type `String` — `crates/nanobot-channels/src/platforms/telegram.rs:874` — `url: largest.file_id.clone(),`
+- `msg.caption.clone()` type `Option<String>` — `crates/nanobot-channels/src/platforms/telegram.rs:876` — `caption: msg.caption.clone(),`
+- `chat_id.clone()` type `String` — `crates/nanobot-channels/src/platforms/telegram.rs:887` — `chat_id: chat_id.clone(),`
+- `msg.chat.title.clone()` type `Option<String>` — `crates/nanobot-channels/src/platforms/telegram.rs:888` — `chat_name: msg.chat.title.clone(),`
+- `sender_id.clone()` type `String` — `crates/nanobot-channels/src/platforms/telegram.rs:893` — `Some(sender_id.clone())`
+- `cq.data.clone()` type `Option<String>` — `crates/nanobot-channels/src/platforms/telegram.rs:952` — `let data = cq.data.clone().unwrap_or_default();`
+- `chat_id.clone()` type `String` — `crates/nanobot-channels/src/platforms/telegram.rs:965` — `chat_id: chat_id.clone(),`
+- `message_id.clone()` type `String` — `crates/nanobot-channels/src/platforms/telegram.rs:966` — `message_id: message_id.clone(),`
+- `sender_id.clone()` type `String` — `crates/nanobot-channels/src/platforms/telegram.rs:967` — `sender_id: sender_id.clone(),`
+- `cq.id.clone()` type `String` — `crates/nanobot-channels/src/platforms/telegram.rs:968` — `callback_query_id: cq.id.clone(),`
+- `chat_id.clone()` type `String` — `crates/nanobot-channels/src/platforms/telegram.rs:1029` — `chat_id: chat_id.clone(),`
+- `msg.chat.title.clone()` type `Option<String>` — `crates/nanobot-channels/src/platforms/telegram.rs:1030` — `chat_name: msg.chat.title.clone(),`
+- `sender_id.clone()` type `String` — `crates/nanobot-channels/src/platforms/telegram.rs:1035` — `Some(sender_id.clone())`
+- `ctx.action.action.clone()` type `String` — `crates/nanobot-channels/src/platforms/telegram.rs:1194` — `let action = ctx.action.action.clone();`
+- `self.token.clone()` type `String` — `crates/nanobot-channels/src/platforms/telegram.rs:1314` — `let token = match self.token.clone() {`
+- `client_id.clone()` type `String` — `crates/nanobot-channels/src/platforms/websocket.rs:180` — `clients.insert(client_id.clone(), client_tx);`
+- `client_id.clone()` type `String` — `crates/nanobot-channels/src/platforms/websocket.rs:186` — `let read_client_id = client_id.clone();`
+- `client_id.clone()` type `String` — `crates/nanobot-channels/src/platforms/websocket.rs:190` — `let write_client_id = client_id.clone();`
+- `client_id.clone()` type `String` — `crates/nanobot-channels/src/platforms/websocket.rs:283` — `chat_id: client_id.clone(),`
+- `client_id.clone()` type `String` — `crates/nanobot-channels/src/platforms/websocket.rs:286` — `user_id: Some(client_id.clone()),`
+- `client_id.clone()` type `String` — `crates/nanobot-channels/src/platforms/websocket.rs:297` — `sender_id: client_id.clone(),`
+- `client_id.clone()` type `String` — `crates/nanobot-channels/src/platforms/websocket.rs:298` — `chat_id: client_id.clone(),`
+- `addr.clone()` type `String` — `crates/nanobot-channels/src/platforms/websocket.rs:650` — `let mut channel = WebSocketChannel::with_addr(addr.clone());`
+- `cp.name.clone()` type `String` — `crates/nanobot-config/src/validate.rs:450` — `} else if !custom_names.insert(cp.name.clone()) {`
+- `name.clone()` type `Option<String>` — `crates/nanobot-cron/src/service.rs:123` — `job.name = Some(name.clone());`
+- `name.clone()` type `Option<String>` — `crates/nanobot-cron/src/service.rs:186` — `name: name.clone(),`
+- `job.name.clone()` type `Option<String>` — `crates/nanobot-cron/src/service.rs:379` — `job_name: job.name.clone(),`
+- `result.clone()` type `Option<String>` — `crates/nanobot-cron/src/service.rs:405` — `last_run.result = result.clone();`
+- `job.name.clone()` type `Option<String>` — `crates/nanobot-cron/src/service.rs:479` — `job_name: job.name.clone(),`
+- `job.name.clone()` type `Option<String>` — `crates/nanobot-cron/src/service.rs:495` — `job_name: job.name.clone(),`
+- `r.result.clone()` type `Option<String>` — `crates/nanobot-cron/src/service.rs:505` — `.and_then(|r| r.result.clone()),`
+- `j.name.clone()` type `Option<String>` — `crates/nanobot-cron/src/service.rs:1336` — `let names: Vec<_> = states.iter().map(|(j, _)| j.name.clone()).collect();`
+- `self.path.clone()` type `String` — `crates/nanobot-daemon/src/pid_file.rs:110` — `let path = self.path.clone();`
+- `self.name.clone()` type `String` — `crates/nanobot-heartbeat/src/service.rs:496` — `component: self.name.clone(),`
+- `self.name.clone()` type `String` — `crates/nanobot-heartbeat/src/service.rs:526` — `component: self.name.clone(),`
+- `c.component.clone()` type `String` — `crates/nanobot-heartbeat/src/types.rs:299` — `name: c.component.clone(),`
+- `c.message.clone()` type `String` — `crates/nanobot-heartbeat/src/types.rs:306` — `message: c.message.clone(),`
+- `self.name.clone()` type `String` — `crates/nanobot-heartbeat/src/types.rs:555` — `component: self.name.clone(),`
+- `self.config.api_key.clone()` type `String` — `crates/nanobot-providers/src/anthropic.rs:357` — `let api_key = self.config.api_key.clone();`
+- `api_key.clone()` type `String` — `crates/nanobot-providers/src/anthropic.rs:371` — `let api_key = api_key.clone();`
+- `api_version.clone()` type `Option<String>` — `crates/nanobot-providers/src/anthropic.rs:372` — `let api_version = api_version.clone();`
+- `self.config.api_key.clone()` type `String` — `crates/nanobot-providers/src/anthropic.rs:470` — `let api_key = self.config.api_key.clone();`
+- `api_key.clone()` type `String` — `crates/nanobot-providers/src/anthropic.rs:486` — `let api_key = api_key.clone();`
+- `api_version.clone()` type `Option<String>` — `crates/nanobot-providers/src/anthropic.rs:487` — `let api_version = api_version.clone();`
+- `id.clone()` type `String` — `crates/nanobot-providers/src/openai_compat.rs:298` — `Some(id.clone())`
+- `name.clone()` type `String` — `crates/nanobot-providers/src/openai_compat.rs:303` — `Some(name.clone())`
+- `entry.model.clone()` type `String` — `crates/nanobot-providers/src/registry.rs:82` — `model: entry.model.clone().unwrap_or_default(),`
+- `entry.model.clone()` type `String` — `crates/nanobot-providers/src/registry.rs:100` — `model: entry.model.clone().unwrap_or_default(),`
+- `entry.model.clone()` type `String` — `crates/nanobot-providers/src/registry.rs:118` — `model: entry.model.clone().unwrap_or_default(),`
+- `entry.model.clone()` type `String` — `crates/nanobot-providers/src/registry.rs:136` — `model: entry.model.clone().unwrap_or_default(),`
+- `entry.model.clone()` type `String` — `crates/nanobot-providers/src/registry.rs:153` — `model: entry.model.clone().unwrap_or_default(),`
+- `entry.content.clone()` type `String` — `crates/nanobot-session/src/types.rs:135` — `content: entry.content.clone(),`
+- `entry.name.clone()` type `Option<String>` — `crates/nanobot-session/src/types.rs:136` — `name: entry.name.clone(),`
+- `entry.tool_call_id.clone()` type `String` — `crates/nanobot-session/src/types.rs:137` — `tool_call_id: entry.tool_call_id.clone(),`
+- `entry.tool_calls.clone()` type `Option<Vec<nanobot_core::ToolCall>>` — `crates/nanobot-session/src/types.rs:138` — `tool_calls: entry.tool_calls.clone(),`
+- `id.clone()` type `String` — `crates/nanobot-session/src/types.rs:596` — `let id = session.notes[0].id.clone();`
+- `name.clone()` type `String` — `crates/nanobot-skill/src/registry.rs:92` — `name: name.clone(),`
+- `self.chat_id.clone()` type `Option<String>` — `crates/nanobot-tools/src/builtins/message.rs:87` — `None => self.chat_id.clone().ok_or_else(|| {`
+- `skill.name.clone()` type `String` — `crates/nanobot-tools/src/skills.rs:155` — `.insert(skill.name.clone(), skill.category.clone());`
+- `skill.category.clone()` type `String` — `crates/nanobot-tools/src/skills.rs:155` — `.insert(skill.name.clone(), skill.category.clone());`
+- `skill.name.clone()` type `String` — `crates/nanobot-tools/src/skills.rs:156` — `self.by_name.insert(skill.name.clone(), skill.clone());`
+- `updated.name.clone()` type `String` — `crates/nanobot-tools/src/skills.rs:188` — `.insert(updated.name.clone(), updated.category.clone());`
+- `updated.category.clone()` type `String` — `crates/nanobot-tools/src/skills.rs:188` — `.insert(updated.name.clone(), updated.category.clone());`
+- `name.clone()` type `String` — `crates/nanobot-tools/src/skills.rs:190` — `reloaded.push(name.clone());`
+- `skill.name.clone()` type `String` — `crates/nanobot-tools/src/skills.rs:218` — `reloaded.push(skill.name.clone());`
+- `skill.name.clone()` type `String` — `crates/nanobot-tools/src/skills.rs:220` — `.insert(skill.name.clone(), skill.category.clone());`
+- `skill.category.clone()` type `String` — `crates/nanobot-tools/src/skills.rs:220` — `.insert(skill.name.clone(), skill.category.clone());`
+- `skill.name.clone()` type `String` — `crates/nanobot-tools/src/skills.rs:221` — `self.by_name.insert(skill.name.clone(), skill);`
+
+## 8. Module Sizes
+
+### Per file LOC
+
+- `crates/nanobot-channels/src/platforms/telegram.rs` — 3268 LOC
+- `crates/nanobot-config/src/validate.rs` — 2981 LOC
+- `crates/nanobot-tools/src/skill_loader.rs` — 2445 LOC
+- `crates/nanobot-api/src/server.rs` — 2353 LOC
+- `crates/nanobot-agent/src/subagent.rs` — 2119 LOC
+- `crates/nanobot-channels/src/platforms/discord.rs` — 2092 LOC
+- `crates/nanobot-agent/src/notes.rs` — 2034 LOC
+- `crates/nanobot-channels/src/commands.rs` — 1761 LOC
+- `crates/nanobot-config/src/python_migrate.rs` — 1646 LOC
+- `crates/nanobot-cron/src/service.rs` — 1549 LOC
+- `crates/nanobot-agent/src/heartbeat.rs` — 1547 LOC
+- `crates/nanobot-agent/src/loop_mod.rs` — 1544 LOC
+- `crates/nanobot-providers/src/retry.rs` — 1470 LOC
+- `crates/nanobot-heartbeat/src/service.rs` — 1386 LOC
+- `crates/nanobot-config/src/schema.rs` — 1043 LOC
+- `crates/nanobot-agent/tests/self_evolution_e2e.rs` — 990 LOC
+- `crates/nanobot-agent/src/skills.rs` — 962 LOC
+- `crates/nanobot-tools/src/skills.rs` — 945 LOC
+- `crates/nanobot-channels/tests/gateway_routing.rs` — 894 LOC
+- `crates/nanobot-channels/src/platforms/websocket.rs` — 867 LOC
+- `crates/nanobot-agent/src/context_budget.rs` — 866 LOC
+- `crates/nanobot-session/src/types.rs` — 814 LOC
+- `crates/nanobot-providers/src/middleware.rs` — 757 LOC
+- `crates/nanobot-heartbeat/src/types.rs` — 756 LOC
+- `crates/nanobot-providers/src/anthropic.rs` — 748 LOC
+- `crates/nanobot-providers/src/openai_compat.rs` — 638 LOC
+- `crates/nanobot-tools/src/builtins/filesystem.rs` — 613 LOC
+- `crates/nanobot-agent/src/compaction.rs` — 569 LOC
+- `crates/nanobot-config/src/python_schema.rs` — 526 LOC
+- `crates/nanobot-agent/src/context.rs` — 512 LOC
+- `crates/nanobot-memory/src/hot_store.rs` — 511 LOC
+- `crates/nanobot-core/src/types.rs` — 488 LOC
+- `crates/nanobot-channels/src/manager.rs` — 481 LOC
+- `crates/nanobot-api/tests/http_integration.rs` — 469 LOC
+- `crates/nanobot-learning/src/store.rs` — 459 LOC
+- `crates/nanobot-session/src/note_store.rs` — 428 LOC
+- `crates/nanobot-tools/src/builtins/search.rs` — 427 LOC
+- `crates/nanobot-session/src/manager.rs` — 426 LOC
+- `crates/nanobot-agent/tests/pipeline_e2e.rs` — 419 LOC
+- `crates/nanobot-memory/src/warm_store.rs` — 393 LOC
+- `crates/nanobot-learning/src/processor.rs` — 390 LOC
+- `crates/nanobot-cron/src/state_store.rs` — 386 LOC
+- `crates/nanobot-bus/src/queue.rs` — 371 LOC
+- `crates/nanobot-session/src/store.rs` — 371 LOC
+- `crates/nanobot-cron/src/types.rs` — 369 LOC
+- `crates/nanobot-tools/src/builtins/cron.rs` — 360 LOC
+- `crates/nanobot-tools/src/registry.rs` — 339 LOC
+- `crates/nanobot-skill/src/skill.rs` — 332 LOC
+- `crates/nanobot-providers/src/registry.rs` — 328 LOC
+- `crates/nanobot-agent/src/runner.rs` — 324 LOC
+- `crates/nanobot-tools/src/builtins/message.rs` — 313 LOC
+- `crates/nanobot-providers/tests/anthropic_sse.rs` — 310 LOC
+- `crates/nanobot-tools/src/builtins/web.rs` — 309 LOC
+- `crates/nanobot-bus/src/events.rs` — 303 LOC
+- `crates/nanobot-memory/src/types.rs` — 299 LOC
+- `crates/nanobot-channels/tests/discord_mock.rs` — 296 LOC
+- `crates/nanobot-tools/src/builtins/shell.rs` — 294 LOC
+- `crates/nanobot-providers/tests/openai_sse.rs` — 291 LOC
+- `crates/nanobot-skill/src/registry.rs` — 287 LOC
+- `crates/nanobot-skill/src/loader.rs` — 285 LOC
+- `crates/nanobot-skill/src/manifest.rs` — 283 LOC
+- `crates/nanobot-providers/src/rate_limit.rs` — 281 LOC
+- `crates/nanobot-learning/src/event.rs` — 276 LOC
+- `crates/nanobot-tools/src/builtins/spawn.rs` — 241 LOC
+- `crates/nanobot-security/src/network.rs` — 233 LOC
+- `crates/nanobot-agent/tests/runner_e2e.rs` — 227 LOC
+- `crates/nanobot-tools/src/trait_def.rs` — 215 LOC
+- `crates/nanobot-daemon/src/pid_file.rs` — 213 LOC
+- `crates/nanobot-providers/src/base.rs` — 197 LOC
+- `crates/nanobot-learning/src/prompt.rs` — 187 LOC
+- `crates/nanobot-channels/tests/telegram_mock.rs` — 184 LOC
+- `crates/nanobot-agent/src/memory.rs` — 183 LOC
+- `crates/nanobot-config/src/loader.rs` — 158 LOC
+- `crates/nanobot-memory/src/config.rs` — 154 LOC
+- `crates/nanobot-core/src/error.rs` — 153 LOC
+- `crates/nanobot-skill/src/config.rs` — 149 LOC
+- `crates/nanobot-skill/src/compiler.rs` — 147 LOC
+- `crates/nanobot-daemon/src/signal.rs` — 146 LOC
+- `crates/nanobot-learning/src/config.rs` — 146 LOC
+- `crates/nanobot-skill/src/error.rs` — 139 LOC
+- `crates/nanobot-config/src/paths.rs` — 134 LOC
+- `crates/nanobot-agent/src/hook.rs` — 133 LOC
+- `crates/nanobot-channels/tests/proxy_client.rs` — 124 LOC
+- `crates/nanobot-daemon/src/daemonize.rs` — 124 LOC
+- `crates/nanobot-config/examples/migrate.rs` — 120 LOC
+- `crates/nanobot-channels/src/registry.rs` — 119 LOC
+- `crates/nanobot-tools/src/schema.rs` — 114 LOC
+- `crates/nanobot-core/src/constants.rs` — 101 LOC
+- `crates/nanobot-daemon/src/logging.rs` — 91 LOC
+- `crates/nanobot-memory/src/error.rs` — 87 LOC
+- `crates/nanobot-channels/src/base.rs` — 76 LOC
+- `crates/nanobot-agent/src/lib.rs` — 57 LOC
+- `crates/nanobot-config/src/migration.rs` — 47 LOC
+- `crates/nanobot-memory/src/store.rs` — 43 LOC
+- `crates/nanobot-providers/src/lib.rs` — 37 LOC
+- `crates/nanobot-tools/src/builtins/mod.rs` — 27 LOC
+- `crates/nanobot-memory/src/lib.rs` — 24 LOC
+- `crates/nanobot-channels/src/lib.rs` — 22 LOC
+- `crates/nanobot-skill/src/lib.rs` — 22 LOC
+- `crates/nanobot-daemon/src/lib.rs` — 21 LOC
+- `crates/nanobot-config/src/lib.rs` — 19 LOC
+- `crates/nanobot-learning/src/lib.rs` — 19 LOC
+- `crates/nanobot-tools/src/lib.rs` — 15 LOC
+- `crates/nanobot-heartbeat/src/lib.rs` — 14 LOC
+- `crates/nanobot-session/src/lib.rs` — 13 LOC
+- `crates/nanobot-cron/src/lib.rs` — 12 LOC
+- `crates/nanobot-core/src/lib.rs` — 11 LOC
+- `crates/nanobot-bus/src/lib.rs` — 9 LOC
+- `crates/nanobot-api/src/lib.rs` — 7 LOC
+- `crates/nanobot-security/src/lib.rs` — 7 LOC
+- `crates/nanobot-channels/src/platforms/mod.rs` — 5 LOC
+
+### Per crate LOC
+
+- `nanobot-agent` — 12486 LOC
+- `nanobot-channels` — 10189 LOC
+- `nanobot-config` — 6674 LOC
+- `nanobot-tools` — 6657 LOC
+- `nanobot-providers` — 5057 LOC
+- `nanobot-api` — 2829 LOC
+- `nanobot-cron` — 2316 LOC
+- `nanobot-heartbeat` — 2156 LOC
+- `nanobot-session` — 2052 LOC
+- `nanobot-skill` — 1644 LOC
+- `nanobot-memory` — 1511 LOC
+- `nanobot-learning` — 1477 LOC
+- `nanobot-core` — 753 LOC
+- `nanobot-bus` — 683 LOC
+- `nanobot-daemon` — 595 LOC
+- `nanobot-security` — 240 LOC
+
+### Largest modules
+
+- `crates/nanobot-channels/src/platforms/telegram.rs` — 3268 LOC
+- `crates/nanobot-config/src/validate.rs` — 2981 LOC
+- `crates/nanobot-tools/src/skill_loader.rs` — 2445 LOC
+- `crates/nanobot-api/src/server.rs` — 2353 LOC
+- `crates/nanobot-agent/src/subagent.rs` — 2119 LOC
+- `crates/nanobot-channels/src/platforms/discord.rs` — 2092 LOC
+- `crates/nanobot-agent/src/notes.rs` — 2034 LOC
+- `crates/nanobot-channels/src/commands.rs` — 1761 LOC
+- `crates/nanobot-config/src/python_migrate.rs` — 1646 LOC
+- `crates/nanobot-cron/src/service.rs` — 1549 LOC
+- `crates/nanobot-agent/src/heartbeat.rs` — 1547 LOC
+- `crates/nanobot-agent/src/loop_mod.rs` — 1544 LOC
+- `crates/nanobot-providers/src/retry.rs` — 1470 LOC
+- `crates/nanobot-heartbeat/src/service.rs` — 1386 LOC
+- `crates/nanobot-config/src/schema.rs` — 1043 LOC
+- `crates/nanobot-agent/tests/self_evolution_e2e.rs` — 990 LOC
+- `crates/nanobot-agent/src/skills.rs` — 962 LOC
+- `crates/nanobot-tools/src/skills.rs` — 945 LOC
+- `crates/nanobot-channels/tests/gateway_routing.rs` — 894 LOC
+- `crates/nanobot-channels/src/platforms/websocket.rs` — 867 LOC
+- `crates/nanobot-agent/src/context_budget.rs` — 866 LOC
+- `crates/nanobot-session/src/types.rs` — 814 LOC
+- `crates/nanobot-providers/src/middleware.rs` — 757 LOC
+- `crates/nanobot-heartbeat/src/types.rs` — 756 LOC
+- `crates/nanobot-providers/src/anthropic.rs` — 748 LOC
+

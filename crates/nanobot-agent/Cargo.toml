@@ -13,6 +13,7 @@ nanobot-tools = { path = "../nanobot-tools" }
 nanobot-memory = { path = "../nanobot-memory" }
 nanobot-cron = { path = "../nanobot-cron" }
 nanobot-heartbeat = { path = "../nanobot-heartbeat" }
+nanobot-skill = { path = "../nanobot-skill" }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }

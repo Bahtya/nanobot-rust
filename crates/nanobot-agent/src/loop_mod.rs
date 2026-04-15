@@ -25,6 +25,7 @@ use nanobot_memory::types::{MemoryCategory, MemoryEntry, MemoryQuery};
 use nanobot_memory::MemoryStore as AsyncMemoryStore;
 use nanobot_providers::ProviderRegistry;
 use nanobot_session::SessionManager;
+use nanobot_skill::SkillRegistry;
 use nanobot_tools::ToolRegistry;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -39,6 +40,7 @@ pub struct AgentLoop {
     #[allow(dead_code)]
     provider_registry: Arc<ProviderRegistry>,
     tool_registry: Arc<ToolRegistry>,
+    skill_registry: Option<Arc<SkillRegistry>>,
     hooks: Arc<RwLock<CompositeHook>>,
     running: Arc<RwLock<bool>>,
     compaction_config: CompactionConfig,
@@ -61,28 +63,18 @@ impl AgentLoop {
         provider_registry: ProviderRegistry,
         tool_registry: ToolRegistry,
     ) -> Self {
-        let config = Arc::new(config);
-        let bus = Arc::new(bus);
-        let session_manager = Arc::new(session_manager);
-        let provider_registry = Arc::new(provider_registry);
-        let tool_registry = Arc::new(tool_registry);
-        let hooks = Arc::new(RwLock::new(CompositeHook::new()));
-        let running = Arc::new(RwLock::new(false));
-        let compaction_config = CompactionConfig::default();
-        let connected_channels = Arc::new(parking_lot::RwLock::new(HashSet::new()));
-        let agent_activity = Arc::new(parking_lot::RwLock::new(None));
-
         Self {
-            config,
-            bus,
-            session_manager,
-            provider_registry,
-            tool_registry,
-            hooks,
-            running,
-            compaction_config,
-            connected_channels,
-            agent_activity,
+            config: Arc::new(config),
+            bus: Arc::new(bus),
+            session_manager: Arc::new(session_manager),
+            provider_registry: Arc::new(provider_registry),
+            tool_registry: Arc::new(tool_registry),
+            skill_registry: None,
+            hooks: Arc::new(RwLock::new(CompositeHook::new())),
+            running: Arc::new(RwLock::new(false)),
+            compaction_config: CompactionConfig::default(),
+            connected_channels: Arc::new(parking_lot::RwLock::new(HashSet::new())),
+            agent_activity: Arc::new(parking_lot::RwLock::new(None)),
             subagent_manager: None,
             memory_store: None,
         }
@@ -200,15 +192,25 @@ impl AgentLoop {
         // Recall relevant memories from the memory store (if configured).
         let recalled_memory = self.recall_memories(&msg.content).await;
 
-        // Build context
+        // Build context (with memory recall + skill matching if attached)
         let system_prompt = {
-            let context_builder = ContextBuilder::new(&self.config);
+            let mut context_builder = ContextBuilder::new(&self.config);
+
+            // Match skills against user message and inject into prompt
+            if let Some(ref registry) = self.skill_registry {
+                let skill_sections = self.build_skill_sections(registry, &msg.content).await;
+                if !skill_sections.is_empty() {
+                    context_builder = context_builder.with_skills(skill_sections);
+                }
+            }
+
             context_builder.build_system_prompt(
                 &msg,
                 &session,
                 &self.tool_registry,
                 recalled_memory.as_deref(),
             )?
+
         };
 
         // Set up event callback for this session
@@ -408,6 +410,49 @@ impl AgentLoop {
         *self.agent_activity.write() = Some(chrono::Local::now());
     }
 
+    /// Match skills against a query and build the prompt section for injection.
+    ///
+    /// Queries the [`SkillRegistry`] for matching skills, then retrieves each
+    /// matched skill's steps and pitfalls to build a prompt section. Returns
+    /// an empty string if no skills match.
+    async fn build_skill_sections(
+        &self,
+        registry: &SkillRegistry,
+        query: &str,
+    ) -> String {
+        let matches = registry.match_skills(query).await;
+        if matches.is_empty() {
+            return String::new();
+        }
+
+        let mut parts = vec!["## Matched Skills".to_string()];
+
+        for skill_match in matches {
+            if let Some(skill_guard) = registry.get(&skill_match.name).await {
+                let skill = skill_guard.read();
+                let manifest = skill.manifest();
+
+                parts.push(format!("\n### {} ({})\n", manifest.name, manifest.description));
+
+                if !manifest.steps.is_empty() {
+                    parts.push("**Steps:**".to_string());
+                    for (i, step) in manifest.steps.iter().enumerate() {
+                        parts.push(format!("{}. {step}", i + 1));
+                    }
+                }
+
+                if !manifest.pitfalls.is_empty() {
+                    parts.push("**Pitfalls:**".to_string());
+                    for pit in &manifest.pitfalls {
+                        parts.push(format!("- {pit}"));
+                    }
+                }
+            }
+        }
+
+        parts.join("\n")
+    }
+
     /// Return the list of channel names that have configuration present.
     fn configured_channel_names(&self) -> Vec<String> {
         let mut names = Vec::new();
@@ -510,6 +555,20 @@ impl AgentLoop {
     pub fn with_compaction_config(mut self, config: CompactionConfig) -> Self {
         self.compaction_config = config;
         self
+    }
+
+    /// Attach a [`SkillRegistry`] for skill matching before LLM calls.
+    ///
+    /// When set, the agent loop will match skills against each user message
+    /// and inject matched skill steps/pitfalls into the system prompt.
+    pub fn with_skill_registry(mut self, registry: Arc<SkillRegistry>) -> Self {
+        self.skill_registry = Some(registry);
+        self
+    }
+
+    /// Get the skill registry, if one has been attached.
+    pub fn skill_registry(&self) -> Option<&Arc<SkillRegistry>> {
+        self.skill_registry.as_ref()
     }
 
     /// Attach a [`SubAgentManager`] to this agent loop.
@@ -1074,5 +1133,102 @@ mod tests {
             .unwrap();
         assert_eq!(results.len(), 1);
         assert!(results[0].entry.content.contains("cargo"));
+    }
+
+    // ── Skill registry wiring tests ──────────────────────────
+
+    #[test]
+    fn test_skill_registry_none_by_default() {
+        let al = make_agent_loop();
+        assert!(al.skill_registry.is_none());
+        assert!(al.skill_registry().is_none());
+    }
+
+    #[test]
+    fn test_with_skill_registry() {
+        let registry = Arc::new(SkillRegistry::new());
+        let al = make_agent_loop().with_skill_registry(registry);
+        assert!(al.skill_registry.is_some());
+        assert!(al.skill_registry().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_build_skill_sections_no_registry() {
+        let al = make_agent_loop();
+        let registry = SkillRegistry::new();
+        let result = al.build_skill_sections(&registry, "deploy to k8s").await;
+        // No skills registered → empty string
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_build_skill_sections_with_match() {
+        use nanobot_skill::manifest::SkillManifestBuilder;
+        use nanobot_skill::skill::CompiledSkill;
+
+        let registry = SkillRegistry::new();
+        let skill = CompiledSkill::new(
+            SkillManifestBuilder::new("deploy-k8s", "1.0.0", "Deploy to Kubernetes")
+                .triggers(vec!["deploy".to_string(), "k8s".to_string()])
+                .steps(vec!["Apply manifests".to_string(), "Verify rollout".to_string()])
+                .pitfalls(vec!["Do not deploy on Fridays".to_string()])
+                .build(),
+        );
+        registry.register(skill).await.unwrap();
+
+        let al = make_agent_loop();
+        let sections = al.build_skill_sections(&registry, "please deploy to k8s").await;
+
+        assert!(sections.contains("## Matched Skills"));
+        assert!(sections.contains("deploy-k8s"));
+        assert!(sections.contains("Apply manifests"));
+        assert!(sections.contains("Verify rollout"));
+        assert!(sections.contains("Do not deploy on Fridays"));
+    }
+
+    #[tokio::test]
+    async fn test_build_skill_sections_no_match() {
+        use nanobot_skill::manifest::SkillManifestBuilder;
+        use nanobot_skill::skill::CompiledSkill;
+
+        let registry = SkillRegistry::new();
+        let skill = CompiledSkill::new(
+            SkillManifestBuilder::new("deploy-k8s", "1.0.0", "Deploy to Kubernetes")
+                .triggers(vec!["deploy".to_string(), "k8s".to_string()])
+                .build(),
+        );
+        registry.register(skill).await.unwrap();
+
+        let al = make_agent_loop();
+        let sections = al.build_skill_sections(&registry, "what is the weather today").await;
+
+        assert!(sections.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_build_skill_sections_multiple_matches() {
+        use nanobot_skill::manifest::SkillManifestBuilder;
+        use nanobot_skill::skill::CompiledSkill;
+
+        let registry = SkillRegistry::new();
+        registry.register(CompiledSkill::new(
+            SkillManifestBuilder::new("deploy-k8s", "1.0.0", "Deploy to Kubernetes")
+                .triggers(vec!["deploy".to_string(), "k8s".to_string()])
+                .steps(vec!["Apply k8s manifests".to_string()])
+                .build(),
+        )).await.unwrap();
+        registry.register(CompiledSkill::new(
+            SkillManifestBuilder::new("deploy-docker", "1.0.0", "Deploy with Docker")
+                .triggers(vec!["deploy".to_string(), "docker".to_string()])
+                .steps(vec!["Build image".to_string()])
+                .build(),
+        )).await.unwrap();
+
+        let al = make_agent_loop();
+        let sections = al.build_skill_sections(&registry, "deploy with docker").await;
+
+        assert!(sections.contains("deploy-docker"));
+        assert!(sections.contains("deploy-k8s"));
+        assert!(sections.contains("Build image"));
     }
 }

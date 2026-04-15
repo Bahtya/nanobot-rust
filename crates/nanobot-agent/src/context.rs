@@ -13,11 +13,22 @@ use nanobot_tools::ToolRegistry;
 /// Builds the system prompt context for an agent invocation.
 pub struct ContextBuilder<'a> {
     config: &'a Config,
+    /// Optional skill prompt sections to inject (matched externally).
+    skill_sections: Option<String>,
 }
 
 impl<'a> ContextBuilder<'a> {
     pub fn new(config: &'a Config) -> Self {
-        Self { config }
+        Self {
+            config,
+            skill_sections: None,
+        }
+    }
+
+    /// Attach matched skill prompt sections for injection into the system prompt.
+    pub fn with_skills(mut self, sections: String) -> Self {
+        self.skill_sections = Some(sections);
+        self
     }
 
     /// Build the complete system prompt.
@@ -53,7 +64,14 @@ impl<'a> ContextBuilder<'a> {
             parts.push(notes_ctx);
         }
 
-        // Skills section
+        // Skills section (from SkillRegistry matching)
+        if let Some(ref skill_sections) = self.skill_sections {
+            if !skill_sections.is_empty() {
+                parts.push(skill_sections.clone());
+            }
+        }
+
+        // Tools section
         let tools = tool_registry.tool_names();
         if !tools.is_empty() {
             parts.push(format!(
@@ -297,6 +315,48 @@ mod tests {
         assert!(prompt.contains("## Available Tools"));
         assert!(prompt.contains("my_tool"));
         assert!(prompt.contains("## Additional Instructions"));
+    }
+
+    #[test]
+    fn test_build_system_prompt_with_skills() {
+        let config = Config::default();
+        let skill_section = "## Matched Skills\n\n### deploy-k8s\n## Steps for deploy-k8s\n1. Apply manifests\n## Pitfalls\n- Do not deploy on Fridays".to_string();
+        let builder = ContextBuilder::new(&config).with_skills(skill_section);
+        let msg = make_inbound();
+        let session = Session::new("test:key".to_string());
+        let tools = ToolRegistry::new();
+
+        let prompt = builder.build_system_prompt(&msg, &session, &tools, None).unwrap();
+        assert!(prompt.contains("## Matched Skills"));
+        assert!(prompt.contains("deploy-k8s"));
+        assert!(prompt.contains("Apply manifests"));
+        assert!(prompt.contains("Do not deploy on Fridays"));
+    }
+
+    #[test]
+    fn test_build_system_prompt_with_empty_skills() {
+        let config = Config::default();
+        let builder = ContextBuilder::new(&config).with_skills(String::new());
+        let msg = make_inbound();
+        let session = Session::new("test:key".to_string());
+        let tools = ToolRegistry::new();
+
+        let prompt = builder.build_system_prompt(&msg, &session, &tools, None).unwrap();
+        // Empty skill section should not appear
+        assert!(!prompt.contains("## Matched Skills"));
+    }
+
+    #[test]
+    fn test_build_system_prompt_without_skills() {
+        let config = Config::default();
+        let builder = ContextBuilder::new(&config);
+        let msg = make_inbound();
+        let session = Session::new("test:key".to_string());
+        let tools = ToolRegistry::new();
+
+        let prompt = builder.build_system_prompt(&msg, &session, &tools, None).unwrap();
+        // No skill section injected
+        assert!(!prompt.contains("## Matched Skills"));
     }
 
     #[test]

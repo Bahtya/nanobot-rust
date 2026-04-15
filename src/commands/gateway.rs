@@ -57,11 +57,7 @@ async fn init_skill_registry(home: &Path) -> Arc<SkillRegistry> {
             }
         }
         Err(e) => {
-            tracing::warn!(
-                "Failed to load skills from {}: {}",
-                skills_dir.display(),
-                e
-            );
+            tracing::warn!("Failed to load skills from {}: {}", skills_dir.display(), e);
         }
     }
 
@@ -71,7 +67,7 @@ async fn init_skill_registry(home: &Path) -> Arc<SkillRegistry> {
 /// Run the gateway — starts all components and connects them via the bus.
 ///
 /// PID file management is handled by the `daemon start` command, not here.
-pub async fn run(config: Config, channels: Vec<String>) -> Result<()> {
+pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Result<()> {
     info!("Starting nanobot gateway...");
 
     // ── Shared bus ────────────────────────────────────────────
@@ -87,7 +83,7 @@ pub async fn run(config: Config, channels: Vec<String>) -> Result<()> {
 
     // ── Tool registry ─────────────────────────────────────────
     let tool_registry = nanobot_tools::ToolRegistry::new();
-    builtins::register_all(&tool_registry);
+    builtins::register_all_with_config(&tool_registry, builtins::BuiltinsConfig { dangerous });
     info!("Tools: {:?}", tool_registry.tool_names());
 
     // ── Seed channel tokens from config into env vars ─────────
@@ -132,7 +128,10 @@ pub async fn run(config: Config, channels: Vec<String>) -> Result<()> {
                 al = al.with_memory_store(Arc::new(hot_store));
             }
             Err(e) => {
-                tracing::warn!("Failed to initialize memory store, continuing without memory: {}", e);
+                tracing::warn!(
+                    "Failed to initialize memory store, continuing without memory: {}",
+                    e
+                );
             }
         }
 

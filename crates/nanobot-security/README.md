@@ -35,13 +35,17 @@ and cloud metadata IP `169.254.169.254/32`.
 ```rust
 use nanobot_security::SsrfGuard;
 
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
 let guard = SsrfGuard::new();
 
-guard.validate_url("https://example.com/api")?;   // OK
-guard.validate_url("http://127.0.0.1:8080")?;     // Error: SSRF blocked
+guard.validate_url("https://example.com/api").await?;   // OK
+guard.validate_url("http://127.0.0.1:8080").await?;     // Error: SSRF blocked
 
 // Whitelist specific ranges (e.g. Tailscale)
 let mut guard = SsrfGuard::new();
 guard.add_whitelist("100.64.0.0/10")?;
 assert!(guard.is_ip_allowed(&"100.100.100.100".parse()?));
+Ok(())
+}
 ```

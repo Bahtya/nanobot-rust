@@ -16,7 +16,7 @@ use tracing::info;
 /// Run the API server.
 ///
 /// `port_override`: when `Some`, overrides the port from `config.api.port`.
-pub async fn run(config: Config, port_override: Option<u16>) -> Result<()> {
+pub async fn run(config: Config, port_override: Option<u16>, dangerous: bool) -> Result<()> {
     let effective_port = port_override.unwrap_or(config.api.port);
     info!("Starting nanobot API server on port {}...", effective_port);
 
@@ -30,7 +30,7 @@ pub async fn run(config: Config, port_override: Option<u16>) -> Result<()> {
 
     // ── Tool registry ─────────────────────────────────────────
     let tool_registry = nanobot_tools::ToolRegistry::new();
-    builtins::register_all(&tool_registry);
+    builtins::register_all_with_config(&tool_registry, builtins::BuiltinsConfig { dangerous });
     info!("Tools: {:?}", tool_registry.tool_names());
 
     // ── Agent loop (background, for bus-based messages) ───────

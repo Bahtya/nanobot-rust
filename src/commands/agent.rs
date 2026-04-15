@@ -11,7 +11,7 @@ use nanobot_tools::builtins;
 use tracing::info;
 
 /// Run the interactive agent.
-pub async fn run(config: Config, initial_message: Option<String>) -> Result<()> {
+pub async fn run(config: Config, initial_message: Option<String>, dangerous: bool) -> Result<()> {
     info!("Starting nanobot agent...");
 
     // Initialize shared components
@@ -20,7 +20,7 @@ pub async fn run(config: Config, initial_message: Option<String>) -> Result<()> 
     let session_manager = SessionManager::new(home)?;
     let provider_registry = ProviderRegistry::from_config(&config)?;
     let tool_registry = nanobot_tools::ToolRegistry::new();
-    builtins::register_all(&tool_registry);
+    builtins::register_all_with_config(&tool_registry, builtins::BuiltinsConfig { dangerous });
 
     info!("Providers: {:?}", provider_registry.provider_names());
     info!("Tools: {:?}", tool_registry.tool_names());

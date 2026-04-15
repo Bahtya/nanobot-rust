@@ -21,6 +21,10 @@ struct Cli {
     #[arg(short, long, global = true)]
     config: Option<PathBuf>,
 
+    /// Disable exec tool sandbox restrictions for trusted environments.
+    #[arg(long, global = true, default_value_t = false)]
+    dangerous: bool,
+
     /// Log level (trace, debug, info, warn, error).
     #[arg(short, long, global = true, default_value = "info")]
     log_level: String,
@@ -158,19 +162,19 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::Agent { message } => {
             let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(commands::agent::run(config, message))?;
+            rt.block_on(commands::agent::run(config, message, cli.dangerous))?;
         }
         Commands::Gateway { channels } => {
             let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(commands::gateway::run(config, channels))?;
+            rt.block_on(commands::gateway::run(config, channels, cli.dangerous))?;
         }
         Commands::Serve { port } => {
             let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(commands::serve::run(config, port))?;
+            rt.block_on(commands::serve::run(config, port, cli.dangerous))?;
         }
         Commands::Heartbeat => {
             let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(commands::heartbeat::run(config))?;
+            rt.block_on(commands::heartbeat::run(config, cli.dangerous))?;
         }
         Commands::Health => {
             commands::health::check(&config)?;
@@ -214,7 +218,7 @@ fn main() -> Result<()> {
 
                     // Now start tokio runtime in the daemon process
                     let rt = tokio::runtime::Runtime::new()?;
-                    let result = rt.block_on(commands::gateway::run(config, vec![]));
+                    let result = rt.block_on(commands::gateway::run(config, vec![], cli.dangerous));
 
                     // Drop log_guard first to flush remaining log lines,
                     // then pid_file releases the flock and cleans up.

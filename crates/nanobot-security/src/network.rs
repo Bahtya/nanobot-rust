@@ -26,6 +26,9 @@ const BLOCKED_NETWORKS: &[&str] = &[
     "169.254.169.254/32",
 ];
 
+/// Maximum number of redirects that should be followed when validating a fetch chain.
+pub const DEFAULT_MAX_REDIRECTS: usize = 10;
+
 /// SSRF protection checker.
 #[derive(Debug, Clone)]
 pub struct SsrfGuard {
@@ -66,33 +69,37 @@ impl SsrfGuard {
 
     /// Check if an IP address is allowed.
     pub fn is_ip_allowed(&self, ip: &IpAddr) -> bool {
-        if self.whitelist_nets.iter().any(|net| net.contains(ip)) {
+        let canonical_ip = canonicalize_ip(*ip);
+
+        if self
+            .whitelist_nets
+            .iter()
+            .any(|net| net.contains(&canonical_ip))
+        {
             return true;
         }
-        if self.blocked_nets.iter().any(|net| net.contains(ip)) {
-            debug!("Blocked IP: {}", ip);
+        if self
+            .blocked_nets
+            .iter()
+            .any(|net| net.contains(&canonical_ip))
+        {
+            debug!("Blocked IP: {}", canonical_ip);
             return false;
         }
         true
     }
 
-    /// Validate a URL for SSRF safety.
-    pub fn validate_url(&self, url_str: &str) -> Result<()> {
-        let url = Url::parse(url_str).with_context(|| format!("Invalid URL: {}", url_str))?;
+    /// Validate a URL for SSRF safety, including DNS resolution of hostnames.
+    pub async fn validate_url(&self, url_str: &str) -> Result<()> {
+        let url = parse_http_url(url_str)?;
+        self.validate_parsed_url(&url).await
+    }
 
-        let host = url.host_str().context("URL has no host")?;
-
-        if let Ok(ip) = host.parse::<IpAddr>() {
-            if !self.is_ip_allowed(&ip) {
-                anyhow::bail!("SSRF blocked: URL resolves to blocked IP {}", ip);
-            }
-            return Ok(());
+    /// Validate every hop in a redirect chain.
+    pub async fn validate_url_sequence(&self, urls: &[Url]) -> Result<()> {
+        for url in urls {
+            self.validate_parsed_url(url).await?;
         }
-
-        if is_internal_hostname(host) {
-            anyhow::bail!("SSRF blocked: hostname '{}' appears to be internal", host);
-        }
-
         Ok(())
     }
 
@@ -112,11 +119,87 @@ impl SsrfGuard {
         }
         false
     }
+
+    async fn validate_parsed_url(&self, url: &Url) -> Result<()> {
+        let host = url.host_str().context("URL has no host")?;
+
+        if let Ok(ip) = host.parse::<IpAddr>() {
+            if !self.is_ip_allowed(&ip) {
+                anyhow::bail!(
+                    "SSRF blocked: URL resolves to blocked IP {}",
+                    canonicalize_ip(ip)
+                );
+            }
+            return Ok(());
+        }
+
+        if is_internal_hostname(host) {
+            anyhow::bail!("SSRF blocked: hostname '{}' appears to be internal", host);
+        }
+
+        let resolved_ips = resolve_hostname(host, default_port(url)).await?;
+        validate_resolved_ips(self, host, &resolved_ips)
+    }
 }
 
 impl Default for SsrfGuard {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+fn default_port(url: &Url) -> u16 {
+    url.port_or_known_default().unwrap_or(80)
+}
+
+fn parse_http_url(url_str: &str) -> Result<Url> {
+    let url = Url::parse(url_str).with_context(|| format!("Invalid URL: {}", url_str))?;
+    match url.scheme() {
+        "http" | "https" => Ok(url),
+        scheme => anyhow::bail!("Unsupported URL scheme for SSRF validation: {}", scheme),
+    }
+}
+
+async fn resolve_hostname(host: &str, port: u16) -> Result<Vec<IpAddr>> {
+    let sockets = tokio::net::lookup_host((host, port))
+        .await
+        .with_context(|| format!("Failed to resolve host '{}'", host))?;
+
+    let mut ips = Vec::new();
+    for socket in sockets {
+        let ip = canonicalize_ip(socket.ip());
+        if !ips.contains(&ip) {
+            ips.push(ip);
+        }
+    }
+
+    if ips.is_empty() {
+        anyhow::bail!("Host '{}' did not resolve to any IP addresses", host);
+    }
+
+    Ok(ips)
+}
+
+fn validate_resolved_ips(guard: &SsrfGuard, host: &str, ips: &[IpAddr]) -> Result<()> {
+    for ip in ips {
+        if !guard.is_ip_allowed(ip) {
+            anyhow::bail!(
+                "SSRF blocked: host '{}' resolved to blocked IP {}",
+                host,
+                ip
+            );
+        }
+    }
+    Ok(())
+}
+
+fn canonicalize_ip(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V6(v6) => v6
+            .to_ipv4_mapped()
+            .map(IpAddr::V4)
+            .unwrap_or(IpAddr::V6(v6)),
+        _ => ip,
     }
 }
 
@@ -130,6 +213,11 @@ fn is_internal_hostname(host: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn validate_with_ips(guard: &SsrfGuard, host: &str, ips: &[&str]) -> Result<()> {
+        let parsed_ips: Vec<IpAddr> = ips.iter().map(|ip| ip.parse().unwrap()).collect();
+        validate_resolved_ips(guard, host, &parsed_ips)
+    }
 
     #[test]
     fn test_block_private_ipv4() {
@@ -157,17 +245,17 @@ mod tests {
         assert!(!guard.is_ip_allowed(&"10.0.0.1".parse().unwrap()));
     }
 
-    #[test]
-    fn test_validate_url_public() {
+    #[tokio::test]
+    async fn test_validate_url_public() {
         let guard = SsrfGuard::new();
-        assert!(guard.validate_url("https://example.com").is_ok());
+        assert!(guard.validate_url("https://8.8.8.8").await.is_ok());
     }
 
-    #[test]
-    fn test_validate_url_private() {
+    #[tokio::test]
+    async fn test_validate_url_private() {
         let guard = SsrfGuard::new();
-        assert!(guard.validate_url("http://127.0.0.1:8080").is_err());
-        assert!(guard.validate_url("http://localhost:3000").is_err());
+        assert!(guard.validate_url("http://127.0.0.1:8080").await.is_err());
+        assert!(guard.validate_url("http://localhost:3000").await.is_err());
     }
 
     #[test]
@@ -192,11 +280,65 @@ mod tests {
     }
 
     #[test]
+    fn test_block_ipv6_mapped_ipv4_loopback() {
+        let guard = SsrfGuard::new();
+        let mapped: IpAddr = "::ffff:127.0.0.1".parse().unwrap();
+        assert!(!guard.is_ip_allowed(&mapped));
+    }
+
+    #[test]
+    fn test_block_ipv6_mapped_ipv4_private() {
+        let guard = SsrfGuard::new();
+        let mapped: IpAddr = "::ffff:10.0.0.5".parse().unwrap();
+        assert!(!guard.is_ip_allowed(&mapped));
+    }
+
+    #[test]
     fn test_allow_public_ipv6() {
         let guard = SsrfGuard::new();
-        // Google's public DNS over IPv6
         let public: IpAddr = "2001:4860:4860::8888".parse().unwrap();
         assert!(guard.is_ip_allowed(&public));
+    }
+
+    #[test]
+    fn test_dns_rebinding_blocks_private_resolution() {
+        let guard = SsrfGuard::new();
+        let result = validate_with_ips(&guard, "rebind.example", &["127.0.0.1"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_dns_rebinding_blocks_mixed_public_and_private_answers() {
+        let guard = SsrfGuard::new();
+        let result = validate_with_ips(&guard, "rebind.example", &["8.8.8.8", "127.0.0.1"]);
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_redirect_chain_validation_checks_every_hop() {
+        let guard = SsrfGuard::new();
+        let urls = vec![
+            Url::parse("https://8.8.8.8/start").unwrap(),
+            Url::parse("https://1.1.1.1/next").unwrap(),
+        ];
+        assert!(guard.validate_url_sequence(&urls).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_redirect_chain_validation_blocks_private_hop() {
+        let guard = SsrfGuard::new();
+        let urls = vec![
+            Url::parse("https://8.8.8.8/start").unwrap(),
+            Url::parse("http://127.0.0.1/admin").unwrap(),
+        ];
+        assert!(guard.validate_url_sequence(&urls).await.is_err());
+    }
+
+    #[test]
+    fn test_validate_resolved_ips_blocks_redirect_target_bypass() {
+        let guard = SsrfGuard::new();
+        let result = validate_with_ips(&guard, "redirect.target", &["::ffff:127.0.0.1"]);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -216,17 +358,17 @@ mod tests {
         assert!(!guard.contains_internal_urls("just some text"));
     }
 
-    #[test]
-    fn test_validate_url_invalid() {
+    #[tokio::test]
+    async fn test_validate_url_invalid() {
         let guard = SsrfGuard::new();
-        assert!(guard.validate_url("not-a-url").is_err());
-        assert!(guard.validate_url("://missing-scheme").is_err());
+        assert!(guard.validate_url("not-a-url").await.is_err());
+        assert!(guard.validate_url("file:///etc/passwd").await.is_err());
+        assert!(guard.validate_url("://missing-scheme").await.is_err());
     }
 
     #[test]
     fn test_ssrf_guard_default() {
         let guard = SsrfGuard::default();
-        // Should behave the same as SsrfGuard::new()
         assert!(!guard.is_ip_allowed(&"127.0.0.1".parse().unwrap()));
         assert!(guard.is_ip_allowed(&"8.8.8.8".parse().unwrap()));
     }

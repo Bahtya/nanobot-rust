@@ -1358,6 +1358,8 @@ dependencies = [
  "chrono",
  "dirs",
  "nanobot-core",
+ "nanobot-memory",
+ "nanobot-skill",
  "parking_lot",
  "serde",
  "serde_json",

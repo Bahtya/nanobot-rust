@@ -314,10 +314,29 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
 
     // ── Agent loop ────────────────────────────────────────────
     let learning_bus = LearningEventBus::new();
-    let mut heartbeat_memory_store: Option<Arc<dyn MemoryStore>> = None;
-
     let (prompt_adjustment_tx, prompt_adjustment_rx) = watch::channel(None::<String>);
-    let mut learning_memory_store: Option<Arc<dyn MemoryStore>> = None;
+
+    // Initialize memory store early so it can be shared with the learning consumer.
+    let memory_config = MemoryConfig {
+        hot_store_path: home.join("memory").join("hot.jsonl"),
+        ..MemoryConfig::default()
+    };
+    let memory_store: Option<Arc<dyn nanobot_memory::MemoryStore>> =
+        match HotStore::new(&memory_config).await {
+            Ok(hot_store) => {
+                info!("Memory store initialized (HotStore L1)");
+                Some(Arc::new(hot_store))
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to initialize memory store, continuing without memory: {}",
+                    e
+                );
+                None
+            }
+        };
+    let heartbeat_memory_store = memory_store.clone();
+    let learning_memory_store = memory_store.clone();
 
     let agent_loop = {
         let mut al = AgentLoop::new(
@@ -329,24 +348,8 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
         );
 
         // Wire memory store (HotStore L1)
-        let memory_config = MemoryConfig {
-            hot_store_path: home.join("memory").join("hot.jsonl"),
-            ..MemoryConfig::default()
-        };
-        match HotStore::new(&memory_config).await {
-            Ok(hot_store) => {
-                info!("Memory store initialized (HotStore L1)");
-                let hot_store: Arc<dyn MemoryStore> = Arc::new(hot_store);
-                heartbeat_memory_store = Some(hot_store.clone());
-                learning_memory_store = Some(hot_store.clone());
-                al = al.with_memory_store(hot_store);
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "Failed to initialize memory store, continuing without memory: {}",
-                    e
-                );
-            }
+        if let Some(ref ms) = memory_store {
+            al = al.with_memory_store(ms.clone());
         }
 
         // Wire skill registry

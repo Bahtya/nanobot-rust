@@ -10,6 +10,7 @@ nanobot-bus = { path = "../nanobot-bus" }
 nanobot-session = { path = "../nanobot-session" }
 nanobot-providers = { path = "../nanobot-providers" }
 nanobot-tools = { path = "../nanobot-tools" }
+nanobot-memory = { path = "../nanobot-memory" }
 nanobot-cron = { path = "../nanobot-cron" }
 nanobot-heartbeat = { path = "../nanobot-heartbeat" }
 tokio = { workspace = true }

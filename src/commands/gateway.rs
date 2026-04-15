@@ -15,6 +15,7 @@ use nanobot_bus::MessageBus;
 use nanobot_channels::{ChannelManager, ChannelRegistry};
 use nanobot_config::Config;
 use nanobot_heartbeat::HeartbeatService;
+use nanobot_memory::{HotStore, MemoryConfig};
 use nanobot_providers::ProviderRegistry;
 use nanobot_session::SessionManager;
 use nanobot_tools::builtins;
@@ -31,7 +32,7 @@ pub async fn run(config: Config, channels: Vec<String>) -> Result<()> {
 
     // ── Session manager ───────────────────────────────────────
     let home = nanobot_config::paths::get_nanobot_home()?;
-    let session_manager = SessionManager::new(home)?;
+    let session_manager = SessionManager::new(home.clone())?;
 
     // ── Provider registry ─────────────────────────────────────
     let provider_registry = ProviderRegistry::from_config(&config)?;
@@ -59,13 +60,32 @@ pub async fn run(config: Config, channels: Vec<String>) -> Result<()> {
     let channel_manager = Arc::new(ChannelManager::new(channel_registry, bus.clone()));
 
     // ── Agent loop ────────────────────────────────────────────
-    let agent_loop = AgentLoop::new(
-        config.clone(),
-        bus.clone(),
-        session_manager.clone(),
-        provider_registry.clone(),
-        tool_registry.clone(),
-    );
+    let agent_loop = {
+        let mut al = AgentLoop::new(
+            config.clone(),
+            bus.clone(),
+            session_manager.clone(),
+            provider_registry.clone(),
+            tool_registry.clone(),
+        );
+
+        // Wire memory store (HotStore L1)
+        let memory_config = MemoryConfig {
+            hot_store_path: home.join("memory").join("hot.jsonl"),
+            ..MemoryConfig::default()
+        };
+        match HotStore::new(&memory_config).await {
+            Ok(hot_store) => {
+                info!("Memory store initialized (HotStore L1)");
+                al = al.with_memory_store(Arc::new(hot_store));
+            }
+            Err(e) => {
+                tracing::warn!("Failed to initialize memory store, continuing without memory: {}", e);
+            }
+        }
+
+        al
+    };
 
     // ── Determine which channels to start ─────────────────────
     let channels_to_start = if channels.is_empty() {

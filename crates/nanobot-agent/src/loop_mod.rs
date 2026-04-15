@@ -21,6 +21,8 @@ use nanobot_bus::events::{AgentEvent, InboundMessage, OutboundMessage, StreamChu
 use nanobot_bus::MessageBus;
 use nanobot_config::Config;
 use nanobot_heartbeat::HeartbeatService;
+use nanobot_memory::types::{MemoryCategory, MemoryEntry, MemoryQuery};
+use nanobot_memory::MemoryStore as AsyncMemoryStore;
 use nanobot_providers::ProviderRegistry;
 use nanobot_session::SessionManager;
 use nanobot_tools::ToolRegistry;
@@ -46,6 +48,8 @@ pub struct AgentLoop {
     agent_activity: Arc<parking_lot::RwLock<Option<chrono::DateTime<chrono::Local>>>>,
     /// Optional sub-agent manager for spawning background tasks.
     subagent_manager: Option<Arc<SubAgentManager>>,
+    /// Optional async memory store (nanobot-memory crate) for recall/store.
+    memory_store: Option<Arc<dyn AsyncMemoryStore>>,
 }
 
 impl AgentLoop {
@@ -80,6 +84,7 @@ impl AgentLoop {
             connected_channels,
             agent_activity,
             subagent_manager: None,
+            memory_store: None,
         }
     }
 
@@ -192,10 +197,18 @@ impl AgentLoop {
 
         self.session_manager.save_session(&session)?;
 
+        // Recall relevant memories from the memory store (if configured).
+        let recalled_memory = self.recall_memories(&msg.content).await;
+
         // Build context
         let system_prompt = {
             let context_builder = ContextBuilder::new(&self.config);
-            context_builder.build_system_prompt(&msg, &session, &self.tool_registry)?
+            context_builder.build_system_prompt(
+                &msg,
+                &session,
+                &self.tool_registry,
+                recalled_memory.as_deref(),
+            )?
         };
 
         // Set up event callback for this session
@@ -266,6 +279,10 @@ impl AgentLoop {
 
                 self.session_manager.save_session(&session)?;
 
+                // Store conversation memory (non-blocking — failures are logged, not propagated)
+                self.store_conversation_memory(&msg.content, &result.content)
+                    .await;
+
                 // Send outbound message
                 let outbound = OutboundMessage {
                     channel: msg.channel.clone(),
@@ -316,6 +333,58 @@ impl AgentLoop {
         }
 
         Ok(())
+    }
+
+    /// Recall relevant memories from the memory store for the given query text.
+    ///
+    /// Returns a formatted string section for injection into the system prompt,
+    /// or `None` if no memory store is configured or no memories were found.
+    async fn recall_memories(&self, query_text: &str) -> Option<String> {
+        let store = self.memory_store.as_ref()?;
+
+        let query = MemoryQuery::new()
+            .with_text(query_text)
+            .with_limit(5)
+            .with_min_confidence(0.3);
+
+        match store.search(&query).await {
+            Ok(results) if results.is_empty() => None,
+            Ok(results) => {
+                let mut lines = vec!["## Recalled Memories".to_string()];
+                for scored in &results {
+                    lines.push(format!(
+                        "- {} [{}] (confidence: {:.2})",
+                        scored.entry.content,
+                        scored.entry.category,
+                        scored.entry.confidence
+                    ));
+                }
+                Some(lines.join("\n"))
+            }
+            Err(e) => {
+                warn!("Memory recall failed: {}", e);
+                None
+            }
+        }
+    }
+
+    /// Store a memory entry from a completed conversation turn.
+    ///
+    /// Extracts a summary from the user message and agent response, then stores
+    /// it as an [`MemoryCategory::AgentNote`]. Failures are logged but not propagated
+    /// — memory storage must not break the agent loop.
+    async fn store_conversation_memory(&self, user_msg: &str, agent_response: &str) {
+        let Some(store) = self.memory_store.as_ref() else {
+            return;
+        };
+
+        // Create a concise summary from the conversation turn.
+        let content = format_conversation_summary(user_msg, agent_response);
+        let entry = MemoryEntry::new(content, MemoryCategory::AgentNote).with_confidence(0.6);
+
+        if let Err(e) = store.store(entry).await {
+            warn!("Failed to store conversation memory: {}", e);
+        }
     }
 
     /// Stop the agent loop.
@@ -452,9 +521,42 @@ impl AgentLoop {
         self
     }
 
+    /// Attach an async memory store for recall/store during the agent loop.
+    ///
+    /// When set, the agent will recall relevant memories before each LLM call
+    /// and store new memory entries after each conversation turn.
+    pub fn with_memory_store(mut self, store: Arc<dyn AsyncMemoryStore>) -> Self {
+        self.memory_store = Some(store);
+        self
+    }
+
     /// Get the sub-agent manager, if one has been attached.
     pub fn subagent_manager(&self) -> Option<&Arc<SubAgentManager>> {
         self.subagent_manager.as_ref()
+    }
+}
+
+/// Format a conversation turn into a concise memory summary.
+///
+/// Takes the first 200 characters of the user message and first 100 characters
+/// of the agent response to create a deterministic, testable summary.
+fn format_conversation_summary(user_msg: &str, agent_response: &str) -> String {
+    let user_preview = truncate_str(user_msg, 200);
+    let response_preview = truncate_str(agent_response, 100);
+    format!("User: {} | Agent: {}", user_preview, response_preview)
+}
+
+/// Truncate a string to at most `max_len` characters, appending "..." if truncated.
+fn truncate_str(s: &str, max_len: usize) -> &str {
+    if s.len() <= max_len {
+        s
+    } else {
+        // Find a valid char boundary to avoid panicking on multi-byte characters.
+        let mut end = max_len;
+        while !s.is_char_boundary(end) && end > 0 {
+            end -= 1;
+        }
+        &s[..end]
     }
 }
 
@@ -689,5 +791,288 @@ mod tests {
         // Drop the handle (task will eventually exit on its interval)
         // We can't wait for it since the interval is 30s.
         drop(handle);
+    }
+
+    // ── Memory integration tests ────────────────────────────────
+
+    use nanobot_memory::HotStore;
+    use nanobot_memory::MemoryError;
+    use nanobot_memory::types::ScoredEntry;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// Mock memory store for deterministic testing.
+    struct MockMemoryStore {
+        entries: RwLock<Vec<MemoryEntry>>,
+        store_count: AtomicUsize,
+        search_count: AtomicUsize,
+    }
+
+    impl MockMemoryStore {
+        fn new() -> Self {
+            Self {
+                entries: RwLock::new(Vec::new()),
+                store_count: AtomicUsize::new(0),
+                search_count: AtomicUsize::new(0),
+            }
+        }
+
+        fn store_count(&self) -> usize {
+            self.store_count.load(Ordering::SeqCst)
+        }
+
+        fn search_count(&self) -> usize {
+            self.search_count.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl AsyncMemoryStore for MockMemoryStore {
+        async fn store(&self, entry: MemoryEntry) -> std::result::Result<(), MemoryError> {
+            self.store_count.fetch_add(1, Ordering::SeqCst);
+            self.entries.write().await.push(entry);
+            Ok(())
+        }
+
+        async fn recall(&self, id: &str) -> std::result::Result<Option<MemoryEntry>, MemoryError> {
+            let entries = self.entries.read().await;
+            Ok(entries.iter().find(|e| e.id == id).cloned())
+        }
+
+        async fn search(
+            &self,
+            query: &nanobot_memory::types::MemoryQuery,
+        ) -> std::result::Result<Vec<ScoredEntry>, MemoryError> {
+            self.search_count.fetch_add(1, Ordering::SeqCst);
+            let entries = self.entries.read().await;
+            let results: Vec<ScoredEntry> = entries
+                .iter()
+                .filter(|e| {
+                    if let Some(ref cat) = query.category {
+                        if e.category != *cat {
+                            return false;
+                        }
+                    }
+                    if let Some(min_conf) = query.min_confidence {
+                        if e.confidence < min_conf {
+                            return false;
+                        }
+                    }
+                    if let Some(ref text) = query.text {
+                        if !e.content.to_lowercase().contains(&text.to_lowercase()) {
+                            return false;
+                        }
+                    }
+                    true
+                })
+                .map(|e| ScoredEntry {
+                    entry: e.clone(),
+                    score: 1.0,
+                })
+                .take(query.limit)
+                .collect();
+            Ok(results)
+        }
+
+        async fn delete(&self, _id: &str) -> std::result::Result<(), MemoryError> {
+            Ok(())
+        }
+
+        async fn len(&self) -> usize {
+            self.entries.read().await.len()
+        }
+
+        async fn clear(&self) -> std::result::Result<(), MemoryError> {
+            self.entries.write().await.clear();
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_with_memory_store_builder() {
+        let al = make_agent_loop();
+        let mock = Arc::new(MockMemoryStore::new());
+        let al = al.with_memory_store(mock);
+        assert!(al.memory_store.is_some());
+    }
+
+    #[test]
+    fn test_without_memory_store_is_none() {
+        let al = make_agent_loop();
+        assert!(al.memory_store.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_recall_memories_no_store() {
+        let al = make_agent_loop();
+        let result = al.recall_memories("test query").await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_recall_memories_empty_store() {
+        let mock = Arc::new(MockMemoryStore::new());
+        let al = make_agent_loop().with_memory_store(mock.clone());
+        let result = al.recall_memories("test query").await;
+        assert!(result.is_none());
+        assert_eq!(mock.search_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_recall_memories_with_results() {
+        let mock = Arc::new(MockMemoryStore::new());
+        mock.store(
+            MemoryEntry::new("User likes Rust", MemoryCategory::Preference).with_confidence(0.9),
+        )
+        .await
+        .unwrap();
+
+        let al = make_agent_loop().with_memory_store(mock.clone());
+        let result = al.recall_memories("rust").await;
+        assert!(result.is_some());
+        let text = result.unwrap();
+        assert!(text.contains("## Recalled Memories"));
+        assert!(text.contains("User likes Rust"));
+        assert!(text.contains("preference"));
+    }
+
+    #[tokio::test]
+    async fn test_recall_memories_no_match() {
+        let mock = Arc::new(MockMemoryStore::new());
+        mock.store(MemoryEntry::new("Python scripting", MemoryCategory::Fact).with_confidence(0.9))
+            .await
+            .unwrap();
+
+        let al = make_agent_loop().with_memory_store(mock.clone());
+        let result = al.recall_memories("rust programming").await;
+        // "rust programming" does not match "Python scripting"
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_store_conversation_memory_no_store() {
+        let al = make_agent_loop();
+        // Should not panic or error
+        al.store_conversation_memory("hello", "hi there").await;
+    }
+
+    #[tokio::test]
+    async fn test_store_conversation_memory_with_store() {
+        let mock = Arc::new(MockMemoryStore::new());
+        let al = make_agent_loop().with_memory_store(mock.clone());
+
+        al.store_conversation_memory("What is Rust?", "Rust is a systems language")
+            .await;
+
+        assert_eq!(mock.store_count(), 1);
+        let entries = mock.entries.read().await;
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0].content.contains("What is Rust?"));
+        assert!(entries[0].content.contains("Rust is a systems language"));
+        assert_eq!(entries[0].category, MemoryCategory::AgentNote);
+        assert!((entries[0].confidence - 0.6).abs() < f64::EPSILON);
+    }
+
+    #[tokio::test]
+    async fn test_store_conversation_memory_multiple() {
+        let mock = Arc::new(MockMemoryStore::new());
+        let al = make_agent_loop().with_memory_store(mock.clone());
+
+        al.store_conversation_memory("msg1", "resp1").await;
+        al.store_conversation_memory("msg2", "resp2").await;
+
+        assert_eq!(mock.store_count(), 2);
+    }
+
+    #[test]
+    fn test_format_conversation_summary() {
+        let summary = format_conversation_summary("Hello world", "Hi there");
+        assert!(summary.starts_with("User: Hello world"));
+        assert!(summary.contains("Agent: Hi there"));
+    }
+
+    #[test]
+    fn test_format_conversation_summary_truncation() {
+        let long_user = "a".repeat(300);
+        let long_agent = "b".repeat(200);
+        let summary = format_conversation_summary(&long_user, &long_agent);
+        assert!(summary.contains("User: "));
+        assert!(summary.contains("Agent: "));
+        // Should not contain the full 300 chars
+        assert!(!summary.contains(&long_user));
+    }
+
+    #[test]
+    fn test_truncate_str_short() {
+        assert_eq!(truncate_str("hello", 10), "hello");
+    }
+
+    #[test]
+    fn test_truncate_str_exact() {
+        assert_eq!(truncate_str("hello", 5), "hello");
+    }
+
+    #[test]
+    fn test_truncate_str_long() {
+        let result = truncate_str("hello world", 5);
+        assert_eq!(result, "hello");
+    }
+
+    #[test]
+    fn test_truncate_str_unicode() {
+        let s = "日本語テスト";
+        let result = truncate_str(s, 6);
+        // Should not panic and should truncate at a char boundary
+        assert!(result.len() <= 6);
+        assert!(!result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_recall_with_real_hotstore() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = nanobot_memory::MemoryConfig::for_test(dir.path());
+        let store = HotStore::new(&config).await.unwrap();
+
+        // Pre-populate
+        store
+            .store(
+                MemoryEntry::new("User prefers dark mode", MemoryCategory::Preference)
+                    .with_confidence(0.95),
+            )
+            .await
+            .unwrap();
+        store
+            .store(
+                MemoryEntry::new("Project uses Rust", MemoryCategory::Fact).with_confidence(0.8),
+            )
+            .await
+            .unwrap();
+
+        let al = make_agent_loop().with_memory_store(Arc::new(store));
+
+        let result = al.recall_memories("dark mode").await;
+        assert!(result.is_some());
+        let text = result.unwrap();
+        assert!(text.contains("dark mode"));
+    }
+
+    #[tokio::test]
+    async fn test_store_with_real_hotstore() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = nanobot_memory::MemoryConfig::for_test(dir.path());
+        let store = HotStore::new(&config).await.unwrap();
+
+        let al = make_agent_loop().with_memory_store(Arc::new(store));
+
+        al.store_conversation_memory("How do I build?", "Use cargo build")
+            .await;
+
+        // Verify stored by searching
+        let store = al.memory_store.unwrap();
+        let results = store
+            .search(&nanobot_memory::types::MemoryQuery::new().with_text("cargo"))
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(results[0].entry.content.contains("cargo"));
     }
 }

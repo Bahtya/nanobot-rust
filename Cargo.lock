@@ -1165,6 +1165,7 @@ dependencies = [
  "nanobot-core",
  "nanobot-cron",
  "nanobot-heartbeat",
+ "nanobot-memory",
  "nanobot-providers",
  "nanobot-session",
  "nanobot-tools",

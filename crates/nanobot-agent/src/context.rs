@@ -26,6 +26,7 @@ impl<'a> ContextBuilder<'a> {
         msg: &InboundMessage,
         session: &Session,
         tool_registry: &ToolRegistry,
+        recalled_memory: Option<&str>,
     ) -> Result<String> {
         let mut parts = Vec::new();
 
@@ -35,8 +36,13 @@ impl<'a> ContextBuilder<'a> {
         // Runtime metadata
         parts.push(self.build_runtime_metadata(msg));
 
-        // Memory context (if available)
-        if !session.messages.is_empty() {
+        // Recalled memories from the memory store (takes precedence)
+        if let Some(memory_ctx) = recalled_memory {
+            if !memory_ctx.is_empty() {
+                parts.push(memory_ctx.to_string());
+            }
+        } else if !session.messages.is_empty() {
+            // Fallback: generic memory hint for continuing conversations
             parts.push(self.build_memory_hint());
         }
 
@@ -125,7 +131,9 @@ mod tests {
         let session = Session::new("test:key".to_string());
         let tools = ToolRegistry::new();
 
-        let prompt = builder.build_system_prompt(&msg, &session, &tools).unwrap();
+        let prompt = builder
+            .build_system_prompt(&msg, &session, &tools, None)
+            .unwrap();
 
         // Should contain identity section
         assert!(prompt.contains("Nanobot"));
@@ -147,7 +155,9 @@ mod tests {
         session.add_user_message("previous message".to_string());
         let tools = ToolRegistry::new();
 
-        let prompt = builder.build_system_prompt(&msg, &session, &tools).unwrap();
+        let prompt = builder
+            .build_system_prompt(&msg, &session, &tools, None)
+            .unwrap();
         assert!(prompt.contains("## Memory"));
         assert!(prompt.contains("continuing conversation"));
     }
@@ -182,7 +192,7 @@ mod tests {
         }
         tools.register(DummyTool);
 
-        let prompt = builder.build_system_prompt(&msg, &session, &tools).unwrap();
+        let prompt = builder.build_system_prompt(&msg, &session, &tools, None).unwrap();
         assert!(prompt.contains("## Available Tools"));
         assert!(prompt.contains("dummy_tool"));
     }
@@ -196,7 +206,7 @@ mod tests {
         let session = Session::new("test:key".to_string());
         let tools = ToolRegistry::new();
 
-        let prompt = builder.build_system_prompt(&msg, &session, &tools).unwrap();
+        let prompt = builder.build_system_prompt(&msg, &session, &tools, None).unwrap();
         assert!(prompt.contains("CustomBot"));
     }
 
@@ -209,7 +219,7 @@ mod tests {
         let session = Session::new("test:key".to_string());
         let tools = ToolRegistry::new();
 
-        let prompt = builder.build_system_prompt(&msg, &session, &tools).unwrap();
+        let prompt = builder.build_system_prompt(&msg, &session, &tools, None).unwrap();
         assert!(prompt.contains("## Additional Instructions"));
         assert!(prompt.contains("Always respond in French"));
     }
@@ -278,12 +288,47 @@ mod tests {
         }
         tools.register(AnotherTool);
 
-        let prompt = builder.build_system_prompt(&msg, &session, &tools).unwrap();
+        let prompt = builder
+            .build_system_prompt(&msg, &session, &tools, None)
+            .unwrap();
         assert!(prompt.contains("TestBot"));
         assert!(prompt.contains("## Runtime"));
         assert!(prompt.contains("## Memory"));
         assert!(prompt.contains("## Available Tools"));
         assert!(prompt.contains("my_tool"));
         assert!(prompt.contains("## Additional Instructions"));
+    }
+
+    #[test]
+    fn test_build_system_prompt_with_recalled_memory() {
+        let config = Config::default();
+        let builder = ContextBuilder::new(&config);
+        let msg = make_inbound();
+        let session = Session::new("test:key".to_string());
+        let tools = ToolRegistry::new();
+
+        let recalled = "## Recalled Memories\n\n- User prefers Rust\n- Project uses Tokio";
+        let prompt = builder
+            .build_system_prompt(&msg, &session, &tools, Some(recalled))
+            .unwrap();
+        assert!(prompt.contains("## Recalled Memories"));
+        assert!(prompt.contains("User prefers Rust"));
+        // Should NOT contain the generic memory hint since recalled memory is present
+        assert!(!prompt.contains("continuing conversation"));
+    }
+
+    #[test]
+    fn test_build_system_prompt_empty_recalled_memory_ignored() {
+        let config = Config::default();
+        let builder = ContextBuilder::new(&config);
+        let msg = make_inbound();
+        let session = Session::new("test:key".to_string());
+        let tools = ToolRegistry::new();
+
+        let prompt = builder
+            .build_system_prompt(&msg, &session, &tools, Some(""))
+            .unwrap();
+        // Empty recalled memory should not add a section
+        assert!(!prompt.contains("## Recalled"));
     }
 }

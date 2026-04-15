@@ -6,10 +6,13 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use nanobot_core::Result;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
+use tracing;
 
 use crate::event::{LearningAction, LearningEvent};
 
@@ -83,6 +86,7 @@ pub struct ProcessorStats {
 /// user corrections, and skill usage.
 pub struct BasicEventProcessor {
     stats: Arc<RwLock<ProcessorStats>>,
+    stats_path: Option<PathBuf>,
 }
 
 impl BasicEventProcessor {
@@ -90,7 +94,17 @@ impl BasicEventProcessor {
     pub fn new() -> Self {
         Self {
             stats: Arc::new(RwLock::new(ProcessorStats::default())),
+            stats_path: None,
         }
+    }
+
+    /// Sets the file path for persisting statistics and returns self.
+    ///
+    /// When set, [`save_stats`](Self::save_stats) writes to this path and
+    /// [`load_stats`](Self::load_stats) reads from it.
+    pub fn with_stats_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.stats_path = Some(path.into());
+        self
     }
 
     /// Returns a snapshot of the current processor statistics.
@@ -101,6 +115,59 @@ impl BasicEventProcessor {
     /// Resets all accumulated statistics.
     pub fn reset(&self) {
         *self.stats.write() = ProcessorStats::default();
+    }
+
+    /// Persists the current statistics to the configured file path.
+    ///
+    /// Uses atomic write (temp file + rename) to avoid corruption on crash.
+    /// Returns `Ok(())` if no stats path is configured (no-op).
+    pub async fn save_stats(&self) -> Result<()> {
+        let Some(path) = &self.stats_path else {
+            return Ok(());
+        };
+
+        let snapshot = {
+            let guard = self.stats.read();
+            serde_json::to_string_pretty(&*guard)?
+        };
+
+        // Ensure parent directory exists.
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+
+        // Atomic write: write to temp file, then rename.
+        let tmp_path = path.with_extension("tmp");
+        tokio::fs::write(&tmp_path, &snapshot).await?;
+        tokio::fs::rename(&tmp_path, path).await?;
+
+        tracing::debug!("Saved processor stats to {}", path.display());
+        Ok(())
+    }
+
+    /// Loads statistics from the configured file path, replacing in-memory state.
+    ///
+    /// If the file does not exist, stats are left as default (graceful degradation).
+    /// Returns an error if the file exists but cannot be parsed.
+    pub async fn load_stats(&mut self) -> Result<()> {
+        let Some(path) = &self.stats_path else {
+            return Ok(());
+        };
+
+        if !path.exists() {
+            tracing::debug!(
+                "No stats file at {}, starting with empty stats",
+                path.display()
+            );
+            return Ok(());
+        }
+
+        let data = tokio::fs::read_to_string(path).await?;
+        let loaded: ProcessorStats = serde_json::from_str(&data)?;
+        *self.stats.write() = loaded;
+
+        tracing::debug!("Loaded processor stats from {}", path.display());
+        Ok(())
     }
 }
 
@@ -386,5 +453,128 @@ mod tests {
     async fn processor_name() {
         let proc = BasicEventProcessor::new();
         assert_eq!(proc.name(), "basic_event_processor");
+    }
+
+    #[tokio::test]
+    async fn save_load_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let stats_path = dir.path().join("stats.json");
+
+        // Create processor, add events, save.
+        let proc = BasicEventProcessor::new().with_stats_path(&stats_path);
+        proc.handle(&tool_ok("shell", 100)).await;
+        proc.handle(&tool_ok("shell", 200)).await;
+        proc.handle(&tool_failed("web", ErrorClassification::Environment, 0))
+            .await;
+        proc.handle(&user_correction("style", "use tabs")).await;
+
+        let expected = proc.stats();
+        proc.save_stats().await.unwrap();
+
+        // Create a new processor, load, verify counts match.
+        let mut proc2 = BasicEventProcessor::new().with_stats_path(&stats_path);
+        proc2.load_stats().await.unwrap();
+
+        let loaded = proc2.stats();
+        assert_eq!(loaded.events_processed, expected.events_processed);
+        assert_eq!(loaded.tools.len(), expected.tools.len());
+
+        let shell_loaded = loaded.tools.get("shell").unwrap();
+        let shell_expected = expected.tools.get("shell").unwrap();
+        assert_eq!(shell_loaded.success_count, shell_expected.success_count);
+        assert_eq!(
+            shell_loaded.total_duration_ms,
+            shell_expected.total_duration_ms
+        );
+
+        let web_loaded = loaded.tools.get("web").unwrap();
+        let web_expected = expected.tools.get("web").unwrap();
+        assert_eq!(web_loaded.failure_count, web_expected.failure_count);
+
+        assert_eq!(loaded.corrections.len(), expected.corrections.len());
+        let corr_loaded = loaded.corrections.get("style").unwrap();
+        let corr_expected = expected.corrections.get("style").unwrap();
+        assert_eq!(corr_loaded.count, corr_expected.count);
+        assert_eq!(corr_loaded.last_hint, corr_expected.last_hint);
+    }
+
+    #[tokio::test]
+    async fn save_stats_atomic_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let stats_path = dir.path().join("stats.json");
+
+        let proc = BasicEventProcessor::new().with_stats_path(&stats_path);
+        proc.handle(&tool_ok("shell", 50)).await;
+        proc.save_stats().await.unwrap();
+
+        // File should exist and be valid JSON.
+        let content = std::fs::read_to_string(&stats_path).unwrap();
+        let parsed: ProcessorStats = serde_json::from_str(&content).unwrap();
+        assert_eq!(parsed.events_processed, 1);
+
+        // Temp file should not linger.
+        assert!(!stats_path.with_extension("tmp").exists());
+    }
+
+    #[tokio::test]
+    async fn load_stats_missing_file_graceful() {
+        let dir = tempfile::tempdir().unwrap();
+        let stats_path = dir.path().join("nonexistent.json");
+
+        let mut proc = BasicEventProcessor::new().with_stats_path(&stats_path);
+        // Loading from a nonexistent file should succeed with empty stats.
+        proc.load_stats().await.unwrap();
+        assert_eq!(proc.stats().events_processed, 0);
+        assert!(proc.stats().tools.is_empty());
+    }
+
+    #[tokio::test]
+    async fn load_stats_rejects_invalid_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let stats_path = dir.path().join("stats.json");
+        std::fs::write(&stats_path, "{not valid json").unwrap();
+
+        let mut proc = BasicEventProcessor::new().with_stats_path(&stats_path);
+        assert!(proc.load_stats().await.is_err());
+        assert_eq!(proc.stats().events_processed, 0);
+    }
+
+    #[tokio::test]
+    async fn save_load_without_path_is_noop() {
+        let mut proc = BasicEventProcessor::new();
+        proc.handle(&tool_ok("shell", 10)).await;
+
+        // save_stats and load_stats without a path should be no-ops.
+        proc.save_stats().await.unwrap();
+        proc.load_stats().await.unwrap();
+        assert_eq!(proc.stats().events_processed, 1);
+    }
+
+    #[tokio::test]
+    async fn load_stats_preserves_accumulation() {
+        let dir = tempfile::tempdir().unwrap();
+        let stats_path = dir.path().join("stats.json");
+
+        // First session: process events and save.
+        let proc = BasicEventProcessor::new().with_stats_path(&stats_path);
+        for _ in 0..5 {
+            proc.handle(&tool_failed("web", ErrorClassification::Environment, 0))
+                .await;
+        }
+        proc.save_stats().await.unwrap();
+
+        // Second session: load and continue processing.
+        let mut proc2 = BasicEventProcessor::new().with_stats_path(&stats_path);
+        proc2.load_stats().await.unwrap();
+        assert_eq!(proc2.stats().events_processed, 5);
+
+        // Process one more — failure_count should now be 6, triggering insight.
+        let actions = proc2
+            .handle(&tool_failed("web", ErrorClassification::Environment, 0))
+            .await;
+        assert!(actions
+            .iter()
+            .any(|a| matches!(a, LearningAction::RecordInsight { .. })));
+        assert_eq!(proc2.stats().events_processed, 6);
     }
 }

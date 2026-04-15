@@ -308,7 +308,12 @@ impl AgentLoop {
                     info!("Notes compacted for session {}", session_key);
                 }
 
-                self.session_manager.save_session_async(&session);
+                if let Err(e) = self.session_manager.save_session(&session) {
+                    warn!(
+                        session_key = %session_key,
+                        "Failed to persist completed session: {e}"
+                    );
+                }
 
                 // Store conversation memory (non-blocking — failures are logged, not propagated)
                 self.store_conversation_memory(&msg.content, &result.content)

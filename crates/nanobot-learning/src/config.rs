@@ -13,6 +13,9 @@ const DEFAULT_MAX_EVENTS: usize = 10_000;
 /// Default event log file name.
 const DEFAULT_EVENT_LOG_NAME: &str = "learning_events.jsonl";
 
+/// Default processor stats file name.
+const DEFAULT_STATS_FILE_NAME: &str = "processor_stats.json";
+
 /// Configuration for the learning subsystem.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LearningConfig {
@@ -89,6 +92,13 @@ impl LearningConfig {
         }
         Ok(())
     }
+
+    /// Returns the path for the processor stats file.
+    ///
+    /// Placed in the same directory as the event log.
+    pub fn stats_file(&self) -> PathBuf {
+        self.effective_log_dir().join(DEFAULT_STATS_FILE_NAME)
+    }
 }
 
 #[cfg(test)]
@@ -142,5 +152,36 @@ mod tests {
         assert_eq!(parsed.event_log_path, config.event_log_path);
         assert_eq!(parsed.max_events, config.max_events);
         assert_eq!(parsed.processors_enabled, config.processors_enabled);
+    }
+
+    #[test]
+    fn stats_file_uses_effective_log_dir() {
+        let config = LearningConfig {
+            event_log_path: Some(PathBuf::from("/tmp/learning")),
+            ..Default::default()
+        };
+        assert_eq!(
+            config.stats_file(),
+            PathBuf::from("/tmp/learning/processor_stats.json")
+        );
+    }
+
+    #[test]
+    fn stats_file_defaults_to_event_log_directory() {
+        let config = LearningConfig::default();
+        assert_eq!(
+            config.stats_file().parent(),
+            config.event_log_file().parent()
+        );
+    }
+
+    #[test]
+    fn toml_missing_processors_enabled_defaults_true() {
+        let parsed: LearningConfig =
+            toml::from_str("event_log_path = \"/tmp/learning\"\nmax_events = 42")
+                .expect("from_toml");
+        assert_eq!(parsed.event_log_path, Some(PathBuf::from("/tmp/learning")));
+        assert_eq!(parsed.max_events, 42);
+        assert!(parsed.processors_enabled);
     }
 }

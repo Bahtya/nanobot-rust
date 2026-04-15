@@ -258,9 +258,20 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
 
     let _learning_handle = {
         let mut learning_rx = learning_bus.subscribe();
-        let processor = BasicEventProcessor::new();
+        let stats_path = learning_config.stats_file();
+        let mut processor = BasicEventProcessor::new().with_stats_path(&stats_path);
+        if let Err(e) = processor.load_stats().await {
+            tracing::warn!("Failed to load processor stats, starting fresh: {}", e);
+        } else {
+            info!(
+                "Loaded processor stats from {} ({} events processed)",
+                stats_path.display(),
+                processor.stats().events_processed
+            );
+        }
         let store = event_store.clone();
         tokio::spawn(async move {
+            let mut events_since_save: u64 = 0;
             loop {
                 match learning_rx.recv().await {
                     Ok(event) => {
@@ -272,6 +283,14 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
                         let actions = processor.handle(&event).await;
                         for action in actions {
                             tracing::debug!("Learning action: {:?}", action);
+                        }
+                        // Periodically save stats
+                        events_since_save += 1;
+                        if events_since_save >= 50 {
+                            if let Err(e) = processor.save_stats().await {
+                                tracing::warn!("Failed to save processor stats: {}", e);
+                            }
+                            events_since_save = 0;
                         }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {

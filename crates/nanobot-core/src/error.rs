@@ -61,6 +61,9 @@ pub enum NanobotError {
 
     #[error("Channel not found: {0}")]
     ChannelNotFound(String),
+
+    #[error("Memory error: {0}")]
+    Memory(String),
 }
 
 /// Convenience type alias for Results using NanobotError.

@@ -64,9 +64,7 @@ async fn start_mock_discord_server(
 
         let response = if !method_matches && status_code < 400 {
             // Method mismatch — return error to catch it in test assertions
-            format!(
-                "HTTP/1.1 405 Method Not Allowed\r\nContent-Type: application/json\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-            )
+            "HTTP/1.1 405 Method Not Allowed\r\nContent-Type: application/json\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string()
         } else {
             format!(
                 "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",

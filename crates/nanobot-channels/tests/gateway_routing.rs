@@ -216,9 +216,9 @@ async fn test_outbound_routing_multiple_messages() {
 
     let recorded = sent.lock().unwrap().clone();
     assert_eq!(recorded.len(), 5);
-    for i in 0..5 {
-        assert_eq!(recorded[i].0, format!("channel_{i}"));
-        assert_eq!(recorded[i].1, format!("Message {i}"));
+    for (i, entry) in recorded.iter().enumerate() {
+        assert_eq!(entry.0, format!("channel_{i}"));
+        assert_eq!(entry.1, format!("Message {i}"));
     }
 
     consumer_handle.abort();

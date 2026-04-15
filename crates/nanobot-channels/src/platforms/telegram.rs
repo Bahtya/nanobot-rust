@@ -3191,7 +3191,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_settings_callback_handler_dispatches() {
-        std::env::set_var("NANOBOT_RS_HOME", tempfile::tempdir().unwrap().path());
+        let home = tempfile::tempdir().unwrap();
+        let _env = crate::test_support::EnvVarGuard::set("NANOBOT_RS_HOME", home.path());
         let mut router = CallbackRouter::new();
         let session_keys = Arc::new(ParkMutex::new(Vec::new()));
         TelegramChannel::register_default_handlers(&mut router, &session_keys);

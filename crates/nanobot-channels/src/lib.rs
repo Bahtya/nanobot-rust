@@ -20,3 +20,43 @@ pub use platforms::telegram::{
 };
 pub use platforms::websocket::WebSocketChannel;
 pub use registry::ChannelRegistry;
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    use parking_lot::{Mutex, MutexGuard};
+    use std::ffi::{OsStr, OsString};
+    use std::sync::LazyLock;
+
+    static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    /// Serializes test access to process-global environment variables and
+    /// restores the previous value when dropped.
+    pub(crate) struct EnvVarGuard {
+        _lock: MutexGuard<'static, ()>,
+        key: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        pub(crate) fn set(key: &'static str, value: impl AsRef<OsStr>) -> Self {
+            let lock = ENV_LOCK.lock();
+            let previous = std::env::var_os(key);
+            std::env::set_var(key, value);
+
+            Self {
+                _lock: lock,
+                key,
+                previous,
+            }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => std::env::set_var(self.key, value),
+                None => std::env::remove_var(self.key),
+            }
+        }
+    }
+}

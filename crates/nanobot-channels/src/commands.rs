@@ -953,6 +953,7 @@ pub fn handle_callback(data: &str) -> Option<CommandResponse> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::EnvVarGuard;
     use std::io::Write as IoWrite;
 
     // -- matches_command tests ------------------------------------------------
@@ -1045,20 +1046,31 @@ mod tests {
     // -- helpers -------------------------------------------------------------
 
     /// Helper: create a temp dir with a config.yaml and set NANOBOT_RS_HOME.
-    fn with_temp_config(yaml: &str) -> tempfile::TempDir {
+    struct TestHome {
+        _dir: tempfile::TempDir,
+        _env: EnvVarGuard,
+    }
+
+    fn with_temp_config(yaml: &str) -> TestHome {
         let dir = tempfile::tempdir().unwrap();
         let config_path = dir.path().join("config.yaml");
         let mut f = std::fs::File::create(&config_path).unwrap();
         f.write_all(yaml.as_bytes()).unwrap();
-        std::env::set_var("NANOBOT_RS_HOME", dir.path());
-        dir
+        let env = EnvVarGuard::set("NANOBOT_RS_HOME", dir.path());
+        TestHome {
+            _dir: dir,
+            _env: env,
+        }
     }
 
     /// Helper: create a temp dir with no config file.
-    fn with_empty_home() -> tempfile::TempDir {
+    fn with_empty_home() -> TestHome {
         let dir = tempfile::tempdir().unwrap();
-        std::env::set_var("NANOBOT_RS_HOME", dir.path());
-        dir
+        let env = EnvVarGuard::set("NANOBOT_RS_HOME", dir.path());
+        TestHome {
+            _dir: dir,
+            _env: env,
+        }
     }
 
     // -- handle_validate tests -----------------------------------------------
@@ -1629,7 +1641,7 @@ providers:
         assert!(!mgr.get_or_create("telegram:123", None).messages.is_empty());
 
         // Need to set NANOBOT_RS_HOME so handle_reset finds the data dir.
-        std::env::set_var("NANOBOT_RS_HOME", dir.path());
+        let _env = EnvVarGuard::set("NANOBOT_RS_HOME", dir.path());
         let result = handle_reset("telegram:123");
         assert!(result.contains("cleared") || result.contains("reset"));
     }
@@ -1637,7 +1649,7 @@ providers:
     #[test]
     fn test_handle_reset_no_session() {
         let dir = tempfile::tempdir().unwrap();
-        std::env::set_var("NANOBOT_RS_HOME", dir.path());
+        let _env = EnvVarGuard::set("NANOBOT_RS_HOME", dir.path());
         // Resetting a nonexistent session should succeed (idempotent).
         let result = handle_reset("telegram:99999");
         assert!(result.contains("cleared") || result.contains("reset") || result.contains("ok"));
@@ -1663,7 +1675,7 @@ providers:
         session.add_user_message("hello".to_string());
         mgr.save_session(&session).unwrap();
 
-        std::env::set_var("NANOBOT_RS_HOME", dir.path());
+        let _env = EnvVarGuard::set("NANOBOT_RS_HOME", dir.path());
         let resp = handle_callback("history:page:0").unwrap();
         assert!(resp.text.contains("History"));
     }
@@ -1676,9 +1688,9 @@ agent:
   model: "gpt-4o"
   streaming: true
 "#;
+        let _env = EnvVarGuard::set("NANOBOT_RS_HOME", dir.path());
         let config_path = dir.path().join("config.yaml");
         std::fs::write(&config_path, yaml).unwrap();
-        std::env::set_var("NANOBOT_RS_HOME", dir.path());
 
         let resp = handle_callback("settings:model:switch").unwrap();
         assert!(resp.text.contains("Model:"));
@@ -1695,9 +1707,9 @@ agent:
   model: "gpt-4o"
   streaming: true
 "#;
+        let _env = EnvVarGuard::set("NANOBOT_RS_HOME", dir.path());
         let config_path = dir.path().join("config.yaml");
         std::fs::write(&config_path, yaml).unwrap();
-        std::env::set_var("NANOBOT_RS_HOME", dir.path());
 
         let resp = handle_callback("settings:streaming:toggle").unwrap();
         assert!(resp.text.contains("Streaming: off"));

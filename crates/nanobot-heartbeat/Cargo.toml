@@ -10,6 +10,7 @@ nanobot-bus = { path = "../nanobot-bus" }
 nanobot-providers = { path = "../nanobot-providers" }
 nanobot-session = { path = "../nanobot-session" }
 nanobot-tools = { path = "../nanobot-tools" }
+nanobot-memory = { path = "../nanobot-memory" }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }
@@ -22,3 +23,4 @@ parking_lot = { workspace = true }
 [dev-dependencies]
 tokio = { workspace = true }
 tempfile = { workspace = true }
+futures = { workspace = true }

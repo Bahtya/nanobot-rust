@@ -1,12 +1,14 @@
 //! Context builder — assembles the system prompt for the agent.
 //!
 //! Builds the system prompt from identity files, memory, skills, runtime metadata.
-//! Mirrors the Python `agent/context.py` ContextBuilder.
+//! Uses [`PromptAssembler`] from nanobot-learning to combine [`PromptSection`]
+//! variants into the final prompt string.
 
 use crate::notes::NotesManager;
 use anyhow::Result;
 use nanobot_bus::events::InboundMessage;
 use nanobot_config::Config;
+use nanobot_learning::prompt::{PromptAssembler, PromptSection};
 use nanobot_session::Session;
 use nanobot_tools::ToolRegistry;
 
@@ -15,13 +17,17 @@ pub struct ContextBuilder<'a> {
     config: &'a Config,
     /// Optional skill prompt sections to inject (matched externally).
     skill_sections: Option<String>,
+    /// Assembler for combining prompt sections. Uses default when not set.
+    prompt_assembler: Option<PromptAssembler>,
 }
 
 impl<'a> ContextBuilder<'a> {
+    /// Create a new context builder for the given config.
     pub fn new(config: &'a Config) -> Self {
         Self {
             config,
             skill_sections: None,
+            prompt_assembler: None,
         }
     }
 
@@ -31,7 +37,20 @@ impl<'a> ContextBuilder<'a> {
         self
     }
 
+    /// Attach a [`PromptAssembler`] for assembling the system prompt.
+    ///
+    /// When set, the assembler controls how sections are joined and separated.
+    /// When not set, a default assembler is used (double-newline separator).
+    pub fn with_prompt_assembler(mut self, assembler: PromptAssembler) -> Self {
+        self.prompt_assembler = Some(assembler);
+        self
+    }
+
     /// Build the complete system prompt.
+    ///
+    /// Collects prompt sections (identity, runtime, memory, notes, skills, tools,
+    /// custom instructions) as [`PromptSection`] variants and assembles them using
+    /// the configured [`PromptAssembler`].
     pub fn build_system_prompt(
         &self,
         msg: &InboundMessage,
@@ -39,58 +58,84 @@ impl<'a> ContextBuilder<'a> {
         tool_registry: &ToolRegistry,
         recalled_memory: Option<&str>,
     ) -> Result<String> {
-        let mut parts = Vec::new();
+        let mut sections: Vec<PromptSection> = Vec::new();
 
         // Identity section
-        parts.push(self.build_identity());
+        sections.push(PromptSection::System {
+            content: self.build_identity_content(),
+        });
 
         // Runtime metadata
-        parts.push(self.build_runtime_metadata(msg));
+        sections.push(PromptSection::Custom {
+            label: "Runtime".to_string(),
+            content: self.build_runtime_content(msg),
+        });
 
         // Recalled memories from the memory store (takes precedence)
         if let Some(memory_ctx) = recalled_memory {
             if !memory_ctx.is_empty() {
-                parts.push(memory_ctx.to_string());
+                sections.push(PromptSection::Memory {
+                    content: memory_ctx.to_string(),
+                });
             }
         } else if !session.messages.is_empty() {
             // Fallback: generic memory hint for continuing conversations
-            parts.push(self.build_memory_hint());
+            sections.push(PromptSection::Memory {
+                content: self.build_memory_hint_content(),
+            });
         }
 
         // Structured notes (prefer structured format with categories)
         if let Some(notes_ctx) = NotesManager::format_structured_context(session) {
-            parts.push(notes_ctx);
+            sections.push(PromptSection::Custom {
+                label: "Notes".to_string(),
+                content: notes_ctx,
+            });
         } else if let Some(notes_ctx) = session.format_notes_context() {
-            parts.push(notes_ctx);
+            sections.push(PromptSection::Custom {
+                label: "Notes".to_string(),
+                content: notes_ctx,
+            });
         }
 
         // Skills section (from SkillRegistry matching)
         if let Some(ref skill_sections) = self.skill_sections {
             if !skill_sections.is_empty() {
-                parts.push(skill_sections.clone());
+                sections.push(PromptSection::Skills {
+                    content: skill_sections.clone(),
+                });
             }
         }
 
         // Tools section
         let tools = tool_registry.tool_names();
         if !tools.is_empty() {
-            parts.push(format!(
-                "## Available Tools\n\nYou have access to the following tools: {}",
-                tools.join(", ")
-            ));
+            sections.push(PromptSection::Custom {
+                label: "Available Tools".to_string(),
+                content: format!(
+                    "You have access to the following tools: {}",
+                    tools.join(", ")
+                ),
+            });
         }
 
         // Custom instructions
         if let Some(custom) = &self.config.custom_instructions {
             if !custom.is_empty() {
-                parts.push(format!("## Additional Instructions\n\n{}", custom));
+                sections.push(PromptSection::Custom {
+                    label: "Additional Instructions".to_string(),
+                    content: custom.clone(),
+                });
             }
         }
 
-        Ok(parts.join("\n\n"))
+        let default_assembler = PromptAssembler::new();
+        let assembler = self.prompt_assembler.as_ref().unwrap_or(&default_assembler);
+        Ok(assembler.assemble(&sections))
     }
 
-    fn build_identity(&self) -> String {
+    /// Build the identity content (agent name and description).
+    fn build_identity_content(&self) -> String {
         let name = self.config.name.as_deref().unwrap_or("Nanobot");
         format!(
             "You are {}, an AI assistant powered by nanobot. \
@@ -100,19 +145,19 @@ impl<'a> ContextBuilder<'a> {
         )
     }
 
-    fn build_runtime_metadata(&self, msg: &InboundMessage) -> String {
+    /// Build the runtime metadata content (time, platform, chat ID).
+    fn build_runtime_content(&self, msg: &InboundMessage) -> String {
         let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S %Z");
         format!(
-            "## Runtime\n\n\
-             - Current time: {}\n\
-             - Platform: {}\n\
-             - Chat ID: {}",
+            "- Current time: {}\n- Platform: {}\n- Chat ID: {}",
             now, msg.channel, msg.chat_id,
         )
     }
 
-    fn build_memory_hint(&self) -> String {
-        "## Memory\n\nThis is a continuing conversation. Use the message history to maintain context.".to_string()
+    /// Build the memory hint content for continuing conversations.
+    fn build_memory_hint_content(&self) -> String {
+        "This is a continuing conversation. Use the message history to maintain context."
+            .to_string()
     }
 }
 
@@ -158,7 +203,7 @@ mod tests {
         // Should contain runtime section with platform
         assert!(prompt.contains("telegram"));
         assert!(prompt.contains("chat1"));
-        // Empty session → no memory hint
+        // Empty session → no memory section
         assert!(!prompt.contains("## Memory"));
         // No tools → no tools section
         assert!(!prompt.contains("## Available Tools"));
@@ -246,7 +291,7 @@ mod tests {
     fn test_build_identity_default() {
         let config = Config::default();
         let builder = ContextBuilder::new(&config);
-        let identity = builder.build_identity();
+        let identity = builder.build_identity_content();
         assert!(identity.contains("Nanobot"));
         assert!(identity.contains("AI assistant"));
     }
@@ -256,17 +301,16 @@ mod tests {
         let mut config = Config::default();
         config.name = Some("RoboAssistant".to_string());
         let builder = ContextBuilder::new(&config);
-        let identity = builder.build_identity();
+        let identity = builder.build_identity_content();
         assert!(identity.contains("RoboAssistant"));
     }
 
     #[test]
-    fn test_build_runtime_metadata() {
+    fn test_build_runtime_content() {
         let config = Config::default();
         let builder = ContextBuilder::new(&config);
         let msg = make_inbound();
-        let runtime = builder.build_runtime_metadata(&msg);
-        assert!(runtime.contains("## Runtime"));
+        let runtime = builder.build_runtime_content(&msg);
         assert!(runtime.contains("telegram"));
         assert!(runtime.contains("chat1"));
         assert!(runtime.contains("Current time"));
@@ -320,14 +364,14 @@ mod tests {
     #[test]
     fn test_build_system_prompt_with_skills() {
         let config = Config::default();
-        let skill_section = "## Matched Skills\n\n### deploy-k8s\n## Steps for deploy-k8s\n1. Apply manifests\n## Pitfalls\n- Do not deploy on Fridays".to_string();
+        let skill_section = "\n### deploy-k8s\n**Steps:**\n1. Apply manifests\n**Pitfalls:**\n- Do not deploy on Fridays".to_string();
         let builder = ContextBuilder::new(&config).with_skills(skill_section);
         let msg = make_inbound();
         let session = Session::new("test:key".to_string());
         let tools = ToolRegistry::new();
 
         let prompt = builder.build_system_prompt(&msg, &session, &tools, None).unwrap();
-        assert!(prompt.contains("## Matched Skills"));
+        assert!(prompt.contains("## Skills"));
         assert!(prompt.contains("deploy-k8s"));
         assert!(prompt.contains("Apply manifests"));
         assert!(prompt.contains("Do not deploy on Fridays"));
@@ -343,7 +387,7 @@ mod tests {
 
         let prompt = builder.build_system_prompt(&msg, &session, &tools, None).unwrap();
         // Empty skill section should not appear
-        assert!(!prompt.contains("## Matched Skills"));
+        assert!(!prompt.contains("## Skills"));
     }
 
     #[test]
@@ -356,7 +400,7 @@ mod tests {
 
         let prompt = builder.build_system_prompt(&msg, &session, &tools, None).unwrap();
         // No skill section injected
-        assert!(!prompt.contains("## Matched Skills"));
+        assert!(!prompt.contains("## Skills"));
     }
 
     #[test]
@@ -367,11 +411,11 @@ mod tests {
         let session = Session::new("test:key".to_string());
         let tools = ToolRegistry::new();
 
-        let recalled = "## Recalled Memories\n\n- User prefers Rust\n- Project uses Tokio";
+        let recalled = "- User prefers Rust\n- Project uses Tokio";
         let prompt = builder
             .build_system_prompt(&msg, &session, &tools, Some(recalled))
             .unwrap();
-        assert!(prompt.contains("## Recalled Memories"));
+        assert!(prompt.contains("## Memory"));
         assert!(prompt.contains("User prefers Rust"));
         // Should NOT contain the generic memory hint since recalled memory is present
         assert!(!prompt.contains("continuing conversation"));
@@ -389,6 +433,80 @@ mod tests {
             .build_system_prompt(&msg, &session, &tools, Some(""))
             .unwrap();
         // Empty recalled memory should not add a section
-        assert!(!prompt.contains("## Recalled"));
+        assert!(!prompt.contains("## Memory"));
+    }
+
+    // ── PromptAssembler integration tests ─────────────────────────
+
+    #[test]
+    fn test_context_builder_with_custom_assembler() {
+        let config = Config::default();
+        let assembler = PromptAssembler::with_separator("\n---\n");
+        let builder = ContextBuilder::new(&config).with_prompt_assembler(assembler);
+        let msg = make_inbound();
+        let session = Session::new("test:key".to_string());
+        let tools = ToolRegistry::new();
+
+        let prompt = builder
+            .build_system_prompt(&msg, &session, &tools, None)
+            .unwrap();
+        // Custom separator should be used between sections
+        assert!(prompt.contains("\n---\n"));
+    }
+
+    #[test]
+    fn test_context_builder_uses_section_headers() {
+        let config = Config::default();
+        let builder = ContextBuilder::new(&config);
+        let msg = make_inbound();
+        let mut session = Session::new("test:key".to_string());
+        session.add_user_message("history".to_string());
+        let tools = ToolRegistry::new();
+
+        let prompt = builder
+            .build_system_prompt(&msg, &session, &tools, None)
+            .unwrap();
+        // PromptAssembler adds ## headers for each section
+        assert!(prompt.contains("## System"));
+        assert!(prompt.contains("## Runtime"));
+        assert!(prompt.contains("## Memory"));
+    }
+
+    #[test]
+    fn test_context_builder_prompt_section_order() {
+        let mut config = Config::default();
+        config.custom_instructions = Some("Be helpful.".to_string());
+        let builder = ContextBuilder::new(&config);
+        let msg = make_inbound();
+        let session = Session::new("test:key".to_string());
+        let tools = ToolRegistry::new();
+
+        let prompt = builder
+            .build_system_prompt(&msg, &session, &tools, None)
+            .unwrap();
+        // Sections should appear in order: System, Runtime, ..., Additional Instructions
+        let system_pos = prompt.find("## System").unwrap();
+        let runtime_pos = prompt.find("## Runtime").unwrap();
+        let instructions_pos = prompt.find("## Additional Instructions").unwrap();
+        assert!(system_pos < runtime_pos);
+        assert!(runtime_pos < instructions_pos);
+    }
+
+    #[test]
+    fn test_context_builder_assembler_default_when_not_set() {
+        let config = Config::default();
+        let builder = ContextBuilder::new(&config);
+        assert!(builder.prompt_assembler.is_none());
+        // build_system_prompt should still work with default assembler
+        let msg = make_inbound();
+        let session = Session::new("test:key".to_string());
+        let tools = ToolRegistry::new();
+
+        let prompt = builder
+            .build_system_prompt(&msg, &session, &tools, None)
+            .unwrap();
+        // Default assembler uses double newline separator
+        assert!(prompt.contains("\n\n"));
+        assert!(prompt.contains("## System"));
     }
 }

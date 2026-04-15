@@ -19,6 +19,7 @@ use nanobot_heartbeat::HeartbeatService;
 use nanobot_learning::config::LearningConfig;
 use nanobot_learning::event::LearningEventBus;
 use nanobot_learning::processor::BasicEventProcessor;
+use nanobot_learning::prompt::PromptAssembler;
 use nanobot_learning::store::EventStore;
 use nanobot_learning::LearningEventHandler;
 use nanobot_memory::{HotStore, MemoryConfig};
@@ -140,6 +141,10 @@ pub async fn run(config: Config, channels: Vec<String>) -> Result<()> {
 
         // Wire learning event bus
         al = al.with_learning_bus(learning_bus.clone());
+
+        // Wire prompt assembler for dynamic system prompt construction
+        al = al.with_prompt_assembler(PromptAssembler::new());
+        info!("Prompt assembler wired into agent loop");
 
         al
     };

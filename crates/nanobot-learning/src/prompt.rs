@@ -42,6 +42,7 @@ impl PromptSection {
 }
 
 /// Assembles [`PromptSection`]s into a single prompt string.
+#[derive(Clone)]
 pub struct PromptAssembler {
     /// Separator between sections.
     separator: String,

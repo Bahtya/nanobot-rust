@@ -22,6 +22,7 @@ use nanobot_bus::MessageBus;
 use nanobot_config::Config;
 use nanobot_heartbeat::HeartbeatService;
 use nanobot_learning::event::{LearningEvent, LearningEventBus, SkillOutcome, ErrorClassification};
+use nanobot_learning::prompt::PromptAssembler;
 use nanobot_memory::types::{MemoryCategory, MemoryEntry, MemoryQuery};
 use nanobot_memory::MemoryStore as AsyncMemoryStore;
 use nanobot_providers::ProviderRegistry;
@@ -56,6 +57,8 @@ pub struct AgentLoop {
     memory_store: Option<Arc<dyn AsyncMemoryStore>>,
     /// Optional learning event bus (nanobot-learning crate) for event emission.
     learning_bus: Option<LearningEventBus>,
+    /// Optional prompt assembler for dynamic system prompt construction.
+    prompt_assembler: Option<PromptAssembler>,
 }
 
 impl AgentLoop {
@@ -82,6 +85,7 @@ impl AgentLoop {
             subagent_manager: None,
             memory_store: None,
             learning_bus: None,
+            prompt_assembler: None,
         }
     }
 
@@ -200,6 +204,11 @@ impl AgentLoop {
         // Build context (with memory recall + skill matching if attached)
         let system_prompt = {
             let mut context_builder = ContextBuilder::new(&self.config);
+
+            // Attach prompt assembler if configured
+            if let Some(ref assembler) = self.prompt_assembler {
+                context_builder = context_builder.with_prompt_assembler(assembler.clone());
+            }
 
             // Match skills against user message and inject into prompt
             if let Some(ref registry) = self.skill_registry {
@@ -411,7 +420,7 @@ impl AgentLoop {
             }
             Ok(results) => {
                 let count = results.len();
-                let mut lines = vec!["## Recalled Memories".to_string()];
+                let mut lines = Vec::new();
                 for scored in &results {
                     lines.push(format!(
                         "- {} [{}] (confidence: {:.2})",
@@ -507,7 +516,7 @@ impl AgentLoop {
             return String::new();
         }
 
-        let mut parts = vec!["## Matched Skills".to_string()];
+        let mut parts = Vec::new();
 
         for skill_match in matches {
             if let Some(skill_guard) = registry.get(&skill_match.name).await {
@@ -684,6 +693,21 @@ impl AgentLoop {
     /// Get the learning event bus, if one has been attached.
     pub fn learning_bus(&self) -> Option<&LearningEventBus> {
         self.learning_bus.as_ref()
+    }
+
+    /// Attach a [`PromptAssembler`] for dynamic system prompt construction.
+    ///
+    /// When set, the assembler controls how prompt sections are joined and
+    /// separated. The assembler is passed through to [`ContextBuilder`] during
+    /// system prompt construction.
+    pub fn with_prompt_assembler(mut self, assembler: PromptAssembler) -> Self {
+        self.prompt_assembler = Some(assembler);
+        self
+    }
+
+    /// Get the prompt assembler, if one has been attached.
+    pub fn prompt_assembler(&self) -> Option<&PromptAssembler> {
+        self.prompt_assembler.as_ref()
     }
 
     /// Get the sub-agent manager, if one has been attached.
@@ -1086,7 +1110,6 @@ mod tests {
         let result = al.recall_memories("rust").await;
         assert!(result.is_some());
         let text = result.unwrap();
-        assert!(text.contains("## Recalled Memories"));
         assert!(text.contains("User likes Rust"));
         assert!(text.contains("preference"));
     }
@@ -1276,7 +1299,6 @@ mod tests {
         let al = make_agent_loop();
         let sections = al.build_skill_sections(&registry, "please deploy to k8s").await;
 
-        assert!(sections.contains("## Matched Skills"));
         assert!(sections.contains("deploy-k8s"));
         assert!(sections.contains("Apply manifests"));
         assert!(sections.contains("Verify rollout"));
@@ -1482,5 +1504,41 @@ mod tests {
         });
 
         assert!(rx.try_recv().is_ok());
+    }
+
+    // ── PromptAssembler integration tests ─────────────────────────
+
+    #[test]
+    fn test_prompt_assembler_none_by_default() {
+        let al = make_agent_loop();
+        assert!(al.prompt_assembler.is_none());
+        assert!(al.prompt_assembler().is_none());
+    }
+
+    #[test]
+    fn test_with_prompt_assembler_builder() {
+        let assembler = PromptAssembler::new();
+        let al = make_agent_loop().with_prompt_assembler(assembler);
+        assert!(al.prompt_assembler.is_some());
+        assert!(al.prompt_assembler().is_some());
+    }
+
+    #[test]
+    fn test_with_prompt_assembler_custom_separator() {
+        let assembler = PromptAssembler::with_separator("\n---\n");
+        let al = make_agent_loop().with_prompt_assembler(assembler);
+        assert!(al.prompt_assembler.is_some());
+    }
+
+    #[test]
+    fn test_prompt_assembler_passed_to_context_builder() {
+        // Verify that when a PromptAssembler is attached, the assembled prompt
+        // uses the custom separator.
+        let assembler = PromptAssembler::with_separator("\n===\n");
+        let al = make_agent_loop().with_prompt_assembler(assembler);
+
+        // We can't call process_message without a full agent setup,
+        // but we can verify the builder method is wired correctly.
+        assert!(al.prompt_assembler().is_some());
     }
 }

@@ -17,8 +17,6 @@ pub mod checks;
 pub mod service;
 pub mod types;
 
-pub use checks::{
-    BusHealthCheck, ChannelHealthCheck, MemoryStoreHealthCheck, ProviderHealthCheck,
-};
+pub use checks::{BusHealthCheck, ChannelHealthCheck, MemoryStoreHealthCheck, ProviderHealthCheck};
 pub use service::HeartbeatService;
 pub use types::*;

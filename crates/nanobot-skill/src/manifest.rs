@@ -316,7 +316,10 @@ triggers = ["hi", "hello"]
             .deprecated("Replaced by new-skill")
             .build();
         assert_eq!(m.deprecated, Some(true));
-        assert_eq!(m.deprecation_reason.as_deref(), Some("Replaced by new-skill"));
+        assert_eq!(
+            m.deprecation_reason.as_deref(),
+            Some("Replaced by new-skill")
+        );
     }
 
     #[test]

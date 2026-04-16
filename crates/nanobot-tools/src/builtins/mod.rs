@@ -49,8 +49,14 @@ mod tests {
 
         // Mutating tools
         assert!(registry.is_mutating("exec"), "exec should be mutating");
-        assert!(registry.is_mutating("write_file"), "write_file should be mutating");
-        assert!(registry.is_mutating("edit_file"), "edit_file should be mutating");
+        assert!(
+            registry.is_mutating("write_file"),
+            "write_file should be mutating"
+        );
+        assert!(
+            registry.is_mutating("edit_file"),
+            "edit_file should be mutating"
+        );
         assert!(registry.is_mutating("cron"), "cron should be mutating");
         assert!(registry.is_mutating("spawn"), "spawn should be mutating");
         assert!(

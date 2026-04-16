@@ -190,10 +190,12 @@ impl SkillRegistry {
             .build();
 
         // Validate before writing
-        manifest.validate().map_err(|errors| SkillError::ValidationFailed {
-            name: name.to_string(),
-            reason: errors.join("; "),
-        })?;
+        manifest
+            .validate()
+            .map_err(|errors| SkillError::ValidationFailed {
+                name: name.to_string(),
+                reason: errors.join("; "),
+            })?;
 
         // Write TOML manifest atomically
         let toml_path = dir.join(format!("{name}.toml"));
@@ -509,7 +511,11 @@ mod tests {
         let (registry, dir) = make_registry_with_dir();
 
         registry
-            .create_skill("my-skill", "Does cool things", "Step 1: Do this\nStep 2: Do that")
+            .create_skill(
+                "my-skill",
+                "Does cool things",
+                "Step 1: Do this\nStep 2: Do that",
+            )
             .await
             .unwrap();
 
@@ -543,7 +549,11 @@ mod tests {
         let (registry, dir) = make_registry_with_dir();
 
         registry
-            .create_skill("compile-check", "Verifies compile path", "Detailed instructions")
+            .create_skill(
+                "compile-check",
+                "Verifies compile path",
+                "Detailed instructions",
+            )
             .await
             .unwrap();
 
@@ -586,7 +596,10 @@ mod tests {
             .unwrap();
 
         let md_path = dir.path().join("no-md.md");
-        assert!(!md_path.exists(), "No MD file should be created for empty instructions");
+        assert!(
+            !md_path.exists(),
+            "No MD file should be created for empty instructions"
+        );
 
         // But TOML should still exist
         assert!(dir.path().join("no-md.toml").exists());
@@ -660,7 +673,10 @@ mod tests {
 
         // Verify still accessible via get()
         let skill = registry.get("old-skill").await;
-        assert!(skill.is_some(), "Deprecated skill should still be retrievable");
+        assert!(
+            skill.is_some(),
+            "Deprecated skill should still be retrievable"
+        );
         assert!(skill.unwrap().read().is_deprecated());
     }
 
@@ -702,10 +718,7 @@ mod tests {
             .unwrap();
         let pre_confidence = registry.get("preserve").await.unwrap().read().confidence();
 
-        registry
-            .deprecate_skill("preserve", "Old")
-            .await
-            .unwrap();
+        registry.deprecate_skill("preserve", "Old").await.unwrap();
 
         let skill = registry.get("preserve").await.unwrap();
         assert_eq!(skill.read().confidence(), pre_confidence);

@@ -162,11 +162,12 @@ impl HealthCheck for BusHealthCheck {
 
     async fn report_health(&self) -> HealthCheckResult {
         let mut rx = self.bus.subscribe_events();
-        self.bus.emit_event(nanobot_bus::AgentEvent::HeartbeatCheck {
-            healthy: true,
-            checks_total: 0,
-            checks_failed: 0,
-        });
+        self.bus
+            .emit_event(nanobot_bus::AgentEvent::HeartbeatCheck {
+                healthy: true,
+                checks_total: 0,
+                checks_failed: 0,
+            });
 
         match tokio::time::timeout(self.timeout, rx.recv()).await {
             Ok(Ok(_)) => HealthCheckResult {
@@ -228,8 +229,10 @@ impl HealthCheck for MemoryStoreHealthCheck {
     }
 
     async fn report_health(&self) -> HealthCheckResult {
-        let entry =
-            nanobot_memory::MemoryEntry::new("__heartbeat_check__", nanobot_memory::MemoryCategory::AgentNote);
+        let entry = nanobot_memory::MemoryEntry::new(
+            "__heartbeat_check__",
+            nanobot_memory::MemoryCategory::AgentNote,
+        );
         let id = entry.id.clone();
 
         // Store
@@ -284,7 +287,10 @@ impl HealthCheck for MemoryStoreHealthCheck {
             HealthCheckResult {
                 component: "memory_store".to_string(),
                 status: CheckStatus::Healthy,
-                message: format!("store/recall/delete OK ({} entries)", self.store.len().await),
+                message: format!(
+                    "store/recall/delete OK ({} entries)",
+                    self.store.len().await
+                ),
                 timestamp: Local::now(),
             }
         } else {
@@ -620,7 +626,8 @@ mod tests {
     #[tokio::test]
     async fn test_memory_check_custom_timeout() {
         let store = make_test_hot_store().await;
-        let check = MemoryStoreHealthCheck::new(Arc::new(store)).with_timeout(Duration::from_secs(10));
+        let check =
+            MemoryStoreHealthCheck::new(Arc::new(store)).with_timeout(Duration::from_secs(10));
         assert_eq!(check.timeout, Duration::from_secs(10));
     }
 
@@ -686,9 +693,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_channel_check_status_updates_dynamically() {
-        let statuses = Arc::new(parking_lot::RwLock::new(vec![
-            ("telegram".to_string(), true),
-        ]));
+        let statuses = Arc::new(parking_lot::RwLock::new(vec![(
+            "telegram".to_string(),
+            true,
+        )]));
         let check = ChannelHealthCheck::new(statuses.clone());
 
         // Initially healthy
@@ -725,9 +733,10 @@ mod tests {
         let store = make_test_hot_store().await;
         svc.register_check(Arc::new(MemoryStoreHealthCheck::new(Arc::new(store))));
 
-        let channel_statuses = Arc::new(parking_lot::RwLock::new(vec![
-            ("telegram".to_string(), true),
-        ]));
+        let channel_statuses = Arc::new(parking_lot::RwLock::new(vec![(
+            "telegram".to_string(),
+            true,
+        )]));
         svc.register_check(Arc::new(ChannelHealthCheck::new(channel_statuses)));
 
         // Run all checks
@@ -736,7 +745,11 @@ mod tests {
         assert_eq!(snapshot.checks.len(), 4);
 
         // Verify each component is reported
-        let names: Vec<&str> = snapshot.checks.iter().map(|c| c.component.as_str()).collect();
+        let names: Vec<&str> = snapshot
+            .checks
+            .iter()
+            .map(|c| c.component.as_str())
+            .collect();
         assert!(names.contains(&"providers"));
         assert!(names.contains(&"bus"));
         assert!(names.contains(&"memory_store"));

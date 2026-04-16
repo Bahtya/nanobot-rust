@@ -95,11 +95,7 @@ impl HotStore {
             .filter(|(_, e)| e.category != MemoryCategory::Critical)
             .min_by_key(|(_, e)| e.updated_at)
             .map(|(id, e)| {
-                tracing::debug!(
-                    "Evicted LRU entry {} (last_accessed: {})",
-                    id,
-                    e.updated_at
-                );
+                tracing::debug!("Evicted LRU entry {} (last_accessed: {})", id, e.updated_at);
                 id.clone()
             })
     }
@@ -259,11 +255,7 @@ mod tests {
         (store, dir)
     }
 
-    fn test_entry_with_age(
-        content: &str,
-        category: MemoryCategory,
-        age: Duration,
-    ) -> MemoryEntry {
+    fn test_entry_with_age(content: &str, category: MemoryCategory, age: Duration) -> MemoryEntry {
         let mut entry = MemoryEntry::new(content, category);
         entry.updated_at = Utc::now() - age;
         entry
@@ -555,8 +547,7 @@ mod tests {
 
         let store = HotStore::new(&config).await.unwrap();
 
-        let entry_a =
-            test_entry_with_age("entry_a", MemoryCategory::Fact, Duration::seconds(100));
+        let entry_a = test_entry_with_age("entry_a", MemoryCategory::Fact, Duration::seconds(100));
         let id_a = entry_a.id.clone();
         store.store(entry_a).await.unwrap();
 

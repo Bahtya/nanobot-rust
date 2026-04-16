@@ -289,8 +289,7 @@ async fn test_agent_tool_arg_error_includes_details() {
     use std::sync::Mutex;
 
     // Shared capture buffer for inspecting what the agent received
-    let captured_messages: Arc<Mutex<Option<Vec<Message>>>> =
-        Arc::new(Mutex::new(None));
+    let captured_messages: Arc<Mutex<Option<Vec<Message>>>> = Arc::new(Mutex::new(None));
     let captured_clone = captured_messages.clone();
 
     struct CaptureProvider {
@@ -318,10 +317,7 @@ async fn test_agent_tool_arg_error_includes_details() {
             "capture"
         }
 
-        async fn complete(
-            &self,
-            request: CompletionRequest,
-        ) -> anyhow::Result<CompletionResponse> {
+        async fn complete(&self, request: CompletionRequest) -> anyhow::Result<CompletionResponse> {
             let idx = self.call_count.fetch_add(1, Ordering::SeqCst);
             // On the second call (after tool execution), capture the messages
             if idx == 1 {
@@ -341,10 +337,7 @@ async fn test_agent_tool_arg_error_includes_details() {
             Ok(resp)
         }
 
-        async fn complete_stream(
-            &self,
-            request: CompletionRequest,
-        ) -> anyhow::Result<BoxStream> {
+        async fn complete_stream(&self, request: CompletionRequest) -> anyhow::Result<BoxStream> {
             let resp = self.complete(request).await?;
             let chunk = CompletionChunk {
                 delta: resp.content,
@@ -420,7 +413,10 @@ async fn test_agent_tool_arg_error_includes_details() {
     let msgs = captured.as_ref().unwrap();
 
     // Find the Tool message in the captured conversation
-    let tool_msg = msgs.iter().find(|m| matches!(m.role, MessageRole::Tool)).unwrap();
+    let tool_msg = msgs
+        .iter()
+        .find(|m| matches!(m.role, MessageRole::Tool))
+        .unwrap();
     let content = &tool_msg.content;
 
     // The error should mention the tool name, the parse failure, and the raw args

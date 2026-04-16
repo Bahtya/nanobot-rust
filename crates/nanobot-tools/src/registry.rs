@@ -85,7 +85,11 @@ impl ToolRegistry {
     /// Returns `false` if the tool is not found (safe default for
     /// unknown tools — they are treated as read-only and run in parallel).
     pub fn is_mutating(&self, name: &str) -> bool {
-        self.tools.read().get(name).map(|t| t.is_mutating()).unwrap_or(false)
+        self.tools
+            .read()
+            .get(name)
+            .map(|t| t.is_mutating())
+            .unwrap_or(false)
     }
 
     /// Return the number of registered tools.

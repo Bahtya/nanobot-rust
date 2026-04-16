@@ -950,6 +950,7 @@ mod tests {
             admin_users: vec![],
             enabled: true,
             streaming: false,
+            proxy: None,
         });
         let bus = MessageBus::new();
         let session_dir = tempfile::tempdir().unwrap();
@@ -974,12 +975,14 @@ mod tests {
             admin_users: vec![],
             enabled: true,
             streaming: false,
+            proxy: None,
         });
         config.channels.discord = Some(kestrel_config::schema::DiscordConfig {
             token: "d".to_string(),
             allowed_guilds: vec![],
             enabled: true,
             streaming: false,
+            proxy: None,
         });
         let bus = MessageBus::new();
         let session_dir = tempfile::tempdir().unwrap();
@@ -1061,6 +1064,7 @@ mod tests {
             admin_users: vec![],
             enabled: true,
             streaming: false,
+            proxy: None,
         });
 
         let bus = MessageBus::new();

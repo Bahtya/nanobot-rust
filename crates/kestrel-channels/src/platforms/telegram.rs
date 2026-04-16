@@ -528,30 +528,60 @@ pub struct TelegramChannel {
     router: Arc<tokio::sync::Mutex<CallbackRouter>>,
     /// Shared session keys for `/history` display.
     session_keys: Arc<ParkMutex<Vec<String>>>,
+    /// Proxy URL for client rebuild on persistent failures.
+    proxy_config: Option<String>,
 }
 
 impl TelegramChannel {
-    /// Build a reqwest client that respects system proxy settings.
+    /// Build a reqwest client with config-driven proxy support.
     ///
-    /// Checks HTTPS_PROXY, HTTP_PROXY, and ALL_PROXY env vars.
-    /// Logs the proxy configuration for debugging.
-    fn build_client() -> reqwest::Client {
-        let proxy_url = std::env::var("HTTPS_PROXY")
-            .or_else(|_| std::env::var("https_proxy"))
-            .or_else(|_| std::env::var("HTTP_PROXY"))
-            .or_else(|_| std::env::var("http_proxy"))
-            .or_else(|_| std::env::var("ALL_PROXY"))
-            .or_else(|_| std::env::var("all_proxy"))
-            .ok();
+    /// Priority: `proxy_config` > env vars (`HTTPS_PROXY`, `ALL_PROXY`, etc.) > direct.
+    ///
+    /// - `http://` / `https://` → separate HTTP and HTTPS proxy entries
+    /// - `socks5://` / `socks5h://` → catch-all proxy
+    /// - `None` / empty → fall through to env vars, then direct
+    fn build_client(proxy_config: Option<&str>) -> reqwest::Client {
+        let proxy_url = proxy_config
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .or_else(|| {
+                std::env::var("HTTPS_PROXY")
+                    .or_else(|_| std::env::var("https_proxy"))
+                    .or_else(|_| std::env::var("HTTP_PROXY"))
+                    .or_else(|_| std::env::var("http_proxy"))
+                    .or_else(|_| std::env::var("ALL_PROXY"))
+                    .or_else(|_| std::env::var("all_proxy"))
+                    .ok()
+            });
 
-        match &proxy_url {
-            Some(url) => {
-                info!("Telegram HTTP client using proxy: {}", url);
-                let proxy = reqwest::Proxy::all(url).expect("Failed to create proxy from env var");
+        match proxy_url {
+            Some(ref url) if url.starts_with("socks5") => {
+                info!("Telegram HTTP client using SOCKS5 proxy: {}", url);
+                let proxy =
+                    reqwest::Proxy::all(url).expect("Failed to create SOCKS5 proxy from config");
                 reqwest::Client::builder()
                     .proxy(proxy)
                     .build()
-                    .expect("Failed to build HTTP client with proxy")
+                    .expect("Failed to build HTTP client with SOCKS5 proxy")
+            }
+            Some(ref url) if url.starts_with("http") => {
+                info!("Telegram HTTP client using HTTP proxy: {}", url);
+                let http_proxy =
+                    reqwest::Proxy::http(url).expect("Failed to create HTTP proxy from config");
+                let https_proxy =
+                    reqwest::Proxy::https(url).expect("Failed to create HTTPS proxy from config");
+                reqwest::Client::builder()
+                    .proxy(http_proxy)
+                    .proxy(https_proxy)
+                    .build()
+                    .expect("Failed to build HTTP client with HTTP proxy")
+            }
+            Some(ref url) => {
+                info!(
+                    "Telegram HTTP client: unsupported proxy scheme in '{}', falling back to direct",
+                    url
+                );
+                reqwest::Client::new()
             }
             None => {
                 info!("Telegram HTTP client: no proxy configured (direct connection)");
@@ -562,17 +592,45 @@ impl TelegramChannel {
 
     /// Create a new TelegramChannel, reading the bot token from the
     /// `TELEGRAM_BOT_TOKEN` environment variable.
-    /// Uses system proxy settings (HTTPS_PROXY/HTTP_PROXY/ALL_PROXY).
+    ///
+    /// Uses system proxy settings (env vars only). For config-driven proxy,
+    /// use [`TelegramChannel::new_with_config`].
     pub fn new() -> Self {
         Self {
             token: std::env::var("TELEGRAM_BOT_TOKEN").ok(),
             connected: false,
             message_handler: None,
             running: Arc::new(AtomicBool::new(false)),
-            client: Self::build_client(),
+            client: Self::build_client(None),
             base_url_override: None,
             router: Arc::new(tokio::sync::Mutex::new(CallbackRouter::new())),
             session_keys: Arc::new(ParkMutex::new(Vec::new())),
+            proxy_config: None,
+        }
+    }
+
+    /// Create a new TelegramChannel using a Telegram config for token and proxy.
+    ///
+    /// Reads the bot token from the config (falling back to the
+    /// `TELEGRAM_BOT_TOKEN` env var) and configures the HTTP client proxy
+    /// accordingly.
+    pub fn new_with_config(config: &kestrel_config::schema::TelegramConfig) -> Self {
+        let token = if config.token.is_empty() {
+            std::env::var("TELEGRAM_BOT_TOKEN").ok()
+        } else {
+            Some(config.token.clone())
+        };
+        let proxy = config.proxy.as_deref().filter(|s| !s.is_empty());
+        Self {
+            token,
+            connected: false,
+            message_handler: None,
+            running: Arc::new(AtomicBool::new(false)),
+            client: Self::build_client(proxy),
+            base_url_override: None,
+            router: Arc::new(tokio::sync::Mutex::new(CallbackRouter::new())),
+            session_keys: Arc::new(ParkMutex::new(Vec::new())),
+            proxy_config: proxy.map(|s| s.to_string()),
         }
     }
 
@@ -591,6 +649,7 @@ impl TelegramChannel {
             base_url_override: Some(base_url),
             router: Arc::new(tokio::sync::Mutex::new(CallbackRouter::new())),
             session_keys: Arc::new(ParkMutex::new(Vec::new())),
+            proxy_config: None,
         }
     }
 
@@ -689,18 +748,23 @@ impl TelegramChannel {
     ///
     /// Uses exponential backoff on transient errors (max 60s).
     /// The backoff resets on any successful response.
+    /// After 10 consecutive failures the HTTP client is rebuilt in case the
+    /// proxy was restarted, followed by a lightweight `getMe` health check.
     async fn poll_loop(
-        client: reqwest::Client,
+        mut client: reqwest::Client,
         token: String,
         handler: tokio::sync::mpsc::Sender<InboundMessage>,
         running: Arc<AtomicBool>,
         router: Arc<tokio::sync::Mutex<CallbackRouter>>,
+        proxy_config: Option<String>,
     ) {
         let base_url = format!("https://api.telegram.org/bot{}", token);
         let mut offset: Option<i64> = None;
         let timeout_secs: u32 = 30;
         let mut backoff_secs: u64 = 1;
         let max_backoff_secs: u64 = 60;
+        let mut consecutive_failures: u32 = 0;
+        const CLIENT_REBUILD_THRESHOLD: u32 = 10;
 
         info!("Telegram polling task started");
 
@@ -716,8 +780,53 @@ impl TelegramChannel {
             let resp = match result {
                 Ok(r) => r,
                 Err(e) => {
-                    // Transient network error — back off and retry.
-                    error!("Telegram getUpdates request failed: {e} (retry in {backoff_secs}s)");
+                    consecutive_failures += 1;
+                    let error_kind = if e.is_connect() {
+                        "connect"
+                    } else if e.is_timeout() {
+                        "timeout"
+                    } else if e.is_request() {
+                        "request"
+                    } else {
+                        "network"
+                    };
+                    error!(
+                        "Telegram getUpdates {} error: {e} (retry in {backoff_secs}s, consecutive failures: {consecutive_failures})",
+                        error_kind,
+                    );
+
+                    if consecutive_failures >= CLIENT_REBUILD_THRESHOLD {
+                        info!(
+                            "Telegram: {} consecutive failures — rebuilding HTTP client",
+                            consecutive_failures
+                        );
+                        let new_client = Self::build_client(proxy_config.as_deref());
+                        // Lightweight health check via getMe
+                        let check_url = format!("https://api.telegram.org/bot{}/getMe", token);
+                        match new_client.get(&check_url).send().await {
+                            Ok(r) if r.status().is_success() => {
+                                info!("Telegram: rebuilt client health check passed");
+                                client = new_client;
+                                consecutive_failures = 0;
+                                backoff_secs = 1;
+                                continue;
+                            }
+                            Ok(r) => {
+                                warn!(
+                                    "Telegram: rebuilt client health check returned {}",
+                                    r.status()
+                                );
+                                client = new_client;
+                                consecutive_failures = 0;
+                            }
+                            Err(he) => {
+                                warn!("Telegram: rebuilt client health check failed: {he}");
+                                client = new_client;
+                                consecutive_failures = 0;
+                            }
+                        }
+                    }
+
                     tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
                     backoff_secs = (backoff_secs * 2).min(max_backoff_secs);
                     continue;
@@ -747,8 +856,9 @@ impl TelegramChannel {
                 continue;
             }
 
-            // Success — reset backoff.
+            // Success — reset backoff and failure counter.
             backoff_secs = 1;
+            consecutive_failures = 0;
 
             let updates = body.result.unwrap_or_default();
 
@@ -1320,9 +1430,10 @@ impl BaseChannel for TelegramChannel {
             };
             let running = self.running.clone();
             let router = self.router.clone();
+            let proxy_config = self.proxy_config.clone();
 
             tokio::spawn(async move {
-                Self::poll_loop(client, token, handler, running, router).await;
+                Self::poll_loop(client, token, handler, running, router, proxy_config).await;
             });
 
             info!("Telegram channel connected — polling started");
@@ -3265,5 +3376,121 @@ mod tests {
             }
             other => panic!("Expected EditMessage, got {other:?}"),
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Proxy client builder tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_proxy_http_scheme_builds() {
+        // Should not panic — builds a client with HTTP proxy config.
+        let client = TelegramChannel::build_client(Some("http://proxy.example.com:8080"));
+        // Verify the client was built (no panic)
+        let _ = client;
+    }
+
+    #[test]
+    fn test_proxy_https_scheme_builds() {
+        let client = TelegramChannel::build_client(Some("https://proxy.example.com:8443"));
+        let _ = client;
+    }
+
+    #[test]
+    fn test_proxy_socks5_scheme_builds() {
+        let client = TelegramChannel::build_client(Some("socks5://proxy.example.com:1080"));
+        let _ = client;
+    }
+
+    #[test]
+    fn test_proxy_socks5h_scheme_builds() {
+        let client = TelegramChannel::build_client(Some("socks5h://proxy.example.com:1080"));
+        let _ = client;
+    }
+
+    #[test]
+    fn test_proxy_empty_direct() {
+        // Empty string should result in a direct client (no proxy).
+        let client = TelegramChannel::build_client(Some(""));
+        let _ = client;
+    }
+
+    #[test]
+    fn test_proxy_none_direct() {
+        // None should result in a direct client (falls through to env vars).
+        // Clear proxy env vars so we get a direct client.
+        std::env::remove_var("HTTPS_PROXY");
+        std::env::remove_var("https_proxy");
+        std::env::remove_var("HTTP_PROXY");
+        std::env::remove_var("http_proxy");
+        std::env::remove_var("ALL_PROXY");
+        std::env::remove_var("all_proxy");
+        let client = TelegramChannel::build_client(None);
+        let _ = client;
+    }
+
+    #[test]
+    fn test_proxy_unsupported_scheme_falls_back() {
+        // Unsupported scheme should fall back to direct (no panic).
+        let client = TelegramChannel::build_client(Some("ftp://proxy.example.com:21"));
+        let _ = client;
+    }
+
+    #[test]
+    fn test_proxy_config_overrides_env() {
+        // Set an env var that would normally be used.
+        std::env::set_var("HTTPS_PROXY", "http://env-proxy:9999");
+        // Config proxy should take priority (we can't easily verify which is
+        // used at runtime, but at least verify no panic).
+        let client = TelegramChannel::build_client(Some("socks5://config-proxy:1080"));
+        let _ = client;
+        std::env::remove_var("HTTPS_PROXY");
+    }
+
+    #[test]
+    fn test_new_with_config_uses_proxy() {
+        let config = kestrel_config::schema::TelegramConfig {
+            token: "123456:ABC-DEF".to_string(),
+            enabled: true,
+            allowed_users: vec![],
+            admin_users: vec![],
+            streaming: false,
+            proxy: Some("http://proxy.example.com:8080".to_string()),
+        };
+        let channel = TelegramChannel::new_with_config(&config);
+        assert_eq!(channel.token.as_deref(), Some("123456:ABC-DEF"));
+        assert_eq!(
+            channel.proxy_config.as_deref(),
+            Some("http://proxy.example.com:8080")
+        );
+    }
+
+    #[test]
+    fn test_new_with_config_no_proxy() {
+        let config = kestrel_config::schema::TelegramConfig {
+            token: "123456:ABC-DEF".to_string(),
+            enabled: true,
+            allowed_users: vec![],
+            admin_users: vec![],
+            streaming: false,
+            proxy: None,
+        };
+        let channel = TelegramChannel::new_with_config(&config);
+        assert!(channel.proxy_config.is_none());
+    }
+
+    #[test]
+    fn test_new_with_config_empty_proxy_treated_as_none() {
+        let config = kestrel_config::schema::TelegramConfig {
+            token: "123456:ABC-DEF".to_string(),
+            enabled: true,
+            allowed_users: vec![],
+            admin_users: vec![],
+            streaming: false,
+            proxy: Some(String::new()),
+        };
+        let channel = TelegramChannel::new_with_config(&config);
+        // Empty proxy should be treated as None
+        assert!(channel.proxy_config.is_none());
     }
 }

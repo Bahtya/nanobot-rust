@@ -154,7 +154,13 @@ impl SkillRegistry {
             (skill, confidence)
         };
 
-        persist_confidence(&skill, &new_confidence, self.skills_dir.as_deref(), &self.mutation_lock).await?;
+        persist_confidence(
+            &skill,
+            &new_confidence,
+            self.skills_dir.as_deref(),
+            &self.mutation_lock,
+        )
+        .await?;
 
         Ok(())
     }
@@ -178,7 +184,13 @@ impl SkillRegistry {
             (skill, confidence)
         };
 
-        persist_confidence(&skill, &new_confidence, self.skills_dir.as_deref(), &self.mutation_lock).await?;
+        persist_confidence(
+            &skill,
+            &new_confidence,
+            self.skills_dir.as_deref(),
+            &self.mutation_lock,
+        )
+        .await?;
 
         Ok(())
     }
@@ -722,11 +734,12 @@ mod tests {
     async fn test_create_skill_rejects_empty_instructions() {
         let (registry, dir) = make_registry_with_dir();
 
-        let result = registry
-            .create_skill("no-md", "No instructions", "")
-            .await;
+        let result = registry.create_skill("no-md", "No instructions", "").await;
 
-        assert!(matches!(result.unwrap_err(), SkillError::ValidationFailed { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            SkillError::ValidationFailed { .. }
+        ));
 
         // Nothing should be written to disk
         assert!(!dir.path().join("no-md.toml").exists());
@@ -1061,10 +1074,7 @@ mod tests {
             .unwrap();
 
         // Should not error — just skips disk persistence
-        registry
-            .adjust_confidence("no-dir", 0.2)
-            .await
-            .unwrap();
+        registry.adjust_confidence("no-dir", 0.2).await.unwrap();
 
         let skill = registry.get("no-dir").await.unwrap();
         assert!(

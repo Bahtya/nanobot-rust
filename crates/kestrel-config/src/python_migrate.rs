@@ -505,6 +505,7 @@ fn convert_channels(
             admin_users: vec![],
             enabled: tg.enabled.unwrap_or(true),
             streaming: false,
+            proxy: None,
         });
         report.add_mapped("channels.telegram (allowFrom → allowed_users, Vec<String>)");
     }
@@ -522,6 +523,7 @@ fn convert_channels(
             allowed_guilds: dc.allow_from.clone().unwrap_or_default(),
             enabled: dc.enabled.unwrap_or(true),
             streaming: dc.streaming.unwrap_or(false),
+            proxy: None,
         });
         report.add_mapped("channels.discord (allowFrom → allowed_guilds, Vec<String>)");
         if dc.group_policy.is_some() {

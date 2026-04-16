@@ -22,8 +22,6 @@ pub struct ContextBuilder<'a> {
     skill_sections: Option<String>,
     /// Optional skill index entries for listing available skills.
     skill_index_entries: Option<Vec<kestrel_learning::prompt::SkillIndexEntry>>,
-    /// Optional prompt adjustment content learned from prior turns.
-    prompt_adjustment: Option<String>,
     /// Assembler for combining prompt sections. Uses default when not set.
     prompt_assembler: Option<PromptAssembler>,
     /// Approximate token budget for rendered tool guidance.
@@ -37,7 +35,6 @@ impl<'a> ContextBuilder<'a> {
             config,
             skill_sections: None,
             skill_index_entries: None,
-            prompt_adjustment: None,
             prompt_assembler: None,
             tool_guidance_token_budget: DEFAULT_TOOL_GUIDANCE_TOKEN_BUDGET,
         }
@@ -59,12 +56,6 @@ impl<'a> ContextBuilder<'a> {
         entries: Vec<kestrel_learning::prompt::SkillIndexEntry>,
     ) -> Self {
         self.skill_index_entries = Some(entries);
-        self
-    }
-
-    /// Attach prompt adjustment guidance learned from previous turns.
-    pub fn with_prompt_adjustment(mut self, adjustment: String) -> Self {
-        self.prompt_adjustment = Some(adjustment);
         self
     }
 
@@ -143,16 +134,6 @@ impl<'a> ContextBuilder<'a> {
             if !skill_sections.is_empty() {
                 sections.push(PromptSection::Skills {
                     content: skill_sections.clone(),
-                });
-            }
-        }
-
-        // Learned prompt adjustments from prior turns.
-        if let Some(ref adjustment) = self.prompt_adjustment {
-            if !adjustment.is_empty() {
-                sections.push(PromptSection::Custom {
-                    label: "Learning Adjustment".to_string(),
-                    content: adjustment.clone(),
                 });
             }
         }

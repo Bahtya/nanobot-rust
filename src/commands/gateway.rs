@@ -137,7 +137,6 @@ async fn execute_learning_action(
     action: &LearningAction,
     memory_store: Option<&Arc<dyn MemoryStore>>,
     skill_registry: &SkillRegistry,
-    prompt_adjustment_tx: &watch::Sender<Option<String>>,
 ) -> Result<()> {
     match action {
         LearningAction::NoOp => Ok(()),
@@ -165,11 +164,6 @@ async fn execute_learning_action(
             .await
             .with_context(|| format!("failed to deprecate skill '{skill}'")),
         LearningAction::RecordInsight { insight, category } => {
-            if category == "prompt_adjustment" {
-                prompt_adjustment_tx.send_replace(Some(insight.clone()));
-                return Ok(());
-            }
-
             let store = memory_store.context("memory store not configured")?;
             let entry = build_memory_entry(insight, category);
             store
@@ -185,13 +179,9 @@ async fn execute_learning_actions(
     actions: &[LearningAction],
     memory_store: Option<&Arc<dyn MemoryStore>>,
     skill_registry: &SkillRegistry,
-    prompt_adjustment_tx: &watch::Sender<Option<String>>,
 ) {
     for action in actions {
-        if let Err(e) =
-            execute_learning_action(action, memory_store, skill_registry, prompt_adjustment_tx)
-                .await
-        {
+        if let Err(e) = execute_learning_action(action, memory_store, skill_registry).await {
             tracing::error!("Failed to execute learning action {:?}: {}", action, e);
         }
     }
@@ -225,7 +215,6 @@ async fn run_learning_consumer<P>(
     processor: &mut P,
     memory_store: Option<Arc<dyn MemoryStore>>,
     skill_registry: Arc<SkillRegistry>,
-    prompt_adjustment_tx: watch::Sender<Option<String>>,
 ) where
     P: GatewayLearningProcessor,
 {
@@ -252,7 +241,6 @@ async fn run_learning_consumer<P>(
                             &actions,
                             memory_store.as_ref(),
                             skill_registry.as_ref(),
-                            &prompt_adjustment_tx,
                         )
                         .await;
 
@@ -321,7 +309,6 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
 
     // ── Agent loop ────────────────────────────────────────────
     let learning_bus = LearningEventBus::new();
-    let (prompt_adjustment_tx, prompt_adjustment_rx) = watch::channel(None::<String>);
 
     // Initialize memory store early so it can be shared with the learning consumer.
     let memory_config = MemoryConfig {
@@ -367,7 +354,6 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
 
         // Wire prompt assembler for dynamic system prompt construction
         al = al.with_prompt_assembler(PromptAssembler::new());
-        al = al.with_prompt_adjustments(prompt_adjustment_rx.clone());
         info!("Prompt assembler wired into agent loop");
 
         al
@@ -518,7 +504,6 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
         let store = event_store.clone();
         let memory_store = learning_memory_store.clone();
         let skill_registry = skill_registry.clone();
-        let prompt_adjustment_tx = prompt_adjustment_tx.clone();
         tokio::spawn(async move {
             run_learning_consumer(
                 &mut learning_rx,
@@ -527,7 +512,6 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
                 &mut processor,
                 memory_store,
                 skill_registry,
-                prompt_adjustment_tx,
             )
             .await;
         })
@@ -842,7 +826,6 @@ mod tests {
         let store_impl = Arc::new(MockMemoryStore::default());
         let memory_store: Arc<dyn MemoryStore> = store_impl.clone();
         let skill_registry = SkillRegistry::new();
-        let (prompt_tx, _prompt_rx) = watch::channel(None::<String>);
 
         execute_learning_action(
             &LearningAction::RecordInsight {
@@ -851,7 +834,6 @@ mod tests {
             },
             Some(&memory_store),
             &skill_registry,
-            &prompt_tx,
         )
         .await
         .unwrap();
@@ -871,7 +853,6 @@ mod tests {
             .register(make_compiled_skill("deploy"))
             .await
             .unwrap();
-        let (prompt_tx, _prompt_rx) = watch::channel(None::<String>);
 
         let actions = vec![
             LearningAction::RecordInsight {
@@ -884,7 +865,7 @@ mod tests {
             },
         ];
 
-        execute_learning_actions(&actions, Some(&memory_store), &skill_registry, &prompt_tx).await;
+        execute_learning_actions(&actions, Some(&memory_store), &skill_registry).await;
 
         let skill = skill_registry.get("deploy").await.unwrap();
         assert!(skill.read().confidence() > 0.5);
@@ -904,7 +885,6 @@ mod tests {
         let event_dir = tempdir().unwrap();
         let event_store = EventStore::new(event_dir.path().join("events.jsonl"), 10);
         let skill_registry = Arc::new(SkillRegistry::new());
-        let (prompt_tx, _prompt_rx) = watch::channel(None::<String>);
 
         let handle = tokio::spawn(async move {
             run_learning_consumer(
@@ -914,7 +894,6 @@ mod tests {
                 &mut processor,
                 None,
                 skill_registry,
-                prompt_tx,
             )
             .await;
         });

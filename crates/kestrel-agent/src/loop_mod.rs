@@ -20,27 +20,42 @@ use anyhow::Result;
 use kestrel_bus::events::{AgentEvent, InboundMessage, OutboundMessage, StreamChunk};
 use kestrel_bus::MessageBus;
 use kestrel_config::Config;
+use kestrel_core::{Message, MessageRole};
 use kestrel_heartbeat::HeartbeatService;
 use kestrel_learning::event::{ErrorClassification, LearningEvent, LearningEventBus, SkillOutcome};
 use kestrel_learning::prompt::{PromptAssembler, SkillIndexEntry};
 use kestrel_memory::types::{MemoryCategory, MemoryEntry, MemoryQuery};
 use kestrel_memory::MemoryStore as AsyncMemoryStore;
-use kestrel_providers::ProviderRegistry;
+use kestrel_providers::{CompletionRequest, ProviderRegistry};
 use kestrel_session::SessionManager;
 use kestrel_skill::registry::SkillMatch;
 use kestrel_skill::SkillRegistry;
 use kestrel_tools::ToolRegistry;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tokio::sync::{watch, RwLock};
+use tokio::sync::RwLock;
 use tracing::{error, info, warn};
+
+const REFLECTION_SYSTEM_PROMPT: &str = "You are a brief task reflection engine. Respond in 1-2 concise sentences about what went well or what to improve.";
+const REFLECTION_USER_TEMPLATE: &str = "Briefly reflect (1-2 sentences) on this completed agent task:\n- User request: {user_request}\n- Tool calls made: {tool_calls}\n- Iterations: {iterations}\n- Success: {success}\n- Response preview: {response_preview}\n\nFocus on what went well or what could be improved next time.";
+
+struct ReflectionTask {
+    learning_bus: LearningEventBus,
+    provider_registry: Arc<ProviderRegistry>,
+    config: Arc<Config>,
+    user_message: String,
+    tool_calls_made: usize,
+    iterations_used: usize,
+    success: bool,
+    response_preview: String,
+}
 
 /// The main agent loop that processes messages from the bus.
 pub struct AgentLoop {
     config: Arc<Config>,
     bus: Arc<MessageBus>,
     session_manager: Arc<SessionManager>,
-    #[allow(dead_code)]
+    /// LLM provider registry used for agent runs and post-task reflection.
     provider_registry: Arc<ProviderRegistry>,
     tool_registry: Arc<ToolRegistry>,
     skill_registry: Option<Arc<SkillRegistry>>,
@@ -59,8 +74,6 @@ pub struct AgentLoop {
     learning_bus: Option<LearningEventBus>,
     /// Optional prompt assembler for dynamic system prompt construction.
     prompt_assembler: Option<PromptAssembler>,
-    /// Optional receiver for learned prompt adjustments.
-    prompt_adjustments_rx: Option<watch::Receiver<Option<String>>>,
 }
 
 impl AgentLoop {
@@ -88,7 +101,6 @@ impl AgentLoop {
             memory_store: None,
             learning_bus: None,
             prompt_assembler: None,
-            prompt_adjustments_rx: None,
         }
     }
 
@@ -211,15 +223,6 @@ impl AgentLoop {
             // Attach prompt assembler if configured
             if let Some(ref assembler) = self.prompt_assembler {
                 context_builder = context_builder.with_prompt_assembler(assembler.clone());
-            }
-
-            if let Some(ref prompt_adjustments_rx) = self.prompt_adjustments_rx {
-                let adjustment = prompt_adjustments_rx.borrow().clone();
-                if let Some(adjustment) = adjustment {
-                    if !adjustment.is_empty() {
-                        context_builder = context_builder.with_prompt_adjustment(adjustment);
-                    }
-                }
             }
 
             // Match skills against user message and inject into prompt
@@ -353,6 +356,10 @@ impl AgentLoop {
                 }
 
                 // Send outbound message
+                let user_msg = msg.content.clone();
+                let result_content = result.content.clone();
+                let tool_calls = result.tool_calls_made;
+                let iterations = result.iterations_used;
                 let outbound = OutboundMessage {
                     channel: msg.channel.clone(),
                     chat_id: msg.chat_id.clone(),
@@ -364,6 +371,26 @@ impl AgentLoop {
 
                 if let Err(e) = self.bus.publish_outbound(outbound).await {
                     error!("Failed to publish outbound message: {}", e);
+                }
+
+                // Post-task LLM reflection runs in the background after the
+                // outbound response path completes.
+                if let Some(bus) = self.learning_bus.clone() {
+                    let provider_registry = self.provider_registry.clone();
+                    let config = self.config.clone();
+                    tokio::spawn(async move {
+                        post_task_reflect(ReflectionTask {
+                            learning_bus: bus,
+                            provider_registry,
+                            config,
+                            user_message: user_msg,
+                            tool_calls_made: tool_calls,
+                            iterations_used: iterations,
+                            success: true,
+                            response_preview: result_content,
+                        })
+                        .await;
+                    });
                 }
 
                 // Emit completed event
@@ -753,17 +780,6 @@ impl AgentLoop {
         self
     }
 
-    /// Attach a watch receiver for learned prompt adjustments.
-    ///
-    /// The latest non-empty adjustment is injected into the next system prompt.
-    pub fn with_prompt_adjustments(
-        mut self,
-        prompt_adjustments_rx: watch::Receiver<Option<String>>,
-    ) -> Self {
-        self.prompt_adjustments_rx = Some(prompt_adjustments_rx);
-        self
-    }
-
     /// Get the prompt assembler, if one has been attached.
     pub fn prompt_assembler(&self) -> Option<&PromptAssembler> {
         self.prompt_assembler.as_ref()
@@ -772,6 +788,78 @@ impl AgentLoop {
     /// Get the sub-agent manager, if one has been attached.
     pub fn subagent_manager(&self) -> Option<&Arc<SubAgentManager>> {
         self.subagent_manager.as_ref()
+    }
+}
+
+/// Perform a brief LLM-powered reflection on a completed task in the
+/// background after the user response has already been sent.
+///
+/// Collects task metadata (user message, tool calls, iterations, outcome),
+/// asks the configured LLM for a 1-2 sentence assessment, and publishes
+/// the result as a [`LearningEvent::TaskReflection`]. Failures are logged
+/// and silently ignored — reflection must not break the agent loop.
+async fn post_task_reflect(task: ReflectionTask) {
+    let model = &task.config.agent.model;
+    let provider = match task.provider_registry.get_provider(model) {
+        Some(p) => p,
+        None => {
+            warn!("No provider available for task reflection");
+            return;
+        }
+    };
+
+    let reflection_prompt = REFLECTION_USER_TEMPLATE
+        .replace("{user_request}", truncate_str(&task.user_message, 100))
+        .replace("{tool_calls}", &task.tool_calls_made.to_string())
+        .replace("{iterations}", &task.iterations_used.to_string())
+        .replace("{success}", &task.success.to_string())
+        .replace(
+            "{response_preview}",
+            truncate_str(&task.response_preview, 100),
+        );
+
+    let request = CompletionRequest {
+        model: model.clone(),
+        messages: vec![
+            Message {
+                role: MessageRole::System,
+                content: REFLECTION_SYSTEM_PROMPT.to_string(),
+                name: None,
+                tool_call_id: None,
+                tool_calls: None,
+            },
+            Message {
+                role: MessageRole::User,
+                content: reflection_prompt,
+                name: None,
+                tool_call_id: None,
+                tool_calls: None,
+            },
+        ],
+        tools: None,
+        max_tokens: Some(100),
+        temperature: Some(0.3),
+        stream: false,
+    };
+
+    match provider.complete(request).await {
+        Ok(response) => {
+            if let Some(reflection) = response.content {
+                if !reflection.trim().is_empty() {
+                    let tool_calls_u32 = task.tool_calls_made as u32;
+                    task.learning_bus.publish(LearningEvent::TaskReflection {
+                        task_summary: truncate_str(&task.user_message, 100).to_string(),
+                        tool_calls_count: tool_calls_u32,
+                        success: task.success,
+                        reflection,
+                        timestamp: chrono::Utc::now(),
+                    });
+                }
+            }
+        }
+        Err(e) => {
+            warn!("Post-task reflection LLM call failed: {}", e);
+        }
     }
 }
 
@@ -1775,5 +1863,102 @@ mod tests {
         // We can't call process_message without a full agent setup,
         // but we can verify the builder method is wired correctly.
         assert!(al.prompt_assembler().is_some());
+    }
+
+    // ── Post-task reflection tests ───────────────────────────────
+
+    #[tokio::test]
+    async fn test_post_task_reflect_publishes_event() {
+        let bus = LearningEventBus::new();
+        let mut rx = bus.subscribe();
+
+        let al = make_agent_loop_with_provider("Execution was smooth and efficient.");
+        post_task_reflect(ReflectionTask {
+            learning_bus: bus,
+            provider_registry: al.provider_registry.clone(),
+            config: al.config.clone(),
+            user_message: "deploy to prod".to_string(),
+            tool_calls_made: 3,
+            iterations_used: 2,
+            success: true,
+            response_preview: "deployed successfully".to_string(),
+        })
+        .await;
+
+        let event = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+            .await
+            .expect("timeout")
+            .expect("should receive event");
+
+        match event {
+            LearningEvent::TaskReflection {
+                task_summary,
+                tool_calls_count,
+                success,
+                reflection,
+                ..
+            } => {
+                assert!(task_summary.contains("deploy to prod"));
+                assert_eq!(tool_calls_count, 3);
+                assert!(success);
+                assert!(reflection.contains("smooth"));
+            }
+            other => panic!("Expected TaskReflection, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_post_task_reflect_no_learning_bus() {
+        // No learning bus means the background helper is never spawned.
+        let al = make_agent_loop_with_provider("reflection");
+        let _ = al;
+    }
+
+    #[tokio::test]
+    async fn test_post_task_reflect_no_provider() {
+        let bus = LearningEventBus::new();
+        let mut rx = bus.subscribe();
+
+        // make_agent_loop creates a ProviderRegistry with no providers.
+        let al = make_agent_loop();
+
+        post_task_reflect(ReflectionTask {
+            learning_bus: bus,
+            provider_registry: al.provider_registry.clone(),
+            config: al.config.clone(),
+            user_message: "test".to_string(),
+            tool_calls_made: 0,
+            iterations_used: 0,
+            success: true,
+            response_preview: "ok".to_string(),
+        })
+        .await;
+
+        // No event should be published since no provider is configured.
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_post_task_reflect_empty_response_no_event() {
+        let bus = LearningEventBus::new();
+        let mut rx = bus.subscribe();
+
+        // MockProvider returns an empty string.
+        let al = make_agent_loop_with_provider("");
+
+        post_task_reflect(ReflectionTask {
+            learning_bus: bus,
+            provider_registry: al.provider_registry.clone(),
+            config: al.config.clone(),
+            user_message: "test".to_string(),
+            tool_calls_made: 1,
+            iterations_used: 1,
+            success: true,
+            response_preview: "done".to_string(),
+        })
+        .await;
+
+        // Empty content should not publish an event.
+        assert!(rx.try_recv().is_err());
     }
 }

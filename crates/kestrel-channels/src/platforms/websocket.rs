@@ -1006,7 +1006,7 @@ mod tests {
         let env = WsEnvelope::streaming_chunk("Hello ", false);
         assert_eq!(env.msg_type, "streaming");
         assert_eq!(env.chunk.unwrap(), "Hello ");
-        assert_eq!(env.done.unwrap(), false);
+        assert!(!env.done.unwrap());
     }
 
     #[test]
@@ -1014,7 +1014,7 @@ mod tests {
         let env = WsEnvelope::streaming_chunk("", true);
         assert_eq!(env.msg_type, "streaming");
         assert_eq!(env.chunk.unwrap(), "");
-        assert_eq!(env.done.unwrap(), true);
+        assert!(env.done.unwrap());
     }
 
     #[test]
@@ -1064,7 +1064,7 @@ mod tests {
         let env: WsEnvelope = serde_json::from_str(json).unwrap();
         assert_eq!(env.msg_type, "streaming");
         assert_eq!(env.chunk.unwrap(), "Hello ");
-        assert_eq!(env.done.unwrap(), false);
+        assert!(!env.done.unwrap());
         assert_eq!(env.tool.unwrap(), "search");
         assert_eq!(env.args.unwrap()["query"], "test");
     }

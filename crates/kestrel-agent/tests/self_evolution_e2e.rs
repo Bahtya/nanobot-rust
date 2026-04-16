@@ -43,8 +43,8 @@ use tokio::sync::RwLock;
 struct MockProviderState {
     responses: Vec<CompletionResponse>,
     call_count: AtomicUsize,
-    /// The system prompt from the last completion request.
-    last_system_prompt: RwLock<Option<String>>,
+    /// All system prompts from every completion request.
+    system_prompts: RwLock<Vec<String>>,
 }
 
 /// Mock LLM provider that returns a fixed sequence of responses.
@@ -62,7 +62,7 @@ impl MockProvider {
             state: Arc::new(MockProviderState {
                 responses,
                 call_count: AtomicUsize::new(0),
-                last_system_prompt: RwLock::new(None),
+                system_prompts: RwLock::new(Vec::new()),
             }),
         }
     }
@@ -71,8 +71,19 @@ impl MockProvider {
         self.state.call_count.load(Ordering::SeqCst)
     }
 
+    /// Returns the system prompt from the first completion request.
     async fn last_system_prompt(&self) -> Option<String> {
-        self.state.last_system_prompt.read().await.clone()
+        self.state.system_prompts.read().await.first().cloned()
+    }
+
+    /// Returns true if any captured system prompt contains the given text.
+    async fn any_system_prompt_contains(&self, text: &str) -> bool {
+        self.state
+            .system_prompts
+            .read()
+            .await
+            .iter()
+            .any(|p| p.contains(text))
     }
 }
 
@@ -93,8 +104,8 @@ impl LlmProvider for MockProvider {
     async fn complete(&self, request: CompletionRequest) -> anyhow::Result<CompletionResponse> {
         // Capture system prompt for later verification
         if let Some(sys) = request.messages.first() {
-            let mut guard = self.state.last_system_prompt.write().await;
-            *guard = Some(sys.content.clone());
+            let mut guard = self.state.system_prompts.write().await;
+            guard.push(sys.content.clone());
         }
 
         let idx = self.state.call_count.fetch_add(1, Ordering::SeqCst);
@@ -344,7 +355,8 @@ async fn test_self_evolution_full_loop() {
     let tmp = tempfile::tempdir().unwrap();
     let session_manager = SessionManager::new(tmp.path().to_path_buf()).unwrap();
 
-    // Mock provider: first call requests a tool, second call returns final answer.
+    // Mock provider: first call requests a tool, second call returns final answer,
+    // third call is the post-task reflection.
     let mock_provider = Arc::new(MockProvider::new(vec![
         CompletionResponse {
             content: Some(String::new()),
@@ -367,6 +379,12 @@ async fn test_self_evolution_full_loop() {
                 completion_tokens: Some(20),
                 total_tokens: Some(70),
             }),
+            finish_reason: Some("stop".to_string()),
+        },
+        CompletionResponse {
+            content: Some("Task completed with one tool call.".to_string()),
+            tool_calls: None,
+            usage: None,
             finish_reason: Some("stop".to_string()),
         },
     ]));
@@ -493,15 +511,24 @@ async fn test_self_evolution_full_loop() {
     let mut saw_memory_accessed = false;
     let mut saw_skill_used = false;
     let mut saw_tool_succeeded = false;
+    let mut events = Vec::new();
 
     for _ in 0..10 {
-        match learning_rx.try_recv() {
-            Ok(LearningEvent::MemoryAccessed {
+        let event =
+            match tokio::time::timeout(std::time::Duration::from_secs(2), learning_rx.recv()).await
+            {
+                Ok(Ok(event)) => event,
+                _ => break,
+            };
+
+        events.push(event.clone());
+        match event {
+            LearningEvent::MemoryAccessed {
                 query,
                 hit,
                 results_count,
                 ..
-            }) => {
+            } => {
                 saw_memory_accessed = true;
                 assert!(
                     query.contains("deploy"),
@@ -515,12 +542,12 @@ async fn test_self_evolution_full_loop() {
                     results_count
                 );
             }
-            Ok(LearningEvent::SkillUsed {
+            LearningEvent::SkillUsed {
                 skill_name,
                 match_score,
                 outcome,
                 ..
-            }) => {
+            } => {
                 saw_skill_used = true;
                 assert_eq!(skill_name, "deploy-k8s");
                 assert!(
@@ -530,12 +557,21 @@ async fn test_self_evolution_full_loop() {
                 );
                 assert_eq!(outcome, SkillOutcome::Helpful);
             }
-            Ok(LearningEvent::ToolSucceeded { tool, .. }) => {
+            LearningEvent::ToolSucceeded { tool, .. } => {
                 saw_tool_succeeded = true;
                 assert_eq!(tool, "agent_loop");
             }
-            Ok(_) => { /* other learning events are fine */ }
-            Err(_) => break,
+            _ => { /* other learning events are fine */ }
+        }
+
+        if saw_memory_accessed
+            && saw_skill_used
+            && saw_tool_succeeded
+            && events
+                .iter()
+                .any(|e| matches!(e, LearningEvent::TaskReflection { .. }))
+        {
+            break;
         }
     }
 
@@ -545,32 +581,107 @@ async fn test_self_evolution_full_loop() {
     );
     assert!(saw_skill_used, "expected SkillUsed learning event");
     assert!(saw_tool_succeeded, "expected ToolSucceeded learning event");
-
-    // ── Verify LLM was called (twice: tool call + final response) ──
     assert!(
-        mock_provider.call_count() >= 2,
-        "LLM should have been called at least twice (tool call + final), got {}",
-        mock_provider.call_count()
+        events
+            .iter()
+            .any(|e| matches!(e, LearningEvent::TaskReflection { .. })),
+        "expected TaskReflection learning event"
+    );
+
+    // ── Verify LLM was called exactly three times: tool call + final + reflection ──
+    assert_eq!(
+        mock_provider.call_count(),
+        3,
+        "Expected exactly 3 LLM calls"
     );
 
     // ── Verify system prompt contained memory and skill content ─
-    let system_prompt = mock_provider
-        .last_system_prompt()
-        .await
-        .expect("should have captured system prompt");
-
-    // The system prompt should contain memory recall results
+    // The main agent call should have memory/skill content; the reflection
+    // call is separate, so we check across all captured system prompts.
     assert!(
-        system_prompt.contains("kubectl") || system_prompt.contains("helm"),
-        "system prompt should contain recalled memory content, got:\n{}",
-        system_prompt
+        mock_provider.any_system_prompt_contains("kubectl").await
+            || mock_provider.any_system_prompt_contains("helm").await,
+        "system prompt should contain recalled memory content"
     );
 
-    // The system prompt should contain skill steps
     assert!(
-        system_prompt.contains("deploy-k8s"),
-        "system prompt should contain matched skill name, got:\n{}",
-        system_prompt
+        mock_provider.any_system_prompt_contains("deploy-k8s").await,
+        "system prompt should contain matched skill name"
+    );
+
+    agent_handle.abort();
+}
+
+// ---------------------------------------------------------------------------
+// E2E Test 1b: Empty reflection content should not emit TaskReflection
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_self_evolution_empty_reflection_skips_task_reflection_event() {
+    let config = make_config();
+    let bus = MessageBus::new();
+    let tmp = tempfile::tempdir().unwrap();
+    let session_manager = SessionManager::new(tmp.path().to_path_buf()).unwrap();
+
+    let mock_provider = Arc::new(MockProvider::new(vec![
+        CompletionResponse {
+            content: Some("All set.".to_string()),
+            tool_calls: None,
+            usage: None,
+            finish_reason: Some("stop".to_string()),
+        },
+        CompletionResponse {
+            content: Some(String::new()),
+            tool_calls: None,
+            usage: None,
+            finish_reason: Some("stop".to_string()),
+        },
+    ]));
+
+    let providers = make_providers(mock_provider.clone());
+    let tools = make_tools();
+    let memory_store = Arc::new(MockMemoryStore::new());
+    let learning_bus = LearningEventBus::new();
+    let mut learning_rx = learning_bus.subscribe();
+
+    let agent_loop = AgentLoop::new(config, bus.clone(), session_manager, providers, tools)
+        .with_memory_store(memory_store as Arc<dyn AsyncMemoryStore>)
+        .with_learning_bus(learning_bus);
+
+    let mut outbound_rx = bus.consume_outbound().await.unwrap();
+
+    let agent_handle = tokio::spawn(async move {
+        agent_loop.run().await.unwrap();
+    });
+
+    bus.publish_inbound(make_inbound("summarize the change"))
+        .await
+        .unwrap();
+
+    let outbound = tokio::time::timeout(std::time::Duration::from_secs(5), outbound_rx.recv())
+        .await
+        .expect("timed out waiting for outbound")
+        .expect("outbound channel closed");
+    assert_eq!(outbound.content, "All set.");
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    let mut saw_reflection = false;
+    while let Ok(event) = learning_rx.try_recv() {
+        if matches!(event, LearningEvent::TaskReflection { .. }) {
+            saw_reflection = true;
+            break;
+        }
+    }
+
+    assert!(
+        !saw_reflection,
+        "did not expect TaskReflection when reflection content is empty"
+    );
+    assert_eq!(
+        mock_provider.call_count(),
+        2,
+        "Expected main call plus reflection call"
     );
 
     agent_handle.abort();
@@ -781,16 +892,30 @@ async fn test_self_evolution_multi_turn() {
     let session_manager = SessionManager::new(tmp.path().to_path_buf()).unwrap();
 
     let mock_provider = Arc::new(MockProvider::new(vec![
-        // Turn 1: simple response
+        // Turn 1: main agent response
         CompletionResponse {
             content: Some("Rust is a systems programming language.".to_string()),
             tool_calls: None,
             usage: None,
             finish_reason: Some("stop".to_string()),
         },
-        // Turn 2: another simple response
+        // Turn 1: post-task reflection
+        CompletionResponse {
+            content: Some("Clear and concise answer.".to_string()),
+            tool_calls: None,
+            usage: None,
+            finish_reason: Some("stop".to_string()),
+        },
+        // Turn 2: main agent response
         CompletionResponse {
             content: Some("Cargo is Rust's build system.".to_string()),
+            tool_calls: None,
+            usage: None,
+            finish_reason: Some("stop".to_string()),
+        },
+        // Turn 2: post-task reflection
+        CompletionResponse {
+            content: Some("Good factual response.".to_string()),
             tool_calls: None,
             usage: None,
             finish_reason: Some("stop".to_string()),

@@ -100,6 +100,11 @@ impl Default for ProcessorStats {
 
 /// A basic event processor that tracks tool success/failure patterns,
 /// user corrections, and skill usage.
+///
+/// Behavioral guidance insights are stored via `RecordInsight` and become
+/// available to future prompts through the memory recall mechanism
+/// (kestrel-memory warm store). They are NOT injected via a dedicated
+/// prompt-adjustment channel.
 pub struct BasicEventProcessor {
     stats: Arc<RwLock<ProcessorStats>>,
     stats_path: Option<PathBuf>,
@@ -240,7 +245,7 @@ impl LearningEventHandler for BasicEventProcessor {
                 let err_key = format!("{error:?}");
                 *tool_stats.error_breakdown.entry(err_key).or_insert(0) += 1;
 
-                // If a tool fails repeatedly, record an insight.
+                // If a tool fails repeatedly, record an insight and adjust the prompt.
                 if *retry_count >= 3 || tool_stats.failure_count > 5 {
                     actions.push(LearningAction::RecordInsight {
                         insight: format!(
@@ -249,6 +254,15 @@ impl LearningEventHandler for BasicEventProcessor {
                             error_message
                         ),
                         category: "tool_reliability".into(),
+                    });
+                    // Store behavioral guidance for later memory-based recall.
+                    actions.push(LearningAction::RecordInsight {
+                        insight: format!(
+                            "Consider alternatives to tool '{tool}' — it has failed {} times. \
+                             Last issue: {error_message}",
+                            tool_stats.failure_count
+                        ),
+                        category: "behavioral_guidance".into(),
                     });
                 }
             }
@@ -264,7 +278,7 @@ impl LearningEventHandler for BasicEventProcessor {
                 corr.last_hint = correction_hint.clone();
                 corr.last_seen = Utc::now();
 
-                // If we see repeated corrections on the same topic, flag it.
+                // If we see repeated corrections on the same topic, flag it and adjust the prompt.
                 if corr.count >= 2 {
                     actions.push(LearningAction::RecordInsight {
                         insight: format!(
@@ -272,6 +286,13 @@ impl LearningEventHandler for BasicEventProcessor {
                             corr.count
                         ),
                         category: "user_correction".into(),
+                    });
+                    // Store behavioral guidance for later memory-based recall.
+                    actions.push(LearningAction::RecordInsight {
+                        insight: format!(
+                            "Always follow user preference for '{topic}'. Rule: {correction_hint}"
+                        ),
+                        category: "behavioral_guidance".into(),
                     });
                 }
             }
@@ -304,6 +325,22 @@ impl LearningEventHandler for BasicEventProcessor {
                         });
                     }
                 }
+            }
+
+            LearningEvent::TaskReflection {
+                task_summary,
+                tool_calls_count,
+                success,
+                reflection,
+                ..
+            } => {
+                let status = if *success { "success" } else { "failure" };
+                actions.push(LearningAction::RecordInsight {
+                    insight: format!(
+                        "Task '{task_summary}' ({tool_calls_count} tool calls, {status}): {reflection}"
+                    ),
+                    category: "task_reflection".into(),
+                });
             }
 
             LearningEvent::UserApproval { .. }
@@ -420,6 +457,107 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn repeated_failures_emit_behavioral_guidance() {
+        let proc = BasicEventProcessor::new();
+        // 6 failures exceed the threshold (failure_count > 5).
+        for _ in 0..6 {
+            proc.handle(&tool_failed("web", ErrorClassification::Environment, 0))
+                .await;
+        }
+        let actions = proc
+            .handle(&tool_failed("web", ErrorClassification::Environment, 0))
+            .await;
+        let behavioral_guidance: Vec<_> = actions
+            .iter()
+            .filter(|a| {
+                matches!(
+                    a,
+                    LearningAction::RecordInsight { category, .. } if category == "behavioral_guidance"
+                )
+            })
+            .collect();
+        assert_eq!(
+            behavioral_guidance.len(),
+            1,
+            "should emit exactly one behavioral_guidance insight"
+        );
+        if let LearningAction::RecordInsight { insight, .. } = behavioral_guidance[0] {
+            assert!(insight.contains("web"));
+            assert!(insight.contains("Consider alternatives"));
+        }
+    }
+
+    #[tokio::test]
+    async fn high_retry_emits_behavioral_guidance() {
+        let proc = BasicEventProcessor::new();
+        let actions = proc
+            .handle(&tool_failed("db", ErrorClassification::ToolConfig, 3))
+            .await;
+        assert!(actions.iter().any(|a| {
+            matches!(
+                a,
+                LearningAction::RecordInsight { category, .. } if category == "behavioral_guidance"
+            )
+        }));
+    }
+
+    #[tokio::test]
+    async fn single_failure_no_behavioral_guidance() {
+        let proc = BasicEventProcessor::new();
+        let actions = proc
+            .handle(&tool_failed("web", ErrorClassification::Environment, 0))
+            .await;
+        assert!(!actions.iter().any(|a| {
+            matches!(
+                a,
+                LearningAction::RecordInsight { category, .. } if category == "behavioral_guidance"
+            )
+        }));
+    }
+
+    #[tokio::test]
+    async fn repeated_corrections_emit_behavioral_guidance() {
+        let proc = BasicEventProcessor::new();
+        proc.handle(&user_correction("formatting", "use markdown"))
+            .await;
+        let actions = proc
+            .handle(&user_correction("formatting", "use markdown please"))
+            .await;
+        let behavioral_guidance: Vec<_> = actions
+            .iter()
+            .filter(|a| {
+                matches!(
+                    a,
+                    LearningAction::RecordInsight { category, .. } if category == "behavioral_guidance"
+                )
+            })
+            .collect();
+        assert_eq!(
+            behavioral_guidance.len(),
+            1,
+            "should emit exactly one behavioral_guidance insight"
+        );
+        if let LearningAction::RecordInsight { insight, .. } = behavioral_guidance[0] {
+            assert!(insight.contains("formatting"));
+            assert!(insight.contains("use markdown please"));
+        }
+    }
+
+    #[tokio::test]
+    async fn single_correction_no_behavioral_guidance() {
+        let proc = BasicEventProcessor::new();
+        let actions = proc
+            .handle(&user_correction("formatting", "use markdown"))
+            .await;
+        assert!(!actions.iter().any(|a| {
+            matches!(
+                a,
+                LearningAction::RecordInsight { category, .. } if category == "behavioral_guidance"
+            )
+        }));
+    }
+
+    #[tokio::test]
     async fn correction_tracking() {
         let proc = BasicEventProcessor::new();
         proc.handle(&user_correction("formatting", "use markdown"))
@@ -488,6 +626,51 @@ mod tests {
     async fn processor_name() {
         let proc = BasicEventProcessor::new();
         assert_eq!(proc.name(), "basic_event_processor");
+    }
+
+    #[tokio::test]
+    async fn task_reflection_produces_insight() {
+        let proc = BasicEventProcessor::new();
+        let event = LearningEvent::TaskReflection {
+            task_summary: "deploy to prod".into(),
+            tool_calls_count: 3,
+            success: true,
+            reflection: "Smooth execution, all tools worked correctly.".into(),
+            timestamp: Utc::now(),
+        };
+        let actions = proc.handle(&event).await;
+        assert_eq!(actions.len(), 1);
+        assert!(actions.iter().any(|a| {
+            matches!(
+                a,
+                LearningAction::RecordInsight { category, .. } if category == "task_reflection"
+            )
+        }));
+        if let LearningAction::RecordInsight { insight, .. } = &actions[0] {
+            assert!(insight.contains("deploy to prod"));
+            assert!(insight.contains("success"));
+            assert!(insight.contains("Smooth execution"));
+        }
+    }
+
+    #[tokio::test]
+    async fn task_reflection_failure_produces_insight() {
+        let proc = BasicEventProcessor::new();
+        let event = LearningEvent::TaskReflection {
+            task_summary: "fix bug".into(),
+            tool_calls_count: 0,
+            success: false,
+            reflection: "Task failed due to missing permissions.".into(),
+            timestamp: Utc::now(),
+        };
+        let actions = proc.handle(&event).await;
+        assert!(actions.iter().any(|a| {
+            matches!(
+                a,
+                LearningAction::RecordInsight { insight, category }
+                    if category == "task_reflection" && insight.contains("failure")
+            )
+        }));
     }
 
     #[tokio::test]

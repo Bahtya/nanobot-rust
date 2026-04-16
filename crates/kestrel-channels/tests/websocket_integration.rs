@@ -317,7 +317,7 @@ async fn test_multiple_clients_individual_sessions() {
         .unwrap();
 
     // Each client should have its own chat_id.
-    let ids = vec![msg1.chat_id.clone(), msg2.chat_id.clone()];
+    let ids = [msg1.chat_id.clone(), msg2.chat_id.clone()];
     assert!(ids.contains(&id1));
     assert!(ids.contains(&id2));
 

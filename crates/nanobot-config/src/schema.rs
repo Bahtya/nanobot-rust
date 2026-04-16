@@ -1100,4 +1100,49 @@ daemon:
         assert_eq!(parsed.working_directory, dc.working_directory);
         assert_eq!(parsed.grace_period_secs, dc.grace_period_secs);
     }
+
+    #[test]
+    fn test_websocket_config_default() {
+        let wc = WebSocketConfig::default();
+        assert!(!wc.enabled);
+        assert_eq!(wc.listen_addr, "127.0.0.1:8090");
+        assert!(!wc.auth.required);
+        assert!(wc.auth.token.is_none());
+        assert_eq!(wc.max_clients, 100);
+        assert_eq!(wc.max_message_size, 1048576);
+    }
+
+    #[test]
+    fn test_websocket_config_parse() {
+        let yaml = r#"
+channels:
+  websocket:
+    enabled: true
+    listen_addr: "0.0.0.0:9090"
+    auth:
+      required: true
+      token: "my-secret"
+    max_clients: 50
+    max_message_size: 2097152
+"#;
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let ws = config.channels.websocket.unwrap();
+        assert!(ws.enabled);
+        assert_eq!(ws.listen_addr, "0.0.0.0:9090");
+        assert!(ws.auth.required);
+        assert_eq!(ws.auth.token, Some("my-secret".to_string()));
+        assert_eq!(ws.max_clients, 50);
+        assert_eq!(ws.max_message_size, 2097152);
+    }
+
+    #[test]
+    fn test_websocket_config_yaml_roundtrip() {
+        let wc = WebSocketConfig::default();
+        let yaml = serde_yaml::to_string(&wc).unwrap();
+        let parsed: WebSocketConfig = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(parsed.enabled, wc.enabled);
+        assert_eq!(parsed.listen_addr, wc.listen_addr);
+        assert_eq!(parsed.max_clients, wc.max_clients);
+        assert_eq!(parsed.max_message_size, wc.max_message_size);
+    }
 }

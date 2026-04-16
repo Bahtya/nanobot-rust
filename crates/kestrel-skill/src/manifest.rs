@@ -42,6 +42,11 @@ pub struct SkillManifest {
     /// Reason for deprecation, if any.
     #[serde(default)]
     pub deprecation_reason: Option<String>,
+    /// Persisted confidence score (0.0–1.0). Written by the registry when confidence
+    /// changes via [`adjust_confidence`](crate::SkillRegistry::adjust_confidence) or
+    /// [`update_confidence`](crate::SkillRegistry::update_confidence).
+    #[serde(default)]
+    pub confidence: Option<f64>,
 }
 
 fn default_category() -> String {
@@ -109,6 +114,7 @@ pub struct SkillManifestBuilder {
     category: String,
     deprecated: Option<bool>,
     deprecation_reason: Option<String>,
+    confidence: Option<f64>,
 }
 
 impl SkillManifestBuilder {
@@ -128,6 +134,7 @@ impl SkillManifestBuilder {
             category: "uncategorized".to_string(),
             deprecated: None,
             deprecation_reason: None,
+            confidence: None,
         }
     }
 
@@ -162,6 +169,12 @@ impl SkillManifestBuilder {
         self
     }
 
+    /// Set the persisted confidence score.
+    pub fn confidence(mut self, confidence: f64) -> Self {
+        self.confidence = Some(confidence);
+        self
+    }
+
     /// Build the manifest. Panics if required triggers are missing.
     pub fn build(self) -> SkillManifest {
         SkillManifest {
@@ -174,6 +187,7 @@ impl SkillManifestBuilder {
             category: self.category,
             deprecated: self.deprecated,
             deprecation_reason: self.deprecation_reason,
+            confidence: self.confidence,
         }
     }
 }
@@ -269,6 +283,7 @@ mod tests {
             category: "uncategorized".to_string(),
             deprecated: None,
             deprecation_reason: None,
+            confidence: None,
         };
         let errors = m.validate().unwrap_err();
         assert!(errors.len() >= 4);

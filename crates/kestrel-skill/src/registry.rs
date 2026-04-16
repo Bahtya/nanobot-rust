@@ -134,30 +134,52 @@ impl SkillRegistry {
         matches
     }
 
-    /// Update the confidence of a registered skill.
+    /// Update the confidence of a registered skill using a feedback event.
+    ///
+    /// When a skills directory is configured, the updated confidence is persisted
+    /// to the on-disk TOML manifest so it survives restarts.
     pub async fn update_confidence(
         &self,
         name: &str,
         event: crate::skill::ConfidenceEvent,
     ) -> SkillResult<()> {
-        let skills = self.skills.read().await;
-        let skill = skills
-            .get(name)
-            .ok_or_else(|| SkillError::NotFound(name.to_string()))?;
-        skill.write().update_confidence(event);
+        let (skill, new_confidence) = {
+            let skills = self.skills.read().await;
+            let skill = skills
+                .get(name)
+                .cloned()
+                .ok_or_else(|| SkillError::NotFound(name.to_string()))?;
+            skill.write().update_confidence(event);
+            let confidence = skill.read().confidence();
+            (skill, confidence)
+        };
+
+        persist_confidence(&skill, &new_confidence, self.skills_dir.as_deref(), &self.mutation_lock).await?;
+
         Ok(())
     }
 
     /// Adjust the confidence of a registered skill by a raw delta.
     ///
     /// The resulting confidence is clamped to the inclusive range `0.0..=1.0`.
+    /// When a skills directory is configured, the updated confidence is persisted
+    /// to the on-disk TOML manifest so it survives restarts.
     pub async fn adjust_confidence(&self, name: &str, delta: f64) -> SkillResult<()> {
-        let skills = self.skills.read().await;
-        let skill = skills
-            .get(name)
-            .ok_or_else(|| SkillError::NotFound(name.to_string()))?;
-        let mut guard = skill.write();
-        guard.confidence = (guard.confidence + delta).clamp(0.0, 1.0);
+        let (skill, new_confidence) = {
+            let skills = self.skills.read().await;
+            let skill = skills
+                .get(name)
+                .cloned()
+                .ok_or_else(|| SkillError::NotFound(name.to_string()))?;
+            let mut guard = skill.write();
+            guard.confidence = (guard.confidence + delta).clamp(0.0, 1.0);
+            let confidence = guard.confidence;
+            drop(guard);
+            (skill, confidence)
+        };
+
+        persist_confidence(&skill, &new_confidence, self.skills_dir.as_deref(), &self.mutation_lock).await?;
+
         Ok(())
     }
 
@@ -178,6 +200,13 @@ impl SkillRegistry {
         description: &str,
         instructions: &str,
     ) -> SkillResult<()> {
+        if instructions.is_empty() {
+            return Err(SkillError::ValidationFailed {
+                name: name.to_string(),
+                reason: "instructions must not be empty".to_string(),
+            });
+        }
+
         let dir = self
             .skills_dir
             .as_deref()
@@ -326,6 +355,34 @@ impl SkillRegistry {
 
         Ok(())
     }
+}
+
+/// Persist a confidence change to the on-disk TOML manifest.
+///
+/// No-op when `skills_dir` is `None` (registry not configured for persistence).
+async fn persist_confidence(
+    skill: &Arc<RwLock<CompiledSkill>>,
+    confidence: &f64,
+    skills_dir: Option<&Path>,
+    mutation_lock: &Mutex<()>,
+) -> SkillResult<()> {
+    let Some(dir) = skills_dir else {
+        return Ok(());
+    };
+
+    let _mutation_guard = mutation_lock.lock().await;
+
+    let name = skill.read().name().to_string();
+    let updated_manifest = {
+        let mut manifest = skill.read().manifest().clone();
+        manifest.confidence = Some(*confidence);
+        manifest
+    };
+
+    let toml_path = dir.join(format!("{name}.toml"));
+    atomic_write(&toml_path, &toml::to_string(&updated_manifest)?)?;
+
+    Ok(())
 }
 
 /// Write data to a file atomically using temp file + rename.
@@ -662,22 +719,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_create_skill_empty_instructions_no_md_file() {
+    async fn test_create_skill_rejects_empty_instructions() {
         let (registry, dir) = make_registry_with_dir();
 
-        registry
+        let result = registry
             .create_skill("no-md", "No instructions", "")
-            .await
-            .unwrap();
+            .await;
 
-        let md_path = dir.path().join("no-md.md");
-        assert!(
-            !md_path.exists(),
-            "No MD file should be created for empty instructions"
-        );
+        assert!(matches!(result.unwrap_err(), SkillError::ValidationFailed { .. }));
 
-        // But TOML should still exist
-        assert!(dir.path().join("no-md.toml").exists());
+        // Nothing should be written to disk
+        assert!(!dir.path().join("no-md.toml").exists());
+        assert!(!dir.path().join("no-md.md").exists());
     }
 
     #[tokio::test]
@@ -899,5 +952,124 @@ mod tests {
 
         let registry = SkillRegistry::new().with_skills_dir("/tmp/skills");
         assert_eq!(registry.skills_dir(), Some(Path::new("/tmp/skills")));
+    }
+
+    #[tokio::test]
+    async fn test_adjust_confidence_persists_to_disk() {
+        let (registry, dir) = make_registry_with_dir();
+
+        registry
+            .create_skill("persist-skill", "Test persistence", "Instructions")
+            .await
+            .unwrap();
+
+        registry
+            .adjust_confidence("persist-skill", 0.3)
+            .await
+            .unwrap();
+
+        // Verify TOML manifest on disk has the updated confidence
+        let toml_path = dir.path().join("persist-skill.toml");
+        let content = std::fs::read_to_string(&toml_path).unwrap();
+        let manifest: crate::SkillManifest = toml::from_str(&content).unwrap();
+        assert!(
+            manifest.confidence.is_some(),
+            "confidence should be persisted in manifest"
+        );
+        let persisted = manifest.confidence.unwrap();
+        assert!(
+            (persisted - 0.8).abs() < f64::EPSILON,
+            "expected confidence ~0.8, got {persisted}"
+        );
+
+        // Verify in-memory skill matches
+        let skill = registry.get("persist-skill").await.unwrap();
+        let mem_confidence = skill.read().confidence();
+        assert!(
+            (mem_confidence - persisted).abs() < f64::EPSILON,
+            "in-memory confidence {mem_confidence} should match persisted {persisted}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_adjust_confidence_survives_reload() {
+        let (registry, dir) = make_registry_with_dir();
+
+        registry
+            .create_skill("reload-skill", "Test reload", "Instructions")
+            .await
+            .unwrap();
+
+        registry
+            .adjust_confidence("reload-skill", 0.4)
+            .await
+            .unwrap();
+
+        // Simulate a restart: create a fresh registry and reload from disk
+        let new_registry = SkillRegistry::new().with_skills_dir(dir.path());
+        let loader = crate::loader::SkillLoader::new(
+            crate::config::SkillConfig::default().with_skills_dir(dir.path()),
+        );
+        loader
+            .load_all(&new_registry)
+            .await
+            .expect("reload should succeed");
+
+        let skill = new_registry
+            .get("reload-skill")
+            .await
+            .expect("skill should be loaded");
+        let confidence = skill.read().confidence();
+        assert!(
+            (confidence - 0.9).abs() < f64::EPSILON,
+            "confidence should survive reload, expected ~0.9, got {confidence}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_update_confidence_persists_to_disk() {
+        let (registry, dir) = make_registry_with_dir();
+
+        registry
+            .create_skill("event-skill", "Test event confidence", "Instructions")
+            .await
+            .unwrap();
+
+        registry
+            .update_confidence("event-skill", crate::skill::ConfidenceEvent::UserConfirmed)
+            .await
+            .unwrap();
+
+        // Verify TOML manifest on disk has updated confidence
+        let toml_path = dir.path().join("event-skill.toml");
+        let content = std::fs::read_to_string(&toml_path).unwrap();
+        let manifest: crate::SkillManifest = toml::from_str(&content).unwrap();
+        assert!(manifest.confidence.is_some());
+        let persisted = manifest.confidence.unwrap();
+        assert!(
+            persisted > 0.5,
+            "UserConfirmed should increase confidence above default, got {persisted}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_adjust_confidence_no_dir_still_updates_memory() {
+        let registry = SkillRegistry::new();
+        registry
+            .register(make_skill("no-dir", &["x"]))
+            .await
+            .unwrap();
+
+        // Should not error — just skips disk persistence
+        registry
+            .adjust_confidence("no-dir", 0.2)
+            .await
+            .unwrap();
+
+        let skill = registry.get("no-dir").await.unwrap();
+        assert!(
+            skill.read().confidence() > 0.5,
+            "in-memory confidence should still be updated"
+        );
     }
 }

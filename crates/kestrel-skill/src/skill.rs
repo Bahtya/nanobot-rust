@@ -86,11 +86,15 @@ pub struct CompiledSkill {
 
 impl CompiledSkill {
     /// Create a new compiled skill from a validated manifest.
+    ///
+    /// If the manifest has a persisted `confidence` value it is used;
+    /// otherwise the default of `0.5` applies.
     pub fn new(manifest: crate::SkillManifest) -> Self {
+        let confidence = manifest.confidence.unwrap_or(0.5);
         Self {
             manifest,
             instructions: String::new(),
-            confidence: 0.5,
+            confidence,
             usage_count: 0,
         }
     }

@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
+const DEFAULT_SKILL_INDEX_MAX_ENTRIES: usize = 10;
+
 /// A section of the assembled prompt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -137,17 +139,71 @@ impl PromptAssembler {
     /// Produces a formatted string listing each tool with its name, description,
     /// and parameter schema, to help the LLM decide when and how to use each tool.
     pub fn build_tool_guidance(tools: &[ToolInfo]) -> String {
+        Self::build_tool_guidance_with_budget(tools, usize::MAX)
+    }
+
+    /// Build tool guidance content from tool metadata entries with a token budget.
+    ///
+    /// When the rendered guidance would exceed `max_tokens`, individual tool
+    /// parameter schemas are truncated using a simple `len / 4` token estimate.
+    pub fn build_tool_guidance_with_budget(tools: &[ToolInfo], max_tokens: usize) -> String {
         if tools.is_empty() {
             return String::new();
         }
 
+        if max_tokens == usize::MAX {
+            return Self::render_tool_guidance(tools, None);
+        }
+
+        let full = Self::render_tool_guidance(tools, None);
+        if Self::estimate_tokens(&full) <= max_tokens {
+            return full;
+        }
+
+        let mut schema_limits = vec![0usize; tools.len()];
+        let base = Self::render_tool_guidance(tools, Some(&schema_limits));
+        let base_tokens = Self::estimate_tokens(&base);
+        if base_tokens >= max_tokens {
+            return base;
+        }
+
+        for (index, tool) in tools.iter().enumerate() {
+            if tool.parameters_schema.is_empty() {
+                continue;
+            }
+
+            let mut low = 0usize;
+            let mut high = tool.parameters_schema.len();
+            while low < high {
+                let mid = (low + high).div_ceil(2);
+                schema_limits[index] = mid;
+                let candidate = Self::render_tool_guidance(tools, Some(&schema_limits));
+                if Self::estimate_tokens(&candidate) <= max_tokens {
+                    low = mid;
+                } else {
+                    high = mid - 1;
+                }
+            }
+            schema_limits[index] = low;
+        }
+
+        Self::render_tool_guidance(tools, Some(&schema_limits))
+    }
+
+    fn render_tool_guidance(tools: &[ToolInfo], schema_limits: Option<&[usize]>) -> String {
         let mut parts = Vec::new();
         parts.push("Available tools and when to use them:\n".to_string());
 
-        for tool in tools {
+        for (index, tool) in tools.iter().enumerate() {
             parts.push(format!("### {}\n{}", tool.name, tool.description));
             if !tool.parameters_schema.is_empty() {
-                parts.push(format!("Parameters: {}", tool.parameters_schema));
+                let rendered_schema = match schema_limits.and_then(|limits| limits.get(index)) {
+                    Some(limit) => Self::truncate_schema(&tool.parameters_schema, *limit),
+                    None => tool.parameters_schema.clone(),
+                };
+                if !rendered_schema.is_empty() {
+                    parts.push(format!("Parameters: {}", rendered_schema));
+                }
             }
             parts.push(String::new());
         }
@@ -166,7 +222,9 @@ impl PromptAssembler {
         }
 
         let mut parts = Vec::new();
-        parts.push("Memory recall triggers — consider recalling relevant memories when:\n".to_string());
+        parts.push(
+            "Memory recall triggers — consider recalling relevant memories when:\n".to_string(),
+        );
 
         for fence in fences {
             parts.push(format!("- **{}**: {}", fence.category, fence.hint));
@@ -179,15 +237,20 @@ impl PromptAssembler {
     ///
     /// Produces a formatted list of all available skills with their descriptions,
     /// categories, and trigger keywords, so the agent knows what skills it can invoke.
-    pub fn build_skill_index(skills: &[SkillIndexEntry]) -> String {
+    pub fn build_skill_index(skills: &[SkillIndexEntry], max_entries: usize) -> String {
         if skills.is_empty() {
             return String::new();
         }
+        let max_entries = if max_entries == 0 {
+            DEFAULT_SKILL_INDEX_MAX_ENTRIES
+        } else {
+            max_entries
+        };
 
         let mut parts = Vec::new();
         parts.push("Available skills:\n".to_string());
 
-        for skill in skills {
+        for skill in skills.iter().take(max_entries) {
             let triggers = skill.triggers.join(", ");
             parts.push(format!(
                 "- **{}** [{}]: {} (triggers: {})",
@@ -196,6 +259,31 @@ impl PromptAssembler {
         }
 
         parts.join("\n")
+    }
+
+    fn estimate_tokens(content: &str) -> usize {
+        content.len().div_ceil(4)
+    }
+
+    fn truncate_schema(schema: &str, max_len: usize) -> String {
+        if max_len == 0 {
+            return String::new();
+        }
+        if schema.len() <= max_len {
+            return schema.to_string();
+        }
+
+        let ellipsis = "...";
+        let mut end = max_len.saturating_sub(ellipsis.len());
+        while end > 0 && !schema.is_char_boundary(end) {
+            end -= 1;
+        }
+
+        if end == 0 {
+            ellipsis.to_string()
+        } else {
+            format!("{}{}", &schema[..end], ellipsis)
+        }
     }
 }
 
@@ -439,7 +527,8 @@ mod tests {
             ToolInfo {
                 name: "exec".into(),
                 description: "Execute shell commands".into(),
-                parameters_schema: r#"{"type":"object","properties":{"command":{"type":"string"}}}"#.into(),
+                parameters_schema:
+                    r#"{"type":"object","properties":{"command":{"type":"string"}}}"#.into(),
             },
             ToolInfo {
                 name: "read_file".into(),
@@ -515,16 +604,57 @@ mod tests {
                 triggers: vec!["test".into()],
             },
         ];
-        let result = PromptAssembler::build_skill_index(&skills);
+        let result = PromptAssembler::build_skill_index(&skills, DEFAULT_SKILL_INDEX_MAX_ENTRIES);
         assert!(result.contains("Available skills"));
-        assert!(result.contains("**deploy-k8s** [devops]: Deploy to Kubernetes (triggers: deploy, k8s)"));
+        assert!(result
+            .contains("**deploy-k8s** [devops]: Deploy to Kubernetes (triggers: deploy, k8s)"));
         assert!(result.contains("**run-tests** [testing]: Run test suite (triggers: test)"));
     }
 
     #[test]
     fn build_skill_index_empty() {
-        let result = PromptAssembler::build_skill_index(&[]);
+        let result = PromptAssembler::build_skill_index(&[], DEFAULT_SKILL_INDEX_MAX_ENTRIES);
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn build_skill_index_limits_entries() {
+        let skills = vec![
+            SkillIndexEntry {
+                name: "one".into(),
+                description: "First".into(),
+                category: "test".into(),
+                triggers: vec!["one".into()],
+            },
+            SkillIndexEntry {
+                name: "two".into(),
+                description: "Second".into(),
+                category: "test".into(),
+                triggers: vec!["two".into()],
+            },
+        ];
+
+        let result = PromptAssembler::build_skill_index(&skills, 1);
+        assert!(result.contains("**one**"));
+        assert!(!result.contains("**two**"));
+    }
+
+    #[test]
+    fn build_tool_guidance_truncates_schema_to_budget() {
+        let tools = vec![ToolInfo {
+            name: "exec".into(),
+            description: "Run commands".into(),
+            parameters_schema: format!(
+                "{{\"type\":\"object\",\"properties\":{{\"command\":{{\"type\":\"string\"}},\"padding\":\"{}\"}}}}",
+                "x".repeat(400)
+            ),
+        }];
+
+        let result = PromptAssembler::build_tool_guidance_with_budget(&tools, 40);
+        assert!(result.contains("### exec"));
+        assert!(result.contains("Parameters:"));
+        assert!(result.contains("..."));
+        assert!(PromptAssembler::estimate_tokens(&result) <= 40);
     }
 
     #[test]

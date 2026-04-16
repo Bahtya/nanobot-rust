@@ -12,6 +12,9 @@ use nanobot_learning::prompt::{PromptAssembler, PromptSection, ToolInfo};
 use nanobot_session::Session;
 use nanobot_tools::ToolRegistry;
 
+const DEFAULT_TOOL_GUIDANCE_TOKEN_BUDGET: usize = 2000;
+const DEFAULT_SKILL_INDEX_MAX_ENTRIES: usize = 10;
+
 /// Builds the system prompt context for an agent invocation.
 pub struct ContextBuilder<'a> {
     config: &'a Config,
@@ -21,6 +24,8 @@ pub struct ContextBuilder<'a> {
     skill_index_entries: Option<Vec<nanobot_learning::prompt::SkillIndexEntry>>,
     /// Assembler for combining prompt sections. Uses default when not set.
     prompt_assembler: Option<PromptAssembler>,
+    /// Approximate token budget for rendered tool guidance.
+    tool_guidance_token_budget: usize,
 }
 
 impl<'a> ContextBuilder<'a> {
@@ -31,6 +36,7 @@ impl<'a> ContextBuilder<'a> {
             skill_sections: None,
             skill_index_entries: None,
             prompt_assembler: None,
+            tool_guidance_token_budget: DEFAULT_TOOL_GUIDANCE_TOKEN_BUDGET,
         }
     }
 
@@ -59,6 +65,15 @@ impl<'a> ContextBuilder<'a> {
     /// When not set, a default assembler is used (double-newline separator).
     pub fn with_prompt_assembler(mut self, assembler: PromptAssembler) -> Self {
         self.prompt_assembler = Some(assembler);
+        self
+    }
+
+    /// Set the approximate token budget for rendered tool guidance.
+    ///
+    /// Tool schemas are truncated per tool when the rendered guidance exceeds
+    /// this budget, using a simple `len / 4` token estimate.
+    pub fn with_tool_guidance_token_budget(mut self, budget: usize) -> Self {
+        self.tool_guidance_token_budget = budget;
         self
     }
 
@@ -141,7 +156,10 @@ impl<'a> ContextBuilder<'a> {
                     }
                 })
                 .collect();
-            let guidance = PromptAssembler::build_tool_guidance(&tool_infos);
+            let guidance = PromptAssembler::build_tool_guidance_with_budget(
+                &tool_infos,
+                self.tool_guidance_token_budget,
+            );
             sections.push(PromptSection::ToolGuidance { content: guidance });
         }
 
@@ -157,7 +175,8 @@ impl<'a> ContextBuilder<'a> {
         // Skill index — list of all available skills with metadata
         if let Some(ref entries) = self.skill_index_entries {
             if !entries.is_empty() {
-                let index = PromptAssembler::build_skill_index(entries);
+                let index =
+                    PromptAssembler::build_skill_index(entries, DEFAULT_SKILL_INDEX_MAX_ENTRIES);
                 sections.push(PromptSection::SkillIndex { content: index });
             }
         }
@@ -699,8 +718,7 @@ mod tests {
     #[test]
     fn test_skill_index_empty_not_shown() {
         let config = Config::default();
-        let builder =
-            ContextBuilder::new(&config).with_skill_index(vec![]);
+        let builder = ContextBuilder::new(&config).with_skill_index(vec![]);
         let msg = make_inbound();
         let session = Session::new("test:key".to_string());
         let tools = ToolRegistry::new();
@@ -843,5 +861,53 @@ mod tests {
         assert!(prompt.contains("First tool"));
         assert!(prompt.contains("### tool_b"));
         assert!(prompt.contains("Second tool"));
+    }
+
+    #[test]
+    fn test_tool_guidance_budget_truncates_schema() {
+        let config = Config::default();
+        let builder = ContextBuilder::new(&config).with_tool_guidance_token_budget(50);
+        let msg = make_inbound();
+        let session = Session::new("test:key".to_string());
+        let tools = ToolRegistry::new();
+
+        use async_trait::async_trait;
+        use nanobot_tools::Tool;
+        use nanobot_tools::ToolError;
+
+        struct VerboseTool;
+        #[async_trait]
+        impl Tool for VerboseTool {
+            fn name(&self) -> &str {
+                "verbose_tool"
+            }
+            fn description(&self) -> &str {
+                "Tool with a very large schema"
+            }
+            fn parameters_schema(&self) -> serde_json::Value {
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "payload": {
+                            "type": "string",
+                            "description": "x".repeat(600)
+                        }
+                    }
+                })
+            }
+            async fn execute(&self, _args: serde_json::Value) -> Result<String, ToolError> {
+                Ok("ok".to_string())
+            }
+        }
+
+        tools.register(VerboseTool);
+
+        let prompt = builder
+            .build_system_prompt(&msg, &session, &tools, None)
+            .unwrap();
+        assert!(prompt.contains("## Tool Guidance"));
+        assert!(prompt.contains("### verbose_tool"));
+        assert!(prompt.contains("Parameters:"));
+        assert!(prompt.contains("..."));
     }
 }

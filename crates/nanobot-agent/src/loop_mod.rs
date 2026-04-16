@@ -22,7 +22,7 @@ use nanobot_bus::MessageBus;
 use nanobot_config::Config;
 use nanobot_heartbeat::HeartbeatService;
 use nanobot_learning::event::{ErrorClassification, LearningEvent, LearningEventBus, SkillOutcome};
-use nanobot_learning::prompt::PromptAssembler;
+use nanobot_learning::prompt::{PromptAssembler, SkillIndexEntry};
 use nanobot_memory::types::{MemoryCategory, MemoryEntry, MemoryQuery};
 use nanobot_memory::MemoryStore as AsyncMemoryStore;
 use nanobot_providers::ProviderRegistry;
@@ -212,6 +212,11 @@ impl AgentLoop {
 
             // Match skills against user message and inject into prompt
             if let Some(ref registry) = self.skill_registry {
+                let skill_index_entries = self.build_skill_index_entries(registry).await;
+                if !skill_index_entries.is_empty() {
+                    context_builder = context_builder.with_skill_index(skill_index_entries);
+                }
+
                 let matches = registry.match_skills(&msg.content).await;
 
                 // Emit SkillUsed learning events for each matched skill
@@ -546,6 +551,33 @@ impl AgentLoop {
         }
 
         parts.join("\n")
+    }
+
+    /// Build skill index entries from all registered, non-deprecated skills.
+    async fn build_skill_index_entries(&self, registry: &SkillRegistry) -> Vec<SkillIndexEntry> {
+        let mut names = registry.skill_names().await;
+        names.sort();
+
+        let mut entries = Vec::new();
+        for name in names {
+            let Some(skill_guard) = registry.get(&name).await else {
+                continue;
+            };
+            let skill = skill_guard.read();
+            if skill.is_deprecated() {
+                continue;
+            }
+
+            let manifest = skill.manifest();
+            entries.push(SkillIndexEntry {
+                name: manifest.name.clone(),
+                description: manifest.description.clone(),
+                category: manifest.category.clone(),
+                triggers: manifest.triggers.clone(),
+            });
+        }
+
+        entries
     }
 
     /// Return the list of channel names that have configuration present.
@@ -1471,6 +1503,53 @@ mod tests {
         assert!(sections.contains("deploy-docker"));
         assert!(sections.contains("deploy-k8s"));
         assert!(sections.contains("Build image"));
+    }
+
+    #[tokio::test]
+    async fn test_runtime_context_includes_skill_index_entries_when_skills_registered() {
+        use crate::context::ContextBuilder;
+        use nanobot_bus::events::InboundMessage;
+        use nanobot_core::{MessageType, Platform};
+        use nanobot_session::Session;
+        use nanobot_skill::manifest::SkillManifestBuilder;
+        use nanobot_skill::skill::CompiledSkill;
+
+        let registry = Arc::new(SkillRegistry::new());
+        registry
+            .register(CompiledSkill::new(
+                SkillManifestBuilder::new("deploy-k8s", "1.0.0", "Deploy to Kubernetes")
+                    .triggers(vec!["deploy".to_string(), "k8s".to_string()])
+                    .build(),
+            ))
+            .await
+            .unwrap();
+
+        let al = make_agent_loop().with_skill_registry(registry.clone());
+        let entries = al.build_skill_index_entries(&registry).await;
+        let config = Config::default();
+        let msg = InboundMessage {
+            channel: Platform::Telegram,
+            sender_id: "user1".to_string(),
+            chat_id: "chat1".to_string(),
+            content: "hello".to_string(),
+            media: vec![],
+            metadata: Default::default(),
+            source: None,
+            message_type: MessageType::Text,
+            message_id: None,
+            reply_to: None,
+            timestamp: chrono::Local::now(),
+        };
+        let session = Session::new("test:key".to_string());
+        let tools = ToolRegistry::new();
+
+        let prompt = ContextBuilder::new(&config)
+            .with_skill_index(entries)
+            .build_system_prompt(&msg, &session, &tools, None)
+            .unwrap();
+
+        assert!(prompt.contains("## Skill Index"));
+        assert!(prompt.contains("**deploy-k8s** [uncategorized]: Deploy to Kubernetes"));
     }
 
     // ── Learning event bus wiring tests ────────────────────────

@@ -113,6 +113,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 chrono = { workspace = true }
 parking_lot = { workspace = true }
+async-trait = { workspace = true }
 
 [dev-dependencies]
 async-trait = { workspace = true }

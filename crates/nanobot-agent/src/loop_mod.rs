@@ -32,7 +32,7 @@ use nanobot_skill::SkillRegistry;
 use nanobot_tools::ToolRegistry;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{watch, RwLock};
 use tracing::{error, info, warn};
 
 /// The main agent loop that processes messages from the bus.
@@ -59,6 +59,8 @@ pub struct AgentLoop {
     learning_bus: Option<LearningEventBus>,
     /// Optional prompt assembler for dynamic system prompt construction.
     prompt_assembler: Option<PromptAssembler>,
+    /// Optional receiver for learned prompt adjustments.
+    prompt_adjustments_rx: Option<watch::Receiver<Option<String>>>,
 }
 
 impl AgentLoop {
@@ -86,6 +88,7 @@ impl AgentLoop {
             memory_store: None,
             learning_bus: None,
             prompt_assembler: None,
+            prompt_adjustments_rx: None,
         }
     }
 
@@ -208,6 +211,15 @@ impl AgentLoop {
             // Attach prompt assembler if configured
             if let Some(ref assembler) = self.prompt_assembler {
                 context_builder = context_builder.with_prompt_assembler(assembler.clone());
+            }
+
+            if let Some(ref prompt_adjustments_rx) = self.prompt_adjustments_rx {
+                let adjustment = prompt_adjustments_rx.borrow().clone();
+                if let Some(adjustment) = adjustment {
+                    if !adjustment.is_empty() {
+                        context_builder = context_builder.with_prompt_adjustment(adjustment);
+                    }
+                }
             }
 
             // Match skills against user message and inject into prompt
@@ -738,6 +750,17 @@ impl AgentLoop {
     /// system prompt construction.
     pub fn with_prompt_assembler(mut self, assembler: PromptAssembler) -> Self {
         self.prompt_assembler = Some(assembler);
+        self
+    }
+
+    /// Attach a watch receiver for learned prompt adjustments.
+    ///
+    /// The latest non-empty adjustment is injected into the next system prompt.
+    pub fn with_prompt_adjustments(
+        mut self,
+        prompt_adjustments_rx: watch::Receiver<Option<String>>,
+    ) -> Self {
+        self.prompt_adjustments_rx = Some(prompt_adjustments_rx);
         self
     }
 

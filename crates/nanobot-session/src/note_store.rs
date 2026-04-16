@@ -261,7 +261,7 @@ mod tests {
         store
             .save_notes(
                 "session:a",
-                &vec![Note::new(
+                &[Note::new(
                     "API Design".to_string(),
                     "Use REST endpoints".to_string(),
                     vec!["architecture".to_string()],
@@ -271,7 +271,7 @@ mod tests {
         store
             .save_notes(
                 "session:b",
-                &vec![Note::new(
+                &[Note::new(
                     "Database".to_string(),
                     "Use PostgreSQL".to_string(),
                     vec!["backend".to_string()],
@@ -281,7 +281,7 @@ mod tests {
         store
             .save_notes(
                 "session:c",
-                &vec![Note::new(
+                &[Note::new(
                     "Frontend".to_string(),
                     "Use React".to_string(),
                     vec!["frontend".to_string()],
@@ -307,7 +307,7 @@ mod tests {
         store
             .save_notes(
                 "session:a",
-                &vec![
+                &[
                     Note::new(
                         "n1".to_string(),
                         "a".to_string(),
@@ -320,7 +320,7 @@ mod tests {
         store
             .save_notes(
                 "session:b",
-                &vec![Note::new(
+                &[Note::new(
                     "n3".to_string(),
                     "c".to_string(),
                     vec!["decision".to_string()],
@@ -343,7 +343,7 @@ mod tests {
         store
             .save_notes(
                 "session:x",
-                &vec![Note::new(
+                &[Note::new(
                     "n1".to_string(),
                     "a".to_string(),
                     vec!["Backend".to_string()],
@@ -389,7 +389,7 @@ mod tests {
         store
             .save_notes(
                 "session:a",
-                &vec![Note::new(
+                &[Note::new(
                     "Note A".to_string(),
                     "Content A".to_string(),
                     vec!["alpha".to_string()],
@@ -401,7 +401,7 @@ mod tests {
         store
             .save_notes(
                 "session:b",
-                &vec![Note::new(
+                &[Note::new(
                     "Note B".to_string(),
                     "Content B".to_string(),
                     vec!["beta".to_string()],
@@ -413,7 +413,7 @@ mod tests {
         store
             .save_notes(
                 "session:a",
-                &vec![Note::new(
+                &[Note::new(
                     "Note A Modified".to_string(),
                     "New content".to_string(),
                     vec!["alpha".to_string(), "updated".to_string()],

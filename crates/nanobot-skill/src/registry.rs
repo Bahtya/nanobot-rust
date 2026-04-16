@@ -144,6 +144,19 @@ impl SkillRegistry {
         Ok(())
     }
 
+    /// Adjust the confidence of a registered skill by a raw delta.
+    ///
+    /// The resulting confidence is clamped to the inclusive range `0.0..=1.0`.
+    pub async fn adjust_confidence(&self, name: &str, delta: f64) -> SkillResult<()> {
+        let skills = self.skills.read().await;
+        let skill = skills
+            .get(name)
+            .ok_or_else(|| SkillError::NotFound(name.to_string()))?;
+        let mut guard = skill.write();
+        guard.confidence = (guard.confidence + delta).clamp(0.0, 1.0);
+        Ok(())
+    }
+
     /// Create a new skill with a TOML manifest and Markdown instructions file.
     ///
     /// Writes a `<name>.toml` manifest and a `<name>.md` instructions file to the

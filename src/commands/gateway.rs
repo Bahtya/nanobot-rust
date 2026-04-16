@@ -145,10 +145,17 @@ async fn execute_learning_action(
             .adjust_confidence(skill, *delta)
             .await
             .with_context(|| format!("failed to adjust confidence for skill '{skill}'")),
-        LearningAction::ProposeSkill { name, reason } => skill_registry
-            .create_skill(name, reason, "")
-            .await
-            .with_context(|| format!("failed to create skill '{name}'")),
+        LearningAction::ProposeSkill { name, reason } => {
+            let instructions = if reason.is_empty() {
+                format!("Auto-generated skill: {name}")
+            } else {
+                reason.clone()
+            };
+            skill_registry
+                .create_skill(name, reason, &instructions)
+                .await
+                .with_context(|| format!("failed to create skill '{name}'"))
+        }
         LearningAction::PatchSkill { skill, description } => skill_registry
             .update_skill_instructions(skill, description)
             .await
@@ -721,6 +728,7 @@ mod tests {
             category: "test".to_string(),
             deprecated: None,
             deprecation_reason: None,
+            confidence: None,
         };
         let path = dir.join(format!("{name}.toml"));
         std::fs::write(&path, toml::to_string(&manifest).unwrap()).unwrap();
@@ -815,6 +823,7 @@ mod tests {
             category: "devops".to_string(),
             deprecated: None,
             deprecation_reason: None,
+            confidence: None,
         };
         let path = skills_dir.join("deploy-k8s.toml");
         std::fs::write(&path, toml::to_string(&manifest).unwrap()).unwrap();

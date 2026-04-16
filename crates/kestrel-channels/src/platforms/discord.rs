@@ -300,27 +300,57 @@ pub struct DiscordChannel {
     gateway_url_override: Option<String>,
     /// Running flag for the gateway listener.
     running: Arc<AtomicBool>,
+    /// Proxy URL stored for future client rebuild support.
+    #[allow(dead_code)]
+    proxy_config: Option<String>,
 }
 
 impl DiscordChannel {
-    /// Build a reqwest client that respects system proxy settings.
-    fn build_client() -> reqwest::Client {
-        let proxy_url = std::env::var("HTTPS_PROXY")
-            .or_else(|_| std::env::var("https_proxy"))
-            .or_else(|_| std::env::var("HTTP_PROXY"))
-            .or_else(|_| std::env::var("http_proxy"))
-            .or_else(|_| std::env::var("ALL_PROXY"))
-            .or_else(|_| std::env::var("all_proxy"))
-            .ok();
+    /// Build a reqwest client with config-driven proxy support.
+    ///
+    /// Priority: `proxy_config` > env vars (`HTTPS_PROXY`, `ALL_PROXY`, etc.) > direct.
+    fn build_client(proxy_config: Option<&str>) -> reqwest::Client {
+        let proxy_url = proxy_config
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .or_else(|| {
+                std::env::var("HTTPS_PROXY")
+                    .or_else(|_| std::env::var("https_proxy"))
+                    .or_else(|_| std::env::var("HTTP_PROXY"))
+                    .or_else(|_| std::env::var("http_proxy"))
+                    .or_else(|_| std::env::var("ALL_PROXY"))
+                    .or_else(|_| std::env::var("all_proxy"))
+                    .ok()
+            });
 
-        match &proxy_url {
-            Some(url) => {
-                info!("Discord HTTP client using proxy: {}", url);
-                let proxy = reqwest::Proxy::all(url).expect("Failed to create proxy from env var");
+        match proxy_url {
+            Some(ref url) if url.starts_with("socks5") => {
+                info!("Discord HTTP client using SOCKS5 proxy: {}", url);
+                let proxy =
+                    reqwest::Proxy::all(url).expect("Failed to create SOCKS5 proxy from config");
                 reqwest::Client::builder()
                     .proxy(proxy)
                     .build()
-                    .expect("Failed to build HTTP client with proxy")
+                    .expect("Failed to build HTTP client with SOCKS5 proxy")
+            }
+            Some(ref url) if url.starts_with("http") => {
+                info!("Discord HTTP client using HTTP proxy: {}", url);
+                let http_proxy =
+                    reqwest::Proxy::http(url).expect("Failed to create HTTP proxy from config");
+                let https_proxy =
+                    reqwest::Proxy::https(url).expect("Failed to create HTTPS proxy from config");
+                reqwest::Client::builder()
+                    .proxy(http_proxy)
+                    .proxy(https_proxy)
+                    .build()
+                    .expect("Failed to build HTTP client with HTTP proxy")
+            }
+            Some(ref url) => {
+                info!(
+                    "Discord HTTP client: unsupported proxy scheme in '{}', falling back to direct",
+                    url
+                );
+                reqwest::Client::new()
             }
             None => {
                 info!("Discord HTTP client: no proxy configured (direct connection)");
@@ -336,10 +366,36 @@ impl DiscordChannel {
             connected: false,
             message_handler: None,
             event_tx: None,
-            client: Self::build_client(),
+            client: Self::build_client(None),
             base_url_override: None,
             gateway_url_override: None,
             running: Arc::new(AtomicBool::new(false)),
+            proxy_config: None,
+        }
+    }
+
+    /// Create a new `DiscordChannel` using a Discord config for token and proxy.
+    ///
+    /// Reads the bot token from the config (falling back to the
+    /// `DISCORD_BOT_TOKEN` env var) and configures the HTTP client proxy
+    /// accordingly.
+    pub fn new_with_config(config: &kestrel_config::schema::DiscordConfig) -> Self {
+        let token = if config.token.is_empty() {
+            std::env::var("DISCORD_BOT_TOKEN").ok()
+        } else {
+            Some(config.token.clone())
+        };
+        let proxy = config.proxy.as_deref().filter(|s| !s.is_empty());
+        Self {
+            token,
+            connected: false,
+            message_handler: None,
+            event_tx: None,
+            client: Self::build_client(proxy),
+            base_url_override: None,
+            gateway_url_override: None,
+            running: Arc::new(AtomicBool::new(false)),
+            proxy_config: proxy.map(|s| s.to_string()),
         }
     }
 
@@ -358,6 +414,7 @@ impl DiscordChannel {
             base_url_override: Some(base_url),
             gateway_url_override: None,
             running: Arc::new(AtomicBool::new(false)),
+            proxy_config: None,
         }
     }
 

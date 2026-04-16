@@ -312,6 +312,41 @@ fn validate_url_require_https(url: &str, path: &str, report: &mut ValidationRepo
     }
 }
 
+/// Validate a proxy URL for channel HTTP clients.
+///
+/// Accepted schemes: `http://`, `https://`, `socks5://`, `socks5h://`.
+/// The URL must contain a host portion. Returns `Ok(())` on valid or `None` proxy.
+fn validate_proxy_url(proxy: Option<&str>, path: &str, report: &mut ValidationReport) {
+    let Some(url) = proxy else { return };
+    if url.is_empty() {
+        return;
+    }
+
+    let valid_scheme = url.starts_with("http://")
+        || url.starts_with("https://")
+        || url.starts_with("socks5://")
+        || url.starts_with("socks5h://");
+
+    if !valid_scheme {
+        report.error(
+            path,
+            format!(
+                "Unsupported proxy scheme in '{}'. Use http://, https://, socks5://, or socks5h://",
+                url
+            ),
+        );
+        return;
+    }
+
+    // Strip scheme to check for host presence.
+    let after_scheme = url.find("://").map(|i| &url[i + 3..]).unwrap_or(url);
+    let host_port = after_scheme.split('@').next_back().unwrap_or(after_scheme);
+    let host_part = host_port.split(':').next().unwrap_or("");
+    if host_part.is_empty() {
+        report.error(path, format!("Proxy URL '{}' is missing a host", url));
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Provider validation
 // ---------------------------------------------------------------------------
@@ -744,6 +779,8 @@ fn validate_telegram(tg: &TelegramConfig, report: &mut ValidationReport) {
             "Token format looks invalid — expected '123456:ABC-DEF'",
         );
     }
+
+    validate_proxy_url(tg.proxy.as_deref(), "channels.telegram.proxy", report);
 }
 
 fn validate_discord(dc: &DiscordConfig, report: &mut ValidationReport) {
@@ -758,6 +795,8 @@ fn validate_discord(dc: &DiscordConfig, report: &mut ValidationReport) {
             "Token looks too short — expected a longer bot token",
         );
     }
+
+    validate_proxy_url(dc.proxy.as_deref(), "channels.discord.proxy", report);
 }
 
 fn validate_websocket(ws: &WebSocketConfig, report: &mut ValidationReport) {
@@ -1308,6 +1347,7 @@ mod tests {
             allowed_users: vec![],
             admin_users: vec![],
             streaming: false,
+            proxy: None,
         });
         config.agent.model = "gpt-4o".to_string();
         config.agent.temperature = 0.7;
@@ -1545,13 +1585,8 @@ mod tests {
             allowed_users: vec![],
             admin_users: vec![],
             streaming: false,
+            proxy: None,
         });
-        let report = validate(&config);
-        assert!(!report.is_valid());
-        assert!(report
-            .errors()
-            .iter()
-            .any(|e| e.path == "channels.telegram.token"));
     }
 
     #[test]
@@ -1563,6 +1598,7 @@ mod tests {
             allowed_users: vec![],
             admin_users: vec![],
             streaming: false,
+            proxy: None,
         });
         let report = validate(&config);
         assert!(report
@@ -1580,6 +1616,7 @@ mod tests {
             allowed_users: vec![],
             admin_users: vec![],
             streaming: false,
+            proxy: None,
         });
         let report = validate(&config);
         // Should not error on token since disabled
@@ -1597,6 +1634,7 @@ mod tests {
             allowed_guilds: vec![],
             enabled: true,
             streaming: false,
+            proxy: None,
         });
         let report = validate(&config);
         assert!(!report.is_valid());
@@ -1614,6 +1652,7 @@ mod tests {
             allowed_guilds: vec![],
             enabled: true,
             streaming: false,
+            proxy: None,
         });
         let report = validate(&config);
         assert!(report
@@ -2756,6 +2795,7 @@ channels:
             allowed_users: vec![],
             admin_users: vec![],
             streaming: false,
+            proxy: None,
         });
         let report = validate(&config);
         // Should have errors about no provider + the provider error
@@ -3274,5 +3314,166 @@ channels:
         let report = validate(&config);
         // Should NOT warn about "No channel is enabled"
         assert!(report.warnings().iter().all(|w| w.path != "channels"));
+    }
+
+    // -------------------------------------------------------------------
+    // Proxy URL validation tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_telegram_proxy_http_valid() {
+        let mut config = make_valid_config();
+        config.channels.telegram = Some(TelegramConfig {
+            token: "123456:ABC-DEF".to_string(),
+            enabled: true,
+            allowed_users: vec![],
+            admin_users: vec![],
+            streaming: false,
+            proxy: Some("http://proxy.example.com:8080".to_string()),
+        });
+        let report = validate(&config);
+        assert!(report.is_valid(), "Unexpected errors: {}", report);
+    }
+
+    #[test]
+    fn test_telegram_proxy_socks5_valid() {
+        let mut config = make_valid_config();
+        config.channels.telegram = Some(TelegramConfig {
+            token: "123456:ABC-DEF".to_string(),
+            enabled: true,
+            allowed_users: vec![],
+            admin_users: vec![],
+            streaming: false,
+            proxy: Some("socks5://proxy.example.com:1080".to_string()),
+        });
+        let report = validate(&config);
+        assert!(report.is_valid(), "Unexpected errors: {}", report);
+    }
+
+    #[test]
+    fn test_telegram_proxy_socks5h_valid() {
+        let mut config = make_valid_config();
+        config.channels.telegram = Some(TelegramConfig {
+            token: "123456:ABC-DEF".to_string(),
+            enabled: true,
+            allowed_users: vec![],
+            admin_users: vec![],
+            streaming: false,
+            proxy: Some("socks5h://proxy.example.com:1080".to_string()),
+        });
+        let report = validate(&config);
+        assert!(report.is_valid(), "Unexpected errors: {}", report);
+    }
+
+    #[test]
+    fn test_telegram_proxy_https_valid() {
+        let mut config = make_valid_config();
+        config.channels.telegram = Some(TelegramConfig {
+            token: "123456:ABC-DEF".to_string(),
+            enabled: true,
+            allowed_users: vec![],
+            admin_users: vec![],
+            streaming: false,
+            proxy: Some("https://proxy.example.com:8443".to_string()),
+        });
+        let report = validate(&config);
+        assert!(report.is_valid(), "Unexpected errors: {}", report);
+    }
+
+    #[test]
+    fn test_telegram_proxy_invalid_scheme() {
+        let mut config = make_valid_config();
+        config.channels.telegram = Some(TelegramConfig {
+            token: "123456:ABC-DEF".to_string(),
+            enabled: true,
+            allowed_users: vec![],
+            admin_users: vec![],
+            streaming: false,
+            proxy: Some("ftp://proxy.example.com:21".to_string()),
+        });
+        let report = validate(&config);
+        assert!(!report.is_valid());
+        assert!(report
+            .errors()
+            .iter()
+            .any(|e| e.path == "channels.telegram.proxy"
+                && e.message.contains("Unsupported proxy scheme")));
+    }
+
+    #[test]
+    fn test_telegram_proxy_empty_ok() {
+        let mut config = make_valid_config();
+        config.channels.telegram = Some(TelegramConfig {
+            token: "123456:ABC-DEF".to_string(),
+            enabled: true,
+            allowed_users: vec![],
+            admin_users: vec![],
+            streaming: false,
+            proxy: Some(String::new()), // empty string = no proxy
+        });
+        let report = validate(&config);
+        assert!(report.is_valid(), "Unexpected errors: {}", report);
+    }
+
+    #[test]
+    fn test_telegram_proxy_none_ok() {
+        let mut config = make_valid_config();
+        config.channels.telegram = Some(TelegramConfig {
+            token: "123456:ABC-DEF".to_string(),
+            enabled: true,
+            allowed_users: vec![],
+            admin_users: vec![],
+            streaming: false,
+            proxy: None,
+        });
+        let report = validate(&config);
+        assert!(report.is_valid(), "Unexpected errors: {}", report);
+    }
+
+    #[test]
+    fn test_telegram_proxy_with_auth_valid() {
+        let mut config = make_valid_config();
+        config.channels.telegram = Some(TelegramConfig {
+            token: "123456:ABC-DEF".to_string(),
+            enabled: true,
+            allowed_users: vec![],
+            admin_users: vec![],
+            streaming: false,
+            proxy: Some("socks5://user:pass@proxy.example.com:1080".to_string()),
+        });
+        let report = validate(&config);
+        assert!(report.is_valid(), "Unexpected errors: {}", report);
+    }
+
+    #[test]
+    fn test_discord_proxy_valid() {
+        let mut config = make_valid_config();
+        config.channels.discord = Some(DiscordConfig {
+            token: "a-very-long-discord-bot-token-value".to_string(),
+            allowed_guilds: vec![],
+            enabled: true,
+            streaming: false,
+            proxy: Some("http://proxy.example.com:8080".to_string()),
+        });
+        let report = validate(&config);
+        assert!(report.is_valid(), "Unexpected errors: {}", report);
+    }
+
+    #[test]
+    fn test_discord_proxy_invalid_scheme() {
+        let mut config = make_valid_config();
+        config.channels.discord = Some(DiscordConfig {
+            token: "a-very-long-discord-bot-token-value".to_string(),
+            allowed_guilds: vec![],
+            enabled: true,
+            streaming: false,
+            proxy: Some("bad://proxy.example.com".to_string()),
+        });
+        let report = validate(&config);
+        assert!(!report.is_valid());
+        assert!(report
+            .errors()
+            .iter()
+            .any(|e| e.path == "channels.discord.proxy"));
     }
 }

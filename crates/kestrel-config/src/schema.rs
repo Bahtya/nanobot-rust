@@ -235,6 +235,15 @@ pub struct TelegramConfig {
     /// Whether to stream responses token-by-token.
     #[serde(default)]
     pub streaming: bool,
+    /// HTTP/SOCKS5 proxy URL for Telegram API requests.
+    ///
+    /// - `"http://host:port"` or `"https://host:port"` → HTTP proxy
+    /// - `"socks5://host:port"` or `"socks5h://host:port"` → SOCKS5 proxy
+    /// - empty or absent → direct connection (no proxy)
+    ///
+    /// Config takes precedence over `HTTPS_PROXY`/`ALL_PROXY` env vars.
+    #[serde(default)]
+    pub proxy: Option<String>,
 }
 
 /// Discord channel configuration.
@@ -252,6 +261,15 @@ pub struct DiscordConfig {
     /// Whether to stream responses token-by-token.
     #[serde(default)]
     pub streaming: bool,
+    /// HTTP/SOCKS5 proxy URL for Discord API requests.
+    ///
+    /// - `"http://host:port"` or `"https://host:port"` → HTTP proxy
+    /// - `"socks5://host:port"` or `"socks5h://host:port"` → SOCKS5 proxy
+    /// - empty or absent → direct connection (no proxy)
+    ///
+    /// Config takes precedence over `HTTPS_PROXY`/`ALL_PROXY` env vars.
+    #[serde(default)]
+    pub proxy: Option<String>,
 }
 
 /// Slack channel configuration.
@@ -972,6 +990,7 @@ mcp_servers:
         assert_eq!(tg.allowed_users, vec!["user1"]);
         assert!(tg.streaming);
         assert!(tg.enabled);
+        assert!(tg.proxy.is_none());
 
         assert!(config.dream.enabled);
         assert_eq!(config.dream.interval_secs, 3600);

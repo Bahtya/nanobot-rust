@@ -15,6 +15,7 @@ tracing = { workspace = true }
 parking_lot = { workspace = true }
 chrono = { workspace = true }
 dirs = { workspace = true }
+rand = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

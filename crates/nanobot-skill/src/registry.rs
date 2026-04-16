@@ -7,9 +7,11 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use parking_lot::RwLock;
-use tokio::sync::RwLock as AsyncRwLock;
+use rand::{rng, Rng};
+use tokio::sync::{Mutex, RwLock as AsyncRwLock};
 
 use crate::error::{SkillError, SkillResult};
 use crate::manifest::SkillManifestBuilder;
@@ -32,6 +34,7 @@ pub struct SkillMatch {
 #[derive(Debug, Clone)]
 pub struct SkillRegistry {
     skills: Arc<AsyncRwLock<HashMap<String, Arc<RwLock<CompiledSkill>>>>>,
+    mutation_lock: Arc<Mutex<()>>,
     /// Optional directory where skill TOML manifests and Markdown instructions are stored.
     skills_dir: Option<PathBuf>,
 }
@@ -41,6 +44,7 @@ impl SkillRegistry {
     pub fn new() -> Self {
         Self {
             skills: Arc::new(AsyncRwLock::new(HashMap::new())),
+            mutation_lock: Arc::new(Mutex::new(())),
             skills_dir: None,
         }
     }
@@ -165,6 +169,7 @@ impl SkillRegistry {
             .skills_dir
             .as_deref()
             .ok_or(SkillError::SkillsDirNotSet)?;
+        let _mutation_guard = self.mutation_lock.lock().await;
 
         // Ensure the directory exists
         std::fs::create_dir_all(dir)?;
@@ -207,12 +212,16 @@ impl SkillRegistry {
             atomic_write(&md_path, instructions)?;
         }
 
-        // Build and register the compiled skill
+        // Build the compiled skill only after disk writes succeed.
         let mut skill = CompiledSkill::new(manifest);
         if !instructions.is_empty() {
             skill.set_instructions(instructions.to_string());
         }
-        self.register(skill).await?;
+        let mut skills = self.skills.write().await;
+        if skills.contains_key(name) {
+            return Err(SkillError::AlreadyExists(name.to_string()));
+        }
+        skills.insert(name.to_string(), Arc::new(RwLock::new(skill)));
 
         Ok(())
     }
@@ -235,19 +244,20 @@ impl SkillRegistry {
             .skills_dir
             .as_deref()
             .ok_or(SkillError::SkillsDirNotSet)?;
+        let _mutation_guard = self.mutation_lock.lock().await;
 
-        // Update in-memory skill
-        {
+        let skill = {
             let skills = self.skills.read().await;
-            let skill = skills
+            skills
                 .get(name)
-                .ok_or_else(|| SkillError::NotFound(name.to_string()))?;
-            skill.write().set_instructions(new_instructions.to_string());
-        }
+                .cloned()
+                .ok_or_else(|| SkillError::NotFound(name.to_string()))?
+        };
 
-        // Write updated instructions to disk atomically
+        // Persist to disk before mutating the in-memory skill.
         let md_path = dir.join(format!("{name}.md"));
         atomic_write(&md_path, new_instructions)?;
+        skill.write().set_instructions(new_instructions.to_string());
 
         Ok(())
     }
@@ -267,13 +277,17 @@ impl SkillRegistry {
             .skills_dir
             .as_deref()
             .ok_or(SkillError::SkillsDirNotSet)?;
+        let _mutation_guard = self.mutation_lock.lock().await;
 
-        // Update the manifest in the compiled skill
-        let updated_manifest = {
+        // Build the updated manifest from the current in-memory skill.
+        let skill = {
             let skills = self.skills.read().await;
-            let skill = skills
+            skills
                 .get(name)
-                .ok_or_else(|| SkillError::NotFound(name.to_string()))?;
+                .cloned()
+                .ok_or_else(|| SkillError::NotFound(name.to_string()))?
+        };
+        let updated_manifest = {
             let mut manifest = skill.read().manifest().clone();
             manifest.deprecated = Some(true);
             manifest.deprecation_reason = Some(reason.to_string());
@@ -285,24 +299,17 @@ impl SkillRegistry {
         atomic_write(&toml_path, &toml::to_string(&updated_manifest)?)?;
 
         // Update in-memory skill
-        {
-            let skills = self.skills.read().await;
-            if let Some(skill) = skills.get(name) {
-                let mut guard = skill.write();
-                // Replace the manifest by creating a new CompiledSkill with updated manifest
-                // but preserving confidence, usage_count, and instructions
-                let confidence = guard.confidence();
-                let usage_count = guard.usage_count();
-                let instructions = guard.instructions().to_string();
-                let mut new_skill = CompiledSkill::new(updated_manifest);
-                new_skill.set_instructions(instructions);
-                new_skill.confidence = confidence;
-                new_skill.usage_count = usage_count;
-
-                // Replace the inner skill
-                *guard = new_skill;
-            }
-        }
+        let mut guard = skill.write();
+        // Replace the manifest after the on-disk update succeeds, while
+        // preserving runtime fields that are not stored in the manifest.
+        let confidence = guard.confidence();
+        let usage_count = guard.usage_count();
+        let instructions = guard.instructions().to_string();
+        let mut new_skill = CompiledSkill::new(updated_manifest);
+        new_skill.set_instructions(instructions);
+        new_skill.confidence = confidence;
+        new_skill.usage_count = usage_count;
+        *guard = new_skill;
 
         Ok(())
     }
@@ -317,18 +324,31 @@ fn atomic_write(path: &Path, content: &str) -> SkillResult<()> {
     let parent = path
         .parent()
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "no parent dir"))?;
-    let temp_name = format!(
-        ".{}.tmp",
-        path.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown")
-    );
-    let temp_path = parent.join(temp_name);
+    let temp_path = unique_temp_path(parent, path);
 
     std::fs::write(&temp_path, content)?;
     std::fs::rename(&temp_path, path)?;
 
     Ok(())
+}
+
+fn unique_temp_path(parent: &Path, path: &Path) -> PathBuf {
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown");
+    let timestamp_nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let random_suffix: u64 = rng().random();
+    let temp_name = format!(
+        ".{file_name}.{}.{}.{}.tmp",
+        std::process::id(),
+        timestamp_nanos,
+        random_suffix
+    );
+    parent.join(temp_name)
 }
 
 impl Default for SkillRegistry {
@@ -341,6 +361,7 @@ impl Default for SkillRegistry {
 mod tests {
     use super::*;
     use crate::manifest::SkillManifestBuilder;
+    use tokio::sync::Barrier;
 
     fn make_skill(name: &str, triggers: &[&str]) -> CompiledSkill {
         CompiledSkill::new(
@@ -580,6 +601,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_create_skill_concurrent_only_one_succeeds() {
+        let (registry, dir) = make_registry_with_dir();
+        let barrier = Arc::new(Barrier::new(3));
+        let first_registry = registry.clone();
+        let second_registry = registry.clone();
+        let first_barrier = barrier.clone();
+        let second_barrier = barrier.clone();
+
+        let first = tokio::spawn(async move {
+            first_barrier.wait().await;
+            first_registry
+                .create_skill("race", "First attempt", "Instructions")
+                .await
+        });
+        let second = tokio::spawn(async move {
+            second_barrier.wait().await;
+            second_registry
+                .create_skill("race", "Second attempt", "Instructions")
+                .await
+        });
+
+        barrier.wait().await;
+
+        let first_result = first.await.unwrap();
+        let second_result = second.await.unwrap();
+        let success_count = usize::from(first_result.is_ok()) + usize::from(second_result.is_ok());
+        let already_exists_count = usize::from(matches!(
+            first_result.as_ref().err(),
+            Some(SkillError::AlreadyExists(_))
+        )) + usize::from(matches!(
+            second_result.as_ref().err(),
+            Some(SkillError::AlreadyExists(_))
+        ));
+
+        assert_eq!(success_count, 1);
+        assert_eq!(already_exists_count, 1);
+        assert_eq!(registry.len().await, 1);
+        assert!(dir.path().join("race.toml").exists());
+    }
+
+    #[tokio::test]
     async fn test_create_skill_no_dir_returns_error() {
         let registry = SkillRegistry::new();
         let result = registry.create_skill("x", "y", "z").await;
@@ -628,6 +690,25 @@ mod tests {
         // Verify in-memory updated
         let skill = registry.get("updatable").await.unwrap();
         assert_eq!(skill.read().instructions(), "Updated instructions here");
+    }
+
+    #[tokio::test]
+    async fn test_update_skill_instructions_failed_disk_write_leaves_memory_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let invalid_skills_dir = dir.path().join("not-a-directory");
+        std::fs::write(&invalid_skills_dir, "blocking file").unwrap();
+        let registry = SkillRegistry::new().with_skills_dir(&invalid_skills_dir);
+        let mut skill = make_skill("stays-put", &["stays"]);
+        skill.set_instructions("Original instructions".to_string());
+        registry.register(skill).await.unwrap();
+
+        let result = registry
+            .update_skill_instructions("stays-put", "Updated instructions")
+            .await;
+
+        assert!(matches!(result.unwrap_err(), SkillError::Io(_)));
+        let skill = registry.get("stays-put").await.unwrap();
+        assert_eq!(skill.read().instructions(), "Original instructions");
     }
 
     #[tokio::test]
@@ -756,6 +837,27 @@ mod tests {
         atomic_write(&path, "first").unwrap();
         atomic_write(&path, "second").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "second");
+    }
+
+    #[test]
+    fn test_unique_temp_path_changes_between_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("unique.toml");
+
+        let first = unique_temp_path(dir.path(), &path);
+        let second = unique_temp_path(dir.path(), &path);
+
+        assert_ne!(first, second);
+        assert!(first
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with(".unique.toml."));
+        assert!(second
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with(".unique.toml."));
     }
 
     #[tokio::test]

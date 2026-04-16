@@ -145,7 +145,7 @@ mod tests {
     #[test]
     fn test_result_alias() {
         let ok_val: Result<i32> = Ok(42);
-        assert_eq!(ok_val.unwrap(), 42);
+        assert!(matches!(ok_val, Ok(42)));
 
         let err_val: Result<String> = Err(NanobotError::Config("test".to_string()));
         assert!(err_val.is_err());

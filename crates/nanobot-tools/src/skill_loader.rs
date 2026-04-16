@@ -2383,7 +2383,8 @@ mod tests {
 
         std::thread::sleep(std::time::Duration::from_millis(500));
 
-        let _reloaded = loader.reload_changed().unwrap();
+        let reloaded = loader.reload_changed().unwrap();
+        assert!(reloaded.contains(&"new_skill".to_string()));
         // After reload, both skills should be present.
         loader.load_all().unwrap();
         assert_eq!(loader.len(), 2);

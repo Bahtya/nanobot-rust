@@ -4,7 +4,7 @@
 //!
 //! This crate provides:
 //! - [`MemoryStore`] trait — unified async interface for memory backends
-//! - [`HotStore`] (L1) — in-memory HashMap with JSON lines file persistence
+//! - [`HotStore`] (L1) — in-memory LRU cache with JSON lines file persistence
 //! - [`WarmStore`] (L2) — semantic vector search (in-memory KNN)
 //! - [`MemoryEntry`] — typed memory entries with metadata and embeddings
 //! - [`MemoryConfig`] — TOML-based configuration

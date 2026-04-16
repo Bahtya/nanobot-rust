@@ -58,6 +58,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_constants)]
     fn test_defaults_sensible() {
         // Iterations should be positive and reasonable
         assert!(DEFAULT_MAX_ITERATIONS > 0);

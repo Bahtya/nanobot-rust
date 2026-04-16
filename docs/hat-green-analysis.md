@@ -1,5 +1,5 @@
 codex --full-auto
-root@claude-code:/opt/nanobot-rust/nanobot-rust# codex --full-auto
+root@claude-code:/opt/kestrel/kestrel# codex --full-auto
 ⚠ Codex could not find bubblewrap on PATH. Install bubblewrap with your OS pack
   age manager. See the sandbox prerequisites:
   https://developers.openai.com/codex/concepts/sandboxing#prerequisites. Codex
@@ -9,13 +9,13 @@ root@claude-code:/opt/nanobot-rust/nanobot-rust# codex --full-auto
 │ >_ OpenAI Codex (v0.120.0)                │
 │                                           │
 │ model:     gpt-5.4   /model to change     │
-│ directory: /opt/nanobot-rust/nanobot-rust │
+│ directory: /opt/kestrel/kestrel │
 ╰───────────────────────────────────────────╯
 
   Tip: Use /statusline to configure which items appear in the status line.
 
 
-› You are the Green Hat analyst for nanobot-rust. Read CLAUDE.md first, then
+› You are the Green Hat analyst for kestrel. Read CLAUDE.md first, then
   propose creative improvements.
 
   Focus on:
@@ -36,11 +36,11 @@ root@claude-code:/opt/nanobot-rust/nanobot-rust# codex --full-auto
   For each: current state, proposed change, effort S/M/L, expected impact.
   Include code sketches.
 
-  gpt-5.4 default · /opt/nanobot-rust/nanobot-rust
+  gpt-5.4 default · /opt/kestrel/kestrel
 
 
 
-› You are the Green Hat analyst for nanobot-rust. Read CLAUDE.md first, then
+› You are the Green Hat analyst for kestrel. Read CLAUDE.md first, then
   propose creative improvements.
 
   Focus on:
@@ -71,7 +71,7 @@ root@claude-code:/opt/nanobot-rust/nanobot-rust# codex --full-auto
     Read CLAUDE.md
 
 • Ran pwd
-  └ /opt/nanobot-rust/nanobot-rust
+  └ /opt/kestrel/kestrel
 
 • Explored
   └ Read CLAUDE.md
@@ -176,8 +176,8 @@ trait_def.rs
 
   - Current state: the runtime is still a single orchestrator over mpsc plus
     broadcast; MessageBus has one inbound and one outbound consumer (crates/
-    nanobot-bus/src/queue.rs:16), and AgentLoop::run processes one message at a
-    time (crates/nanobot-agent/src/loop_mod.rs:92).
+    kestrel-bus/src/queue.rs:16), and AgentLoop::run processes one message at a
+    time (crates/kestrel-agent/src/loop_mod.rs:92).
   - Proposed change: move to per-session actors. Keep a global ingress router,
     but hand each session_key to its own mailbox/actor so unrelated chats can
     run concurrently without a shared hot path. Also split crates into runtime
@@ -201,15 +201,15 @@ trait_def.rs
 
   - Current state: several surfaces exist but are thin.
       - Semantic memory is mostly lexical today: recall queries
-        use .with_text(...) (crates/nanobot-agent/src/loop_mod.rs:201), and
+        use .with_text(...) (crates/kestrel-agent/src/loop_mod.rs:201), and
         WarmStore only does vector KNN when an embedding is already present
-        (crates/nanobot-memory/src/warm_store.rs:81).
+        (crates/kestrel-memory/src/warm_store.rs:81).
       - with_subagent_manager stores the manager but does not wire it into tool
-        execution (crates/nanobot-agent/src/loop_mod.rs:665).
+        execution (crates/kestrel-agent/src/loop_mod.rs:665).
       - Skill learning records every match as Helpful before any outcome is
-        known (crates/nanobot-agent/src/loop_mod.rs:217).
+        known (crates/kestrel-agent/src/loop_mod.rs:217).
       - HeartbeatService::with_registries ignores the registries (crates/
-        nanobot-heartbeat/src/service.rs:80).
+        kestrel-heartbeat/src/service.rs:80).
   - Proposed change: add an actual evolution pipeline: embeddings provider,
     skill outcome adjudication, subagent tool wiring, learned prompt patches,
     and real heartbeat adapters.
@@ -229,12 +229,12 @@ trait_def.rs
 
   - Current state:
       - AgentRunner clones the whole conversation each iteration and clones tool
-        definitions too (crates/nanobot-agent/src/runner.rs:86, crates/nanobot-
+        definitions too (crates/kestrel-agent/src/runner.rs:86, crates/kestrel-
         agent/src/runner.rs:105).
-      - WarmStore clones MemoryEntry on recall and search (crates/nanobot-
+      - WarmStore clones MemoryEntry on recall and search (crates/kestrel-
         memory/src/warm_store.rs:71).
       - SessionStore::save rewrites the full JSONL file on each save using sync
-        std I/O (crates/nanobot-session/src/store.rs:86).
+        std I/O (crates/kestrel-session/src/store.rs:86).
   - Proposed change:
       - store message content as Arc<str>/Bytes;
       - make provider requests borrow message slices where possible;
@@ -255,9 +255,9 @@ trait_def.rs
   4. API Redesigns
 
   - Current state: the API validates req.model, but AgentRunner always uses
-    config.agent.model (crates/nanobot-api/src/server.rs:491, crates/nanobot-
+    config.agent.model (crates/kestrel-api/src/server.rs:491, crates/kestrel-
     agent/src/runner.rs:76). Also the “streaming” API waits for the full run
-    before emitting SSE chunks (crates/nanobot-api/src/server.rs:638).
+    before emitting SSE chunks (crates/kestrel-api/src/server.rs:638).
   - Proposed change: break compat and introduce a typed RunSpec and RunStream,
     where model/tool policy/session/stream sink are explicit inputs.
   - Effort: M
@@ -324,9 +324,9 @@ trait_def.rs
   7. Cross-Cutting Observability
 
   - Current state: logging exists, especially in the API middleware (crates/
-    nanobot-api/src/server.rs:324), but there is no metrics/OpenTelemetry path,
+    kestrel-api/src/server.rs:324), but there is no metrics/OpenTelemetry path,
     and runner-emitted tool/stream events use empty session_key values (crates/
-    nanobot-agent/src/runner.rs:157, crates/nanobot-agent/src/runner.rs:222).
+    kestrel-agent/src/runner.rs:157, crates/kestrel-agent/src/runner.rs:222).
   - Proposed change:
       - add a shared ExecutionContext { trace_id, session_id, request_id };
       - emit counters/histograms for provider latency, tool latency, queue
@@ -357,4 +357,4 @@ trait_def.rs
 › codex --full-auto
 
 
-  gpt-5.4 default · /opt/nanobot-rust/nanobot-rust
+  gpt-5.4 default · /opt/kestrel/kestrel

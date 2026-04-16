@@ -1,11 +1,11 @@
 //! Health command — check and display heartbeat service status.
 
 use anyhow::Result;
-use nanobot_config::Config;
+use kestrel_config::Config;
 
 /// Show current health status.
 pub fn check(_config: &Config) -> Result<()> {
-    let home = nanobot_config::paths::get_nanobot_home()?;
+    let home = kestrel_config::paths::get_kestrel_home()?;
     let state_path = home.join("heartbeat_state.json");
 
     if !state_path.exists() {
@@ -14,7 +14,7 @@ pub fn check(_config: &Config) -> Result<()> {
     }
 
     let content = std::fs::read_to_string(&state_path)?;
-    let state: nanobot_heartbeat::HeartbeatState = serde_json::from_str(&content)?;
+    let state: kestrel_heartbeat::HeartbeatState = serde_json::from_str(&content)?;
 
     println!("=== Health Status ===\n");
     println!("Total checks:    {}", state.total_checks);
@@ -46,10 +46,10 @@ pub fn check(_config: &Config) -> Result<()> {
             println!("{}", "-".repeat(60));
             for check in &snapshot.checks {
                 let status = match check.status {
-                    nanobot_heartbeat::CheckStatus::Healthy => "healthy",
-                    nanobot_heartbeat::CheckStatus::Degraded => "DEGRADED",
-                    nanobot_heartbeat::CheckStatus::Unhealthy => "UNHEALTHY",
-                    nanobot_heartbeat::CheckStatus::Skipped => "skipped",
+                    kestrel_heartbeat::CheckStatus::Healthy => "healthy",
+                    kestrel_heartbeat::CheckStatus::Degraded => "DEGRADED",
+                    kestrel_heartbeat::CheckStatus::Unhealthy => "UNHEALTHY",
+                    kestrel_heartbeat::CheckStatus::Skipped => "skipped",
                 };
                 println!("{:<20} {:<12} {}", check.component, status, check.message);
             }

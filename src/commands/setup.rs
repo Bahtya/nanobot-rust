@@ -1,14 +1,14 @@
 //! Setup command — write the template config and initialize home directories.
 
 use anyhow::{Context, Result};
-use nanobot_config::Config;
+use kestrel_config::Config;
 use std::io::{self, BufRead, Write};
 use std::path::Path;
 
 /// Run the setup command.
 pub fn run(_config: Config) -> Result<()> {
     let template = Config::default();
-    let config_path = nanobot_config::paths::get_config_path()?;
+    let config_path = kestrel_config::paths::get_config_path()?;
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut input = stdin.lock();
@@ -23,7 +23,7 @@ fn run_with_io<R: BufRead, W: Write>(
     input: &mut R,
     output: &mut W,
 ) -> Result<()> {
-    writeln!(output, "=== Nanobot Setup ===\n")?;
+    writeln!(output, "=== Kestrel Setup ===\n")?;
     writeln!(output, "Template configuration:")?;
     writeln!(output, "  Model: {}", template.agent.model)?;
     writeln!(output, "  Temperature: {}", template.agent.temperature)?;
@@ -82,7 +82,7 @@ fn initialize_home(config_path: &Path, template: &Config) -> Result<()> {
 
     std::fs::create_dir_all(home)
         .with_context(|| format!("Failed to create config home: {}", home.display()))?;
-    nanobot_config::loader::save_config(template, config_path)?;
+    kestrel_config::loader::save_config(template, config_path)?;
 
     for dir in ["skills", "sessions", "learning"] {
         let path = home.join(dir);

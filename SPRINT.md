@@ -2,7 +2,7 @@
 
 ## Sprint 2 Status: In Progress
 
-**Goal**: Implement native daemon mode for nanobot-rs, inspired by Cloudflare Pingora's Server/Service lifecycle management.
+**Goal**: Implement native daemon mode for kestrel, inspired by Cloudflare Pingora's Server/Service lifecycle management.
 
 **Reference Architecture**: https://github.com/cloudflare/pingora — Server::new → bootstrap → add_service → run_forever pattern. Key modules: server/mod.rs, server/daemon.rs, services/background.rs, server/transfer_fd.rs.
 
@@ -27,17 +27,17 @@ This sprint uses a single CC agent running a complete closed loop:
 
 ### Phase 1: Explore (understand before writing)
 - Read Pingora's server/daemon.rs, services/mod.rs, services/background.rs
-- Read current nanobot-rs gateway.rs, main.rs, heartbeat crate
+- Read current kestrel gateway.rs, main.rs, heartbeat crate
 - Understand the gap: what's missing for daemon mode
 
 ### Phase 2: Plan (design before coding)
-- Design nanobot-daemon crate structure
+- Design kestrel-daemon crate structure
 - Define DaemonConfig schema
-- Map Pingora patterns to nanobot-rs architecture
+- Map Pingora patterns to kestrel architecture
 - Write plan to docs/plan-daemon.md
 
 ### Phase 3: Implement (code)
-- Create nanobot-daemon crate
+- Create kestrel-daemon crate
 - Implement: daemonize, pid_file, signal, logging modules
 - Integrate into main.rs CLI (add daemon subcommand)
 - Integrate into gateway.rs (replace ctrl_c with signal handler)
@@ -52,9 +52,9 @@ This sprint uses a single CC agent running a complete closed loop:
 
 ## Deliverables
 
-### New Crate: nanobot-daemon
+### New Crate: kestrel-daemon
 ```
-crates/nanobot-daemon/
+crates/kestrel-daemon/
 ├── Cargo.toml
 ├── src/
 │   ├── lib.rs          # Public API
@@ -68,21 +68,21 @@ crates/nanobot-daemon/
 - `src/main.rs` — add `daemon` subcommand (start/stop/restart/status)
 - `src/commands/gateway.rs` — replace ctrl_c with signal handler, add PID file lifecycle
 - `src/commands/serve.rs` — same signal/PID treatment
-- `crates/nanobot-config/src/schema.rs` — add DaemonConfig struct
+- `crates/kestrel-config/src/schema.rs` — add DaemonConfig struct
 - `Cargo.toml` — add workspace member + dependencies
 
 ### Config Addition
 ```yaml
 daemon:
   enabled: false
-  pid_file: ~/.nanobot-rs/nanobot-rs.pid
-  log_dir: ~/.nanobot-rs/logs
+  pid_file: ~/.kestrel/kestrel.pid
+  log_dir: ~/.kestrel/logs
   working_directory: /
 ```
 
 ## Pingora Patterns to Apply
 
-1. **Server facade** — `Server::new(opt).bootstrap().add_service(svc).run_forever()` — adapt for nanobot-rs gateway
+1. **Server facade** — `Server::new(opt).bootstrap().add_service(svc).run_forever()` — adapt for kestrel gateway
 2. **Service trait** — each long-running component (channels, heartbeat, api) as a named Service
 3. **Shutdown broadcast** — tokio watch channel for shutdown signal propagation (we already have MessageBus, extend it)
 4. **Daemonize** — Pingora uses `daemonize` crate, double-fork + PID file + stderr redirect
@@ -98,10 +98,10 @@ daemon:
 ## Pass/Fail Criteria
 - [ ] `cargo test --workspace` passes (0 failures)
 - [ ] `cargo clippy --workspace` passes (0 warnings)
-- [ ] `nanobot-rs daemon start` backgrounds the process with PID file
-- [ ] `nanobot-rs daemon stop` sends SIGTERM, process exits gracefully
-- [ ] `nanobot-rs daemon status` shows PID and process state
-- [ ] `nanobot-rs daemon restart` = stop + start
+- [ ] `kestrel daemon start` backgrounds the process with PID file
+- [ ] `kestrel daemon stop` sends SIGTERM, process exits gracefully
+- [ ] `kestrel daemon status` shows PID and process state
+- [ ] `kestrel daemon restart` = stop + start
 - [ ] SIGTERM triggers graceful shutdown (channels drain, API completes in-flight)
 - [ ] PID file cleaned up on exit (normal and signal)
 - [ ] Config `daemon.enabled: true` makes gateway auto-daemonize without subcommand

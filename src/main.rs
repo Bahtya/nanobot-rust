@@ -1,6 +1,6 @@
-//! # nanobot-rust
+//! # kestrel
 //!
-//! A Rust rewrite of the Python nanobot AI agent framework.
+//! A Rust rewrite of the Python kestrel AI agent framework.
 //! Features an agent loop, channel system, bus message bus,
 //! session management, cron scheduling, heartbeat, and security modules.
 
@@ -11,10 +11,10 @@ use tracing_subscriber::EnvFilter;
 
 mod commands;
 
-/// Nanobot — multi-platform AI agent framework.
+/// Kestrel — multi-platform AI agent framework.
 #[derive(Parser)]
-#[command(name = "nanobot-rs")]
-#[command(version = nanobot_core::VERSION)]
+#[command(name = "kestrel")]
+#[command(version = kestrel_core::VERSION)]
 #[command(about = "A multi-platform AI agent framework")]
 struct Cli {
     /// Path to config file.
@@ -103,9 +103,9 @@ enum ConfigSubcommand {
     /// Validate the config.yaml schema.
     Validate,
 
-    /// Migrate Python nanobot config to nanobot-rs format.
+    /// Migrate Python kestrel config to kestrel format.
     Migrate {
-        /// Path to Python nanobot config directory (e.g., ~/.nanobot).
+        /// Path to Python kestrel config directory (e.g., ~/.kestrel).
         #[arg(long)]
         from: PathBuf,
 
@@ -153,11 +153,11 @@ fn main() -> Result<()> {
     }
 
     if matches!(&cli.command, Commands::Setup) {
-        return commands::setup::run(nanobot_config::Config::default());
+        return commands::setup::run(kestrel_config::Config::default());
     }
 
     // Load configuration
-    let config = nanobot_config::load_config(cli.config.as_deref())?;
+    let config = kestrel_config::load_config(cli.config.as_deref())?;
 
     match cli.command {
         Commands::Agent { message } => {
@@ -214,7 +214,7 @@ fn main() -> Result<()> {
 
                     // Install SIGHUP ignore handler before tokio runtime — closes the
                     // window where default SIGHUP would kill the daemon during startup
-                    nanobot_daemon::signal::install_early_sighup_handler();
+                    kestrel_daemon::signal::install_early_sighup_handler();
 
                     // Now start tokio runtime in the daemon process
                     let rt = tokio::runtime::Runtime::new()?;

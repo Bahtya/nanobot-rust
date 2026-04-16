@@ -32,8 +32,8 @@ Hermes is written in Python with dynamic typing, monkey-patching, and file-based
 - **Cross-session learning**: aggregate patterns across all users (with privacy) for community skills
 - **RLHF-style skill ranking**: implicit feedback from user behavior (continuing vs correcting)
 
-### 4. Design for nanobot-rust's Strengths
-- How can nanobot-rust's multi-platform channels (Telegram, Discord) provide MORE feedback signals?
+### 4. Design for kestrel's Strengths
+- How can kestrel's multi-platform channels (Telegram, Discord) provide MORE feedback signals?
 - How can the daemon mode enable background learning without user-facing latency?
 - How can Rust's performance enable real-time skill matching on large skill databases?
 - How can the plugin architecture (MCP, custom tools) be extended for self-evolution?
@@ -43,7 +43,7 @@ Design the Rust API surface for the self-evolution system:
 - Skill trait definition
 - MemoryStore trait
 - ReviewScheduler trait
-- How it all integrates with the existing nanobot-agent crate
+- How it all integrates with the existing kestrel-agent crate
 
 ### 6. Implementation Strategy
 Propose a concrete 3-phase implementation plan:
@@ -53,7 +53,7 @@ Propose a concrete 3-phase implementation plan:
 
 ## Key Files to Read
 - ALL self-evolution related code in Hermes
-- `crates/nanobot-agent/src/` in nanobot-rust — understand the existing Rust architecture
+- `crates/kestrel-agent/src/` in kestrel — understand the existing Rust architecture
 - Think about Rust idioms while reading Python code
 
 ## Output
@@ -65,4 +65,4 @@ Write a creative design document to `/tmp/hats/06-green-hat-design.md` with:
 5. Concrete 3-phase implementation plan
 6. Code sketches for key data structures (Rust pseudo-code)
 
-Write in Chinese. Be bold. Don't be constrained by what Hermes does — design what nanobot-rust SHOULD do.
+Write in Chinese. Be bold. Don't be constrained by what Hermes does — design what kestrel SHOULD do.

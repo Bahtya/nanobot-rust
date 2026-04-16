@@ -1,0 +1,21 @@
+[package]
+name = "kestrel-cron"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+kestrel-core = { path = "../kestrel-core" }
+kestrel-config = { path = "../kestrel-config" }
+kestrel-bus = { path = "../kestrel-bus" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+cron = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+parking_lot = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

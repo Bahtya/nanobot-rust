@@ -1,0 +1,23 @@
+[package]
+name = "kestrel-providers"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+kestrel-core = { path = "../kestrel-core" }
+kestrel-config = { path = "../kestrel-config" }
+kestrel-security = { path = "../kestrel-security" }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+futures = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+bytes = "1"
+tokio-stream = "0.1"
+
+[dev-dependencies]
+tokio = { workspace = true }

@@ -1,4 +1,4 @@
-root = Path('/opt/nanobot-rust/nanobot-rust')
+root = Path('/opt/kestrel/kestrel')
 crates_dir = root / 'crates'
 crate_paths = sorted([p for p in crates_dir.iterdir() if p.is_dir() and
 (p/'Cargo.toml').exists()])
@@ -129,7 +129,7 @@ stripped.startswith('///') and not stripped.startswith('//'):
             pending = []
 # ---------- doctests from cargo output ----------
 doctests = []
-doctest_file = Path('/tmp/nanobot_doctest_list.txt')
+doctest_file = Path('/tmp/kestrel_doctest_list.txt')
 if doctest_file.exists():
     current_crate = None
     for raw in doctest_file.read_text(encoding='utf-8',
@@ -138,7 +138,7 @@ errors='replace').splitlines():
         m = re.match(r'Doc-tests\s+([A-Za-z0-9_\-]+)', line)
         if m:
             current_crate = m.group(1).replace('_', '-')
-            if current_crate == 'nanobot-rust':
+            if current_crate == 'kestrel':
                 current_crate = None
             continue
         if not current_crate:
@@ -218,7 +218,7 @@ for path in rs_files:
                 break
 # ---------- config fields ----------
 config_fields = []
-schema_path = root/'crates/nanobot-config/src/schema.rs'
+schema_path = root/'crates/kestrel-config/src/schema.rs'
 schema_text = read_text(schema_path)
 schema_lines = schema_text.splitlines()
 struct_re = re.compile(r'^\s*pub\s+struct\s+([A-Za-z_][A-Za-z0-9_]*)\b')
@@ -472,13 +472,13 @@ risk_calls={len(risk_calls)} clone_sites={len(clone_sites)}')
 PY
 
 • Explored
-  └ Read nanobot_doctest_list.txt, nanobot_test_list.txt
+  └ Read kestrel_doctest_list.txt, kestrel_test_list.txt
 
 • Ran python3 - <<'PY'
   │ import os, re, json
   │ from pathlib import Path
   │ … +512 lines
-  └ /opt/nanobot-rust/nanobot-rust/WHITEHAT_INVENTORY.md
+  └ /opt/kestrel/kestrel/WHITEHAT_INVENTORY.md
     public_items=803 source_tests=1128 doctests=5 error_types=4
     config_fields=132 tags=4 risk_calls=2397 clone_sites=118
 
@@ -491,7 +491,7 @@ PY
 • Explored
   └ Read WHITEHAT_INVENTORY.md
     Search ^##  in WHITEHAT_INVENTORY.md
-    Search ^### nanobot- in WHITEHAT_INVENTORY.md
+    Search ^### kestrel- in WHITEHAT_INVENTORY.md
     Search ^- `#[^`]*ignore|\(#\[ignore\]\) in WHITEHAT_INVENTORY.md
 
 ────────────────────────────────────────────────────────────────────────────────
@@ -521,4 +521,4 @@ PY
 › codex --full-auto
 
 
-  gpt-5.4 default · /opt/nanobot-rust/nanobot-rust
+  gpt-5.4 default · /opt/kestrel/kestrel

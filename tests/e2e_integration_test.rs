@@ -7,15 +7,15 @@
 //! not LLM output quality.
 
 use async_trait::async_trait;
-use nanobot_agent::AgentLoop;
-use nanobot_bus::events::{AgentEvent, InboundMessage};
-use nanobot_bus::MessageBus;
-use nanobot_config::Config;
-use nanobot_core::{FunctionCall, MessageType, Platform, ToolCall, Usage};
-use nanobot_providers::base::{BoxStream, CompletionChunk};
-use nanobot_providers::{CompletionRequest, CompletionResponse, LlmProvider, ProviderRegistry};
-use nanobot_session::SessionManager;
-use nanobot_tools::{Tool, ToolError, ToolRegistry};
+use kestrel_agent::AgentLoop;
+use kestrel_bus::events::{AgentEvent, InboundMessage};
+use kestrel_bus::MessageBus;
+use kestrel_config::Config;
+use kestrel_core::{FunctionCall, MessageType, Platform, ToolCall, Usage};
+use kestrel_providers::base::{BoxStream, CompletionChunk};
+use kestrel_providers::{CompletionRequest, CompletionResponse, LlmProvider, ProviderRegistry};
+use kestrel_session::SessionManager;
+use kestrel_tools::{Tool, ToolError, ToolRegistry};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -82,7 +82,7 @@ impl LlmProvider for MockProvider {
         let tool_call_deltas = resp.tool_calls.as_ref().map(|tcs| {
             tcs.iter()
                 .enumerate()
-                .map(|(i, tc)| nanobot_providers::base::ToolCallDelta {
+                .map(|(i, tc)| kestrel_providers::base::ToolCallDelta {
                     index: i,
                     id: Some(tc.id.clone()),
                     function_name: Some(tc.function.name.clone()),

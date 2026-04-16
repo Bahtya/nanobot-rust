@@ -1,0 +1,28 @@
+[package]
+name = "kestrel-channels"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+kestrel-core = { path = "../kestrel-core" }
+kestrel-config = { path = "../kestrel-config" }
+kestrel-bus = { path = "../kestrel-bus" }
+kestrel-session = { path = "../kestrel-session" }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+reqwest = { workspace = true }
+futures = { workspace = true }
+parking_lot = { workspace = true }
+dashmap = { workspace = true }
+uuid = { workspace = true }
+tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
+tungstenite = "0.26"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+chrono = { workspace = true }

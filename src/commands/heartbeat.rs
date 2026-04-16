@@ -1,29 +1,29 @@
 //! Heartbeat command — start the periodic task checking service.
 
 use anyhow::Result;
-use nanobot_bus::MessageBus;
-use nanobot_config::Config;
-use nanobot_heartbeat::{
+use kestrel_bus::MessageBus;
+use kestrel_config::Config;
+use kestrel_heartbeat::{
     BusHealthCheck, HeartbeatService, MemoryStoreHealthCheck, ProviderHealthCheck,
 };
-use nanobot_memory::{HotStore, MemoryConfig, MemoryStore};
-use nanobot_providers::ProviderRegistry;
-use nanobot_session::SessionManager;
-use nanobot_tools::builtins;
+use kestrel_memory::{HotStore, MemoryConfig, MemoryStore};
+use kestrel_providers::ProviderRegistry;
+use kestrel_session::SessionManager;
+use kestrel_tools::builtins;
 use tracing::info;
 
 /// Run the heartbeat service.
 pub async fn run(config: Config, dangerous: bool) -> Result<()> {
-    info!("Starting nanobot heartbeat service...");
+    info!("Starting kestrel heartbeat service...");
 
-    let home = nanobot_config::paths::get_nanobot_home()?;
+    let home = kestrel_config::paths::get_kestrel_home()?;
     let session_manager = SessionManager::new(home.clone())?;
     let bus = MessageBus::new();
 
     let provider_registry = ProviderRegistry::from_config(&config)?;
     info!("Providers: {:?}", provider_registry.provider_names());
 
-    let tool_registry = nanobot_tools::ToolRegistry::new();
+    let tool_registry = kestrel_tools::ToolRegistry::new();
     builtins::register_all_with_config(&tool_registry, builtins::BuiltinsConfig { dangerous });
     info!("Tools: {:?}", tool_registry.tool_names());
 

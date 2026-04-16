@@ -1,25 +1,25 @@
 //! Agent command — start interactive local agent.
 
 use anyhow::Result;
-use nanobot_agent::AgentLoop;
-use nanobot_bus::MessageBus;
-use nanobot_config::Config;
-use nanobot_core::{MessageType, Platform};
-use nanobot_providers::ProviderRegistry;
-use nanobot_session::SessionManager;
-use nanobot_tools::builtins;
+use kestrel_agent::AgentLoop;
+use kestrel_bus::MessageBus;
+use kestrel_config::Config;
+use kestrel_core::{MessageType, Platform};
+use kestrel_providers::ProviderRegistry;
+use kestrel_session::SessionManager;
+use kestrel_tools::builtins;
 use tracing::info;
 
 /// Run the interactive agent.
 pub async fn run(config: Config, initial_message: Option<String>, dangerous: bool) -> Result<()> {
-    info!("Starting nanobot agent...");
+    info!("Starting kestrel agent...");
 
     // Initialize shared components
     let bus = MessageBus::new();
-    let home = nanobot_config::paths::get_nanobot_home()?;
+    let home = kestrel_config::paths::get_kestrel_home()?;
     let session_manager = SessionManager::new(home)?;
     let provider_registry = ProviderRegistry::from_config(&config)?;
-    let tool_registry = nanobot_tools::ToolRegistry::new();
+    let tool_registry = kestrel_tools::ToolRegistry::new();
     builtins::register_all_with_config(&tool_registry, builtins::BuiltinsConfig { dangerous });
 
     info!("Providers: {:?}", provider_registry.provider_names());
@@ -36,7 +36,7 @@ pub async fn run(config: Config, initial_message: Option<String>, dangerous: boo
 
     if let Some(msg) = initial_message {
         // One-shot: process a single message
-        let inbound = nanobot_bus::events::InboundMessage {
+        let inbound = kestrel_bus::events::InboundMessage {
             channel: Platform::Local,
             sender_id: "user".to_string(),
             chat_id: "local".to_string(),

@@ -9,24 +9,24 @@
 ### 第一步：回顾你的批判
 读取 `/tmp/hats/03-red-hat-critique.md`。
 
-### 第二步：阅读 nanobot-rust 源码
-nanobot-rust 源码在 `/opt/nanobot-rust/nanobot-rust/`。重点阅读：
+### 第二步：阅读 kestrel 源码
+kestrel 源码在 `/opt/kestrel/kestrel/`。重点阅读：
 
-1. `crates/nanobot-agent/src/context.rs` — 当前的 prompt 组装（极简，70行）
-2. `crates/nanobot-session/src/` — session 管理
-3. `crates/nanobot-tools/src/` — Tool trait 和 registry
-4. `crates/nanobot-config/src/schema.rs` — 配置体系
-5. `crates/nanobot-bus/` — 消息总线
+1. `crates/kestrel-agent/src/context.rs` — 当前的 prompt 组装（极简，70行）
+2. `crates/kestrel-session/src/` — session 管理
+3. `crates/kestrel-tools/src/` — Tool trait 和 registry
+4. `crates/kestrel-config/src/schema.rs` — 配置体系
+5. `crates/kestrel-bus/` — 消息总线
 6. `src/commands/gateway.rs` — gateway 循环
 7. 整体目录结构 — 理解 Rust 项目的组织方式
 
 ### 第三步：迁移设计批判
-基于你对 Hermes 的批判，评估移植到 nanobot-rust 时需要注意什么：
+基于你对 Hermes 的批判，评估移植到 kestrel 时需要注意什么：
 
-1. **不要重犯的错误**：Hermes 有哪些设计缺陷，nanobot-rust 迁移时必须避免？列出具体的"反模式清单"
+1. **不要重犯的错误**：Hermes 有哪些设计缺陷，kestrel 迁移时必须避免？列出具体的"反模式清单"
 2. **Rust 强迫你做对的事**：Rust 的类型系统/所有权/生命周期会自动阻止哪些 Hermes 式的错误？
 3. **过度设计警告**：哪些 Hermes 功能看起来炫酷但实际价值低？迁移时应该跳过？
-4. **nanobot-rust 的现有设计嗅觉**：当前 nanobot-rust 代码有什么设计味道好的地方？什么值得扩展？什么应该重构？
+4. **kestrel 的现有设计嗅觉**：当前 kestrel 代码有什么设计味道好的地方？什么值得扩展？什么应该重构？
 5. **移植陷阱**：哪些"显而易见"的移植方案实际上是陷阱？表面相似但底层语义不同的情况？
 6. **直觉排名**：如果要你直觉排序迁移优先级，你会怎么排？为什么？
 
@@ -45,7 +45,7 @@ nanobot-rust 源码在 `/opt/nanobot-rust/nanobot-rust/`。重点阅读：
 ### 3. 过度设计警告
 （应该跳过的 Hermes 功能 + 原因）
 
-### 4. nanobot-rust 现有设计评价
+### 4. kestrel 现有设计评价
 （什么好、什么需要重构、什么不要碰）
 
 ### 5. 移植陷阱 Top 10

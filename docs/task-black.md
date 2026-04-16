@@ -65,6 +65,6 @@ Write a comprehensive risk analysis to `/tmp/hats/04-black-hat-risks.md` with:
 3. Scalability cliff edges (when X exceeds Y, performance dies)
 4. Data integrity risks with specific code references
 5. Rust porting gotchas (Python → Rust translation risks)
-6. Recommended safeguards for the nanobot-rust port
+6. Recommended safeguards for the kestrel port
 
 Write in Chinese. Be paranoid. Every risk you find now saves debugging time later.

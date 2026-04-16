@@ -1,17 +1,18 @@
 <div align="center">
 
-# nanobot-rs
+<img src="https://d2z0o16i8xm8ak.cloudfront.net/301e77e6-a3c9-457a-9ccb-7f5abc49fd20/2d79d076-4d0a-492b-b595-291c81aa9e1a/kestrel_D8_vertical_poster.png?Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9kMnowbzE2aTh4bThhay5jbG91ZGZyb250Lm5ldC8zMDFlNzdlNi1hM2M5LTQ1N2EtOWNjYi03ZjVhYmM0OWZkMjAvMmQ3OWQwNzYtNGQwYS00OTJiLWI1OTUtMjkxYzgxYWE5ZTFhL2tlc3RyZWxfRDhfdmVydGljYWxfcG9zdGVyLnBuZz8qIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzc2OTMyNDAxfX19XX0_&Signature=sXK0UhrH5luE~XNmIsXJwAi2WwhwkF2JPiKiw3Hrd~dZY9L2Jzt-lda5hC61RNoQ5dRKnZeTCrUbOJcYKdqo7JEHjUktOaoz7DEhMmAcdLaU1MsPezNTapo4fpR2hqfuPE5jI-qDU4Pm~kw2RxS07oFMcg~qr5RYeFEmVADgXVWwxlrzPDu9Qe1dRqUVdMW4s1Hp1nJHt2hDa0cn2nIG3RwUw2N4JR8dlqR5v7A3Fj7d12jn5wvY5vhYZBYNGiReSphDe86xMGKcB4Q0bnQw-MqRiCZExfm4zl6bXQIxseUI~9aC6P78F~YelJBO9DMytQ63VW1zdl81O-S1eNVByw__&Key-Pair-Id=K1BF7XGXAIMYNX&rnd=1776327639373&utm_source=perplexity" alt="Kestrel Agent Logo" width="200" />
 
-**A multi-platform AI agent framework built in Rust**
+# Kestrel Agent
+
+**A fast, streaming-first AI agent framework built in Rust**
 
 [![CI](https://github.com/Bahtya/nanobot-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/Bahtya/nanobot-rust/actions/workflows/ci.yml)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue)](https://github.com/Bahtya/nanobot-rust/blob/main/LICENSE)
 [![Crates](https://img.shields.io/badge/crates-16-purple)](./crates)
 
-Fast, streaming-first, and production-ready. Connect Telegram, Discord, and
-OpenAI-compatible clients to any LLM provider through a unified agent loop
-with built-in memory, skills, and self-evolution.
+A fast, streaming-first AI agent framework built in Rust — connect any platform
+to any LLM with built-in memory, skills, and self-evolution.
 
 </div>
 
@@ -92,10 +93,10 @@ with built-in memory, skills, and self-evolution.
   LearningEvent → EventBus → Processors → (SkillCreate / MemoryUpdate / PromptAdjust)
 
   ── Foundation Layer ───────────────────────────────────
-  nanobot-core · nanobot-config · nanobot-bus
-  nanobot-session · nanobot-security · nanobot-providers
-  nanobot-cron · nanobot-heartbeat · nanobot-daemon
-  nanobot-memory · nanobot-skill · nanobot-learning
+  kestrel-core · kestrel-config · kestrel-bus
+  kestrel-session · kestrel-security · kestrel-providers
+  kestrel-cron · kestrel-heartbeat · kestrel-daemon
+  kestrel-memory · kestrel-skill · kestrel-learning
 ```
 
 ## Quick Start
@@ -109,48 +110,48 @@ cargo build --release
 ### Configure
 
 ```bash
-nanobot-rs setup
-# Edit ~/.nanobot-rs/config.yaml with your API keys
+kestrel setup
+# Edit ~/.kestrel/config.yaml with your API keys
 ```
 
 ### Run
 
 ```bash
 # Interactive agent (one-shot)
-nanobot-rs agent "Summarize the latest commits"
+kestrel agent "Summarize the latest commits"
 
 # Start gateway (Telegram + Discord)
-nanobot-rs gateway
+kestrel gateway
 
 # Start API server
-nanobot-rs serve --port 8080
+kestrel serve --port 8080
 
 # Periodic health checking
-nanobot-rs heartbeat
+kestrel heartbeat
 
 # Show system status
-nanobot-rs status
+kestrel status
 
 # Start as daemon (background, double-fork, PID file + flock)
-nanobot-rs daemon start
+kestrel daemon start
 
 # Check status (auto-cleans stale PID files from crashed instances)
-nanobot-rs daemon status
+kestrel daemon status
 
 # Stop gracefully (SIGTERM, configurable grace period)
-nanobot-rs daemon stop
+kestrel daemon stop
 
 # Restart (stop + re-exec)
-nanobot-rs daemon restart
+kestrel daemon restart
 ```
 
-Environment variable `NANOBOT_RS_HOME` overrides the default config directory
-(`~/.nanobot-rs`).
+Environment variable `KESTREL_HOME` overrides the default config directory
+(`~/.kestrel`).
 
 ## Configuration
 
 ```yaml
-# ~/.nanobot-rs/config.yaml
+# ~/.kestrel/config.yaml
 
 providers:
   openai:
@@ -183,8 +184,8 @@ security:
       - "192.168.0.0/16"
 
 daemon:
-  pid_file: ~/.nanobot-rs/nanobot-rs.pid
-  log_dir: ~/.nanobot-rs/logs
+  pid_file: ~/.kestrel/kestrel.pid
+  log_dir: ~/.kestrel/logs
   working_directory: /
   grace_period_secs: 30
 ```
@@ -201,7 +202,7 @@ daemon:
 | `cron list` | List all cron jobs |
 | `cron status` | Show status of a specific cron job |
 | `config validate` | Validate the config.yaml schema |
-| `config migrate` | Migrate Python nanobot config to nanobot-rs format |
+| `config migrate` | Migrate Python kestrel config to kestrel format |
 | `setup` | Interactive configuration wizard |
 | `status` | Show current configuration and system status |
 | `daemon start/stop/restart/status` | Native Unix daemon: double-fork, PID file (flock), SIGTERM/SIGINT/SIGHUP, log rotation |
@@ -210,22 +211,22 @@ daemon:
 
 | Crate | Description |
 |-------|-------------|
-| [`nanobot-core`](./crates/nanobot-core) | Error types, constants, core types (`MessageType`, `Platform`) |
-| [`nanobot-config`](./crates/nanobot-config) | YAML config loading, schema validation, path resolution |
-| [`nanobot-bus`](./crates/nanobot-bus) | Tokio broadcast-based async message bus |
-| [`nanobot-session`](./crates/nanobot-session) | SQLite-backed session and conversation store |
-| [`nanobot-security`](./crates/nanobot-security) | Network allowlist/denylist, command approval, SSRF protection |
-| [`nanobot-providers`](./crates/nanobot-providers) | LLM provider trait — OpenAI-compatible and Anthropic SSE streaming |
-| [`nanobot-tools`](./crates/nanobot-tools) | Tool registry + builtins (shell, web, fs, search, cron, spawn, message) |
-| [`nanobot-agent`](./crates/nanobot-agent) | Agent loop, context builder, memory, skills, hooks, sub-agents |
-| [`nanobot-cron`](./crates/nanobot-cron) | Tick-based cron scheduler with JSON state persistence |
-| [`nanobot-heartbeat`](./crates/nanobot-heartbeat) | Health check registry, periodic task monitoring, auto-restart |
-| [`nanobot-channels`](./crates/nanobot-channels) | Platform adapters — Telegram, Discord — via `ChannelManager` |
-| [`nanobot-api`](./crates/nanobot-api) | OpenAI-compatible HTTP API server (Axum) |
-| [`nanobot-daemon`](./crates/nanobot-daemon) | Unix daemon: double-fork, PID file (flock), signal handling, file logging |
-| [`nanobot-memory`](./crates/nanobot-memory) | `MemoryStore` trait, HotStore (L1 in-memory), WarmStore/LanceDB (L2 vectors) |
-| [`nanobot-skill`](./crates/nanobot-skill) | `Skill` trait, TOML manifests, `SkillRegistry`, `SkillCompiler` |
-| [`nanobot-learning`](./crates/nanobot-learning) | `LearningEvent` bus, event processors, prompt assembly |
+| [`kestrel-core`](./crates/kestrel-core) | Error types, constants, core types (`MessageType`, `Platform`) |
+| [`kestrel-config`](./crates/kestrel-config) | YAML config loading, schema validation, path resolution |
+| [`kestrel-bus`](./crates/kestrel-bus) | Tokio broadcast-based async message bus |
+| [`kestrel-session`](./crates/kestrel-session) | SQLite-backed session and conversation store |
+| [`kestrel-security`](./crates/kestrel-security) | Network allowlist/denylist, command approval, SSRF protection |
+| [`kestrel-providers`](./crates/kestrel-providers) | LLM provider trait — OpenAI-compatible and Anthropic SSE streaming |
+| [`kestrel-tools`](./crates/kestrel-tools) | Tool registry + builtins (shell, web, fs, search, cron, spawn, message) |
+| [`kestrel-agent`](./crates/kestrel-agent) | Agent loop, context builder, memory, skills, hooks, sub-agents |
+| [`kestrel-cron`](./crates/kestrel-cron) | Tick-based cron scheduler with JSON state persistence |
+| [`kestrel-heartbeat`](./crates/kestrel-heartbeat) | Health check registry, periodic task monitoring, auto-restart |
+| [`kestrel-channels`](./crates/kestrel-channels) | Platform adapters — Telegram, Discord — via `ChannelManager` |
+| [`kestrel-api`](./crates/kestrel-api) | OpenAI-compatible HTTP API server (Axum) |
+| [`kestrel-daemon`](./crates/kestrel-daemon) | Unix daemon: double-fork, PID file (flock), signal handling, file logging |
+| [`kestrel-memory`](./crates/kestrel-memory) | `MemoryStore` trait, HotStore (L1 in-memory), WarmStore/LanceDB (L2 vectors) |
+| [`kestrel-skill`](./crates/kestrel-skill) | `Skill` trait, TOML manifests, `SkillRegistry`, `SkillCompiler` |
+| [`kestrel-learning`](./crates/kestrel-learning) | `LearningEvent` bus, event processors, prompt assembly |
 
 ## Stats
 

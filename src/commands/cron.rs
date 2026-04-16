@@ -1,11 +1,11 @@
 //! Cron command — list and inspect cron jobs.
 
 use anyhow::Result;
-use nanobot_config::Config;
+use kestrel_config::Config;
 
 /// List all cron jobs.
 pub fn list(_config: &Config) -> Result<()> {
-    let home = nanobot_config::paths::get_nanobot_home()?;
+    let home = kestrel_config::paths::get_kestrel_home()?;
     let cron_dir = home.join("cron");
 
     if !cron_dir.exists() {
@@ -13,7 +13,7 @@ pub fn list(_config: &Config) -> Result<()> {
         return Ok(());
     }
 
-    let svc = nanobot_cron::CronService::new(cron_dir)?;
+    let svc = kestrel_cron::CronService::new(cron_dir)?;
     let states = svc.list_job_states();
 
     if states.is_empty() {
@@ -31,9 +31,9 @@ pub fn list(_config: &Config) -> Result<()> {
     for (job, state) in &states {
         let name = job.name.as_deref().unwrap_or("(unnamed)");
         let job_state = match job.state {
-            nanobot_cron::JobState::Active => "active",
-            nanobot_cron::JobState::Paused => "paused",
-            nanobot_cron::JobState::Done => "done",
+            kestrel_cron::JobState::Active => "active",
+            kestrel_cron::JobState::Paused => "paused",
+            kestrel_cron::JobState::Done => "done",
         };
         let next = state
             .next_run
@@ -55,7 +55,7 @@ pub fn list(_config: &Config) -> Result<()> {
 
 /// Show detailed status for a specific cron job.
 pub fn status(_config: &Config, name: &str) -> Result<()> {
-    let home = nanobot_config::paths::get_nanobot_home()?;
+    let home = kestrel_config::paths::get_kestrel_home()?;
     let cron_dir = home.join("cron");
 
     if !cron_dir.exists() {
@@ -63,7 +63,7 @@ pub fn status(_config: &Config, name: &str) -> Result<()> {
         return Ok(());
     }
 
-    let svc = nanobot_cron::CronService::new(cron_dir)?;
+    let svc = kestrel_cron::CronService::new(cron_dir)?;
     let states = svc.list_job_states();
 
     // Find by name or ID prefix
@@ -79,9 +79,9 @@ pub fn status(_config: &Config, name: &str) -> Result<()> {
             println!(
                 "State:     {}",
                 match job.state {
-                    nanobot_cron::JobState::Active => "active",
-                    nanobot_cron::JobState::Paused => "paused",
-                    nanobot_cron::JobState::Done => "done",
+                    kestrel_cron::JobState::Active => "active",
+                    kestrel_cron::JobState::Paused => "paused",
+                    kestrel_cron::JobState::Done => "done",
                 }
             );
             println!("System:    {}", if job.is_system { "yes" } else { "no" });
@@ -89,7 +89,7 @@ pub fn status(_config: &Config, name: &str) -> Result<()> {
 
             println!("Schedule:");
             match job.schedule.kind {
-                nanobot_cron::ScheduleKind::At => {
+                kestrel_cron::ScheduleKind::At => {
                     let ts = job
                         .schedule
                         .at_ms
@@ -98,12 +98,12 @@ pub fn status(_config: &Config, name: &str) -> Result<()> {
                         .unwrap_or_else(|| "invalid".to_string());
                     println!("  Type: one-shot at {}", ts);
                 }
-                nanobot_cron::ScheduleKind::Every => {
+                kestrel_cron::ScheduleKind::Every => {
                     let ms = job.schedule.every_ms.unwrap_or(0);
                     let secs = ms / 1000;
                     println!("  Type: every {}s", secs);
                 }
-                nanobot_cron::ScheduleKind::Cron => {
+                kestrel_cron::ScheduleKind::Cron => {
                     println!(
                         "  Type: cron ({})",
                         job.schedule.expr.as_deref().unwrap_or("?")

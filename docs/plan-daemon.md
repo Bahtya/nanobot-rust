@@ -1,9 +1,9 @@
 # Daemon Mode Implementation Plan
 
-## Module Structure: `crates/nanobot-daemon/`
+## Module Structure: `crates/kestrel-daemon/`
 
 ```
-crates/nanobot-daemon/
+crates/kestrel-daemon/
 ├── Cargo.toml
 └── src/
     ├── lib.rs         — pub mod daemonize, pid_file, signal, logging
@@ -37,13 +37,13 @@ crates/nanobot-daemon/
 
 ### main.rs
 - Add `Daemon` subcommand with `DaemonAction` enum (Start, Stop, Restart, Status)
-- `daemon start`: call `nanobot_daemon::daemonize::daemonize()` BEFORE `#[tokio::main]` enters
+- `daemon start`: call `kestrel_daemon::daemonize::daemonize()` BEFORE `#[tokio::main]` enters
 - `daemon stop`: read PID, send SIGTERM, wait
 - `daemon restart`: stop + start
 - `daemon status`: read PID, check `/proc/{pid}` exists
 
 ### gateway.rs
-- Replace `tokio::signal::ctrl_c()` with `nanobot_daemon::signal::wait_for_signal()`
+- Replace `tokio::signal::ctrl_c()` with `kestrel_daemon::signal::wait_for_signal()`
 - Handle `Graceful` (SIGTERM) and `Fast` (SIGINT) shutdown signals
 - Log `Reload` (SIGHUP) as placeholder
 - Create PidFile on start, clean on exit
@@ -54,11 +54,11 @@ crates/nanobot-daemon/
 ## Config Schema Changes
 
 ```rust
-// In crates/nanobot-config/src/schema.rs:
+// In crates/kestrel-config/src/schema.rs:
 pub struct DaemonConfig {
     pub enabled: bool,              // default false
-    pub pid_file: String,           // default ~/.nanobot-rs/nanobot-rs.pid
-    pub log_dir: String,            // default ~/.nanobot-rs/logs
+    pub pid_file: String,           // default ~/.kestrel/kestrel.pid
+    pub log_dir: String,            // default ~/.kestrel/logs
     pub working_directory: String,  // default "/"
     pub grace_period_secs: u64,     // default 30
 }

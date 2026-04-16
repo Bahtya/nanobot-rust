@@ -1351,7 +1351,7 @@ SANDBOX_ALLOWED_TOOLS = frozenset([
 
 ## 迁移技术规格
 
-> 本章节基于 Hermes Agent 自演化系统的技术规格（上方章节 1–7），精确设计向 nanobot-rust 的移植方案。所有设计均基于 nanobot-rust 现有代码库的实际类型和接口。
+> 本章节基于 Hermes Agent 自演化系统的技术规格（上方章节 1–7），精确设计向 kestrel 的移植方案。所有设计均基于 kestrel 现有代码库的实际类型和接口。
 
 ---
 
@@ -1359,7 +1359,7 @@ SANDBOX_ALLOWED_TOOLS = frozenset([
 
 #### 1.1 现状对比
 
-| 维度 | Hermes (Python) | nanobot-rust (当前) |
+| 维度 | Hermes (Python) | kestrel (当前) |
 |------|-----------------|---------------------|
 | 存储 | `~/.hermes/memories/MEMORY.md` + `USER.md`，纯文本，`§` 分隔 | `{data_dir}/MEMORY.md` + `USER_{id}.md`，整文件写入，无分隔符 |
 | 数据结构 | `List[str]` 条目列表，有 add/replace/remove 操作 | `String` 整体读写，无条目概念 |
@@ -1457,7 +1457,7 @@ pub trait MemoryStore: Send + Sync {
 
 #### 1.3 存储 Schema — SQLite 表结构
 
-nanobot-rust 当前使用 JSONL 文件存储会话。为支持高效记忆检索、去重和并发安全，新增 SQLite 存储（在已有 `{data_dir}/` 下创建 `memory.db`，WAL 模式）：
+kestrel 当前使用 JSONL 文件存储会话。为支持高效记忆检索、去重和并发安全，新增 SQLite 存储（在已有 `{data_dir}/` 下创建 `memory.db`，WAL 模式）：
 
 ```sql
 -- 数据库版本
@@ -1614,7 +1614,7 @@ pub trait MemoryProvider: Send + Sync {
 
 #### 2.1 现状对比
 
-| 维度 | Hermes (Python) | nanobot-rust (当前) |
+| 维度 | Hermes (Python) | kestrel (当前) |
 |------|-----------------|---------------------|
 | 文件格式 | YAML frontmatter + Markdown | YAML frontmatter + Markdown（已有 `SkillsLoader`） |
 | Skill 结构体 | 字典（frontmatter 解析结果） | `Skill` struct（name, description, instructions, parameters, requires_bin, requires_env, tags） |
@@ -1973,7 +1973,7 @@ impl SkillsDiscovery {
 
 ### 3. Prompt Builder 扩展规格
 
-#### 3.1 当前 nanobot-rust ContextBuilder 分析
+#### 3.1 当前 kestrel ContextBuilder 分析
 
 当前 `context.rs` 的 `build_system_prompt()` 按 5 个 section 组装：
 1. **Identity** — 静态文本 + config.name
@@ -2128,7 +2128,7 @@ MEMORY (your personal notes) [45% — 990/2,200 chars]
 
 #### 4.1 触发条件
 
-复用现有 `nanobot-cron` crate 的 `CronService`，但增加计数器触发的辅助机制：
+复用现有 `kestrel-cron` crate 的 `CronService`，但增加计数器触发的辅助机制：
 
 ```rust
 /// 自审查触发器状态
@@ -2299,10 +2299,10 @@ impl BackgroundReviewer {
             );
 
             // 3. 将对话历史转换为 messages
-            let messages: Vec<nanobot_core::Message> = input
+            let messages: Vec<kestrel_core::Message> = input
                 .messages
                 .iter()
-                .map(|entry| nanobot_core::Message {
+                .map(|entry| kestrel_core::Message {
                     role: match entry.role {
                         MessageRole::System => "system".to_string(),
                         MessageRole::User => "user".to_string(),
@@ -2774,23 +2774,23 @@ impl Tool for SkillViewTool {
 
 | 文件路径 | 修改类型 | 具体变更描述 |
 |----------|---------|-------------|
-| `crates/nanobot-agent/src/context.rs` | **重大扩展** | `ContextBuilder::build_system_prompt()` 增加参数 `memory_store`, `skills_discovery`；新增方法 `build_tool_guidance()`, `build_tool_use_enforcement()`, `build_skills_prompt()`, `build_context_files_prompt()`；删除现有 `build_memory_hint()` |
-| `crates/nanobot-agent/src/memory.rs` | **重写** | 从简单的 `String` 读写升级为条目级 CRUD（`MemoryStore` trait 实现），增加分隔符解析、容量检查、去重、原子写入、安全扫描、冻结快照 |
-| `crates/nanobot-agent/src/skills.rs` | **重大扩展** | `Skill` struct 扩展为 `SkillDefinition`（增加 `hermes_metadata`, `platforms`, `conditions` 等字段）；`SkillsLoader` 扩展为 `SkillsDiscovery`（增加条件激活匹配、平台兼容检查、缓存机制） |
-| `crates/nanobot-agent/src/loop_mod.rs` | **修改** | `AgentLoop` 增加 `review_trigger` 字段；`process_message()` 末尾增加自审查触发逻辑；传入 `memory_store` 和 `skills_discovery` 到 `ContextBuilder` |
-| `crates/nanobot-agent/src/runner.rs` | **小改** | `AgentRunner::run()` 增加返回 `tool_calls_made` 计数，供 `ReviewTrigger::on_tool_iteration()` 使用 |
-| `crates/nanobot-agent/src/context_budget.rs` | **小改** | `ContextBudgetConfig` 增加 `memory_ratio: f64` 字段（默认 0.05），`BudgetAllocation` 增加 `memory_tokens: usize`；调整 `history_ratio` 默认值从 0.70 到 0.65 |
-| `crates/nanobot-agent/src/lib.rs` | **小改** | 增加新模块导出：`pub mod review;`, `pub mod memory_tool;`, `pub mod skill_manage_tool;`, `pub mod session_search_tool;`, `pub mod skill_view_tool;` |
-| `crates/nanobot-agent/src/notes.rs` | **不改** | 现有 Notes 系统保持不变，与 Memory 系统并行工作 |
-| `crates/nanobot-session/src/manager.rs` | **小改** | 增加 `search_messages(query, limit)` 方法（基于 SQLite FTS5），用于 session_search_tool |
-| `crates/nanobot-session/src/types.rs` | **小改** | `SessionEntry` 增加 `finish_reason: Option<String>` 字段（用于区分工具调用结束原因） |
-| `crates/nanobot-config/src/schema.rs` | **小改** | `Config` 增加字段：`memory: MemoryConfig`, `skills: SkillsConfig`；新增 `MemoryConfig { nudge_interval: usize }` 和 `SkillsConfig { creation_nudge_interval: usize, external_dirs: Vec<String> }` |
-| `crates/nanobot-tools/src/lib.rs` | **小改** | 增加新模块导出：`pub mod memory_tool;`, `pub mod skill_manage_tool;`, `pub mod session_search_tool;`, `pub mod skill_view_tool;` |
-| `crates/nanobot-bus/src/events.rs` | **小改** | `AgentEvent` 增加变体：`MemoryUpdated { session_key: String, target: String }`, `SkillUpdated { name: String, action: String }`, `ReviewCompleted { session_key: String, memory_updated: bool, skill_updated: bool }` |
+| `crates/kestrel-agent/src/context.rs` | **重大扩展** | `ContextBuilder::build_system_prompt()` 增加参数 `memory_store`, `skills_discovery`；新增方法 `build_tool_guidance()`, `build_tool_use_enforcement()`, `build_skills_prompt()`, `build_context_files_prompt()`；删除现有 `build_memory_hint()` |
+| `crates/kestrel-agent/src/memory.rs` | **重写** | 从简单的 `String` 读写升级为条目级 CRUD（`MemoryStore` trait 实现），增加分隔符解析、容量检查、去重、原子写入、安全扫描、冻结快照 |
+| `crates/kestrel-agent/src/skills.rs` | **重大扩展** | `Skill` struct 扩展为 `SkillDefinition`（增加 `hermes_metadata`, `platforms`, `conditions` 等字段）；`SkillsLoader` 扩展为 `SkillsDiscovery`（增加条件激活匹配、平台兼容检查、缓存机制） |
+| `crates/kestrel-agent/src/loop_mod.rs` | **修改** | `AgentLoop` 增加 `review_trigger` 字段；`process_message()` 末尾增加自审查触发逻辑；传入 `memory_store` 和 `skills_discovery` 到 `ContextBuilder` |
+| `crates/kestrel-agent/src/runner.rs` | **小改** | `AgentRunner::run()` 增加返回 `tool_calls_made` 计数，供 `ReviewTrigger::on_tool_iteration()` 使用 |
+| `crates/kestrel-agent/src/context_budget.rs` | **小改** | `ContextBudgetConfig` 增加 `memory_ratio: f64` 字段（默认 0.05），`BudgetAllocation` 增加 `memory_tokens: usize`；调整 `history_ratio` 默认值从 0.70 到 0.65 |
+| `crates/kestrel-agent/src/lib.rs` | **小改** | 增加新模块导出：`pub mod review;`, `pub mod memory_tool;`, `pub mod skill_manage_tool;`, `pub mod session_search_tool;`, `pub mod skill_view_tool;` |
+| `crates/kestrel-agent/src/notes.rs` | **不改** | 现有 Notes 系统保持不变，与 Memory 系统并行工作 |
+| `crates/kestrel-session/src/manager.rs` | **小改** | 增加 `search_messages(query, limit)` 方法（基于 SQLite FTS5），用于 session_search_tool |
+| `crates/kestrel-session/src/types.rs` | **小改** | `SessionEntry` 增加 `finish_reason: Option<String>` 字段（用于区分工具调用结束原因） |
+| `crates/kestrel-config/src/schema.rs` | **小改** | `Config` 增加字段：`memory: MemoryConfig`, `skills: SkillsConfig`；新增 `MemoryConfig { nudge_interval: usize }` 和 `SkillsConfig { creation_nudge_interval: usize, external_dirs: Vec<String> }` |
+| `crates/kestrel-tools/src/lib.rs` | **小改** | 增加新模块导出：`pub mod memory_tool;`, `pub mod skill_manage_tool;`, `pub mod session_search_tool;`, `pub mod skill_view_tool;` |
+| `crates/kestrel-bus/src/events.rs` | **小改** | `AgentEvent` 增加变体：`MemoryUpdated { session_key: String, target: String }`, `SkillUpdated { name: String, action: String }`, `ReviewCompleted { session_key: String, memory_updated: bool, skill_updated: bool }` |
 | `src/commands/gateway.rs` | **小改** | 在 `run()` 中初始化 `MemoryStore`, `SkillsDiscovery`, `BackgroundReviewer`，并注入到 `AgentLoop` |
 | `Cargo.toml` (workspace) | **依赖增加** | 在 `[workspace.dependencies]` 增加 `rusqlite = { version = "0.31", features = ["bundled"] }` 用于 SQLite 存储 |
-| `crates/nanobot-session/Cargo.toml` | **依赖增加** | 增加 `rusqlite` 依赖，用于 FTS5 全文搜索 |
-| `crates/nanobot-agent/Cargo.toml` | **依赖增加** | 增加 `rusqlite` 依赖，用于记忆 SQLite 存储 |
+| `crates/kestrel-session/Cargo.toml` | **依赖增加** | 增加 `rusqlite` 依赖，用于 FTS5 全文搜索 |
+| `crates/kestrel-agent/Cargo.toml` | **依赖增加** | 增加 `rusqlite` 依赖，用于记忆 SQLite 存储 |
 
 ---
 
@@ -2799,7 +2799,7 @@ impl Tool for SkillViewTool {
 #### 7.1 Config 扩展
 
 ```rust
-// === 新增到 crates/nanobot-config/src/schema.rs ===
+// === 新增到 crates/kestrel-config/src/schema.rs ===
 
 /// 记忆系统配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2867,7 +2867,7 @@ impl Default for SkillsConfig {
 #### 7.2 Memory 完整实现数据结构
 
 ```rust
-// === crates/nanobot-agent/src/memory.rs（重写）===
+// === crates/kestrel-agent/src/memory.rs（重写）===
 
 use anyhow::{Context, Result};
 use parking_lot::RwLock;
@@ -3220,13 +3220,13 @@ impl FileMemoryStore {
 #### 7.3 Review 模块数据结构
 
 ```rust
-// === 新增文件: crates/nanobot-agent/src/review.rs ===
+// === 新增文件: crates/kestrel-agent/src/review.rs ===
 
 use anyhow::Result;
-use nanobot_config::Config;
-use nanobot_providers::ProviderRegistry;
-use nanobot_session::{SessionEntry, SessionManager};
-use nanobot_tools::ToolRegistry;
+use kestrel_config::Config;
+use kestrel_providers::ProviderRegistry;
+use kestrel_session::{SessionEntry, SessionManager};
+use kestrel_tools::ToolRegistry;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 
@@ -3374,8 +3374,8 @@ impl BackgroundReviewer {
             );
 
             let system_prompt = prompt.to_string();
-            let messages: Vec<nanobot_core::Message> = input.messages.iter().map(|entry| {
-                nanobot_core::Message {
+            let messages: Vec<kestrel_core::Message> = input.messages.iter().map(|entry| {
+                kestrel_core::Message {
                     role: format!("{}", entry.role),
                     content: Some(entry.content.clone()),
                     tool_calls: None,
@@ -3407,7 +3407,7 @@ impl BackgroundReviewer {
 #### 7.4 AgentEvent 扩展
 
 ```rust
-// === 新增到 crates/nanobot-bus/src/events.rs 的 AgentEvent 枚举 ===
+// === 新增到 crates/kestrel-bus/src/events.rs 的 AgentEvent 枚举 ===
 
 // 在 AgentEvent 枚举中增加：
 
@@ -3435,7 +3435,7 @@ ReviewCompleted {
 #### 7.5 Tool Guidance 静态常量
 
 ```rust
-// === 新增到 crates/nanobot-agent/src/context.rs ===
+// === 新增到 crates/kestrel-agent/src/context.rs ===
 
 pub const MEMORY_GUIDANCE: &str = r#"
 You have persistent memory across sessions. Save durable facts using the memory

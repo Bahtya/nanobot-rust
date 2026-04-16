@@ -9,28 +9,28 @@
 ### 第一步：回顾你的分析
 读取 `/tmp/hats/02-white-hat-specification.md`。
 
-### 第二步：深入阅读 nanobot-rust 源码
-nanobot-rust 源码在 `/opt/nanobot-rust/nanobot-rust/`。重点阅读：
+### 第二步：深入阅读 kestrel 源码
+kestrel 源码在 `/opt/kestrel/kestrel/`。重点阅读：
 
-1. `crates/nanobot-agent/src/context.rs` — 当前 ContextBuilder（极简版 prompt 组装）
-2. `crates/nanobot-agent/src/lib.rs` + `src/loop.rs` — agent loop
-3. `crates/nanobot-session/` — Session 结构体、SQLite 持久化
-4. `crates/nanobot-config/src/schema.rs` — Config 结构体所有字段
-5. `crates/nanobot-tools/src/` — Tool trait、ToolRegistry
-6. `crates/nanobot-bus/` — 消息总线（tokio broadcast）
-7. `crates/nanobot-core/src/` — 核心类型（Platform, MessageType, InboundMessage, OutboundMessage）
-8. `crates/nanobot-providers/` — LLM provider 实现
+1. `crates/kestrel-agent/src/context.rs` — 当前 ContextBuilder（极简版 prompt 组装）
+2. `crates/kestrel-agent/src/lib.rs` + `src/loop.rs` — agent loop
+3. `crates/kestrel-session/` — Session 结构体、SQLite 持久化
+4. `crates/kestrel-config/src/schema.rs` — Config 结构体所有字段
+5. `crates/kestrel-tools/src/` — Tool trait、ToolRegistry
+6. `crates/kestrel-bus/` — 消息总线（tokio broadcast）
+7. `crates/kestrel-core/src/` — 核心类型（Platform, MessageType, InboundMessage, OutboundMessage）
+8. `crates/kestrel-providers/` — LLM provider 实现
 9. `src/commands/gateway.rs` — gateway 主循环
 10. 所有 `Cargo.toml` — workspace 依赖
 
 ### 第三步：迁移技术规格
 为每个 Hermes 自我进化组件，精确设计 Rust 移植方案：
 
-1. **Memory 系统**：Hermes 用 `~/.hermes/memory.yaml` + Python dict。nanobot-rust 用什么存储？SQLite？YAML？什么 schema？什么 trait 接口？
-2. **Skill 系统**：Hermes 用 `~/.hermes/skills/*.md` 文件。nanobot-rust 的 skill 格式？发现机制？加载时机？Skill trait 定义？
-3. **Prompt Builder**：Hermes 的 `agent/prompt_builder.py` 非常复杂。nanobot-rust 的 `context.rs` 只有 70 行。需要扩展多少？新增哪些 section？
-4. **Self-Review**：Hermes 用 cron 触发。nanobot-rust 已有 `nanobot-cron` crate。如何复用？
-5. **Session 搜索**：Hermes 用 SQLite FTS5。nanobot-rust 已有 `nanobot-session`。需要扩展什么？
+1. **Memory 系统**：Hermes 用 `~/.hermes/memory.yaml` + Python dict。kestrel 用什么存储？SQLite？YAML？什么 schema？什么 trait 接口？
+2. **Skill 系统**：Hermes 用 `~/.hermes/skills/*.md` 文件。kestrel 的 skill 格式？发现机制？加载时机？Skill trait 定义？
+3. **Prompt Builder**：Hermes 的 `agent/prompt_builder.py` 非常复杂。kestrel 的 `context.rs` 只有 70 行。需要扩展多少？新增哪些 section？
+4. **Self-Review**：Hermes 用 cron 触发。kestrel 已有 `kestrel-cron` crate。如何复用？
+5. **Session 搜索**：Hermes 用 SQLite FTS5。kestrel 已有 `kestrel-session`。需要扩展什么？
 6. **Tool 系统**：需要新增哪些 tool？（memory_tool, skill_tool, session_search_tool）
 
 ### 输出

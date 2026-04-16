@@ -10,19 +10,19 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nanobot_agent::AgentLoop;
-use nanobot_bus::events::{AgentEvent, InboundMessage};
-use nanobot_bus::MessageBus;
-use nanobot_channels::base::{BaseChannel, SendResult};
-use nanobot_channels::registry::ChannelRegistry;
-use nanobot_channels::ChannelManager;
-use nanobot_config::Config;
-use nanobot_core::{MessageType, Platform};
-use nanobot_heartbeat::types::CheckStatus;
-use nanobot_heartbeat::{HealthCheck, HealthCheckResult};
-use nanobot_providers::{CompletionRequest, CompletionResponse, LlmProvider};
-use nanobot_session::SessionManager;
-use nanobot_tools::ToolRegistry;
+use kestrel_agent::AgentLoop;
+use kestrel_bus::events::{AgentEvent, InboundMessage};
+use kestrel_bus::MessageBus;
+use kestrel_channels::base::{BaseChannel, SendResult};
+use kestrel_channels::registry::ChannelRegistry;
+use kestrel_channels::ChannelManager;
+use kestrel_config::Config;
+use kestrel_core::{MessageType, Platform};
+use kestrel_heartbeat::types::CheckStatus;
+use kestrel_heartbeat::{HealthCheck, HealthCheckResult};
+use kestrel_providers::{CompletionRequest, CompletionResponse, LlmProvider};
+use kestrel_session::SessionManager;
+use kestrel_tools::ToolRegistry;
 
 // ===========================================================================
 // Mock LLM Provider — returns fixed deterministic responses
@@ -80,15 +80,15 @@ impl LlmProvider for MockProvider {
             if let Some(ref tc) = self.first_tool_call {
                 return Ok(CompletionResponse {
                     content: Some(String::new()),
-                    tool_calls: Some(vec![nanobot_core::ToolCall {
+                    tool_calls: Some(vec![kestrel_core::ToolCall {
                         id: tc.2.clone(),
                         call_type: "function".to_string(),
-                        function: nanobot_core::FunctionCall {
+                        function: kestrel_core::FunctionCall {
                             name: tc.0.clone(),
                             arguments: tc.1.clone(),
                         },
                     }]),
-                    usage: Some(nanobot_core::Usage {
+                    usage: Some(kestrel_core::Usage {
                         prompt_tokens: Some(10),
                         completion_tokens: Some(5),
                         total_tokens: Some(15),
@@ -102,7 +102,7 @@ impl LlmProvider for MockProvider {
         Ok(CompletionResponse {
             content: Some(self.response.clone()),
             tool_calls: None,
-            usage: Some(nanobot_core::Usage {
+            usage: Some(kestrel_core::Usage {
                 prompt_tokens: Some(10),
                 completion_tokens: Some(20),
                 total_tokens: Some(30),
@@ -114,9 +114,9 @@ impl LlmProvider for MockProvider {
     async fn complete_stream(
         &self,
         request: CompletionRequest,
-    ) -> anyhow::Result<nanobot_providers::base::BoxStream> {
+    ) -> anyhow::Result<kestrel_providers::base::BoxStream> {
         // Delegate to complete() and wrap as a single-chunk stream.
-        use nanobot_providers::base::{CompletionChunk, ToolCallDelta};
+        use kestrel_providers::base::{CompletionChunk, ToolCallDelta};
         let resp = self.complete(request).await?;
         let tool_call_deltas = resp.tool_calls.as_ref().map(|tcs| {
             tcs.iter()
@@ -301,7 +301,7 @@ async fn test_full_message_pipeline() {
     let session_manager = SessionManager::new(tmp_dir.path().to_path_buf()).unwrap();
 
     // Provider registry with mock
-    let mut provider_registry = nanobot_providers::ProviderRegistry::new();
+    let mut provider_registry = kestrel_providers::ProviderRegistry::new();
     provider_registry.register("mock", MockProvider::new("The answer is 42."));
     provider_registry.set_default("mock");
 
@@ -401,7 +401,7 @@ async fn test_multi_turn_conversation() {
 
     let session_manager = SessionManager::new(tmp_dir.path().to_path_buf()).unwrap();
 
-    let mut provider_registry = nanobot_providers::ProviderRegistry::new();
+    let mut provider_registry = kestrel_providers::ProviderRegistry::new();
     provider_registry.register("mock", MockProvider::new("Response."));
     provider_registry.set_default("mock");
 
@@ -508,7 +508,7 @@ async fn test_tool_call_flow() {
     let session_manager = SessionManager::new(tmp_dir.path().to_path_buf()).unwrap();
 
     // Mock provider: first call returns tool_call, second returns text
-    let mut provider_registry = nanobot_providers::ProviderRegistry::new();
+    let mut provider_registry = kestrel_providers::ProviderRegistry::new();
     provider_registry.register(
         "mock",
         MockProvider::new("Tool executed successfully.")
@@ -608,17 +608,17 @@ async fn test_cron_fires_event() {
     let mut event_rx = bus.subscribe_events();
 
     let cron_service =
-        nanobot_cron::CronService::with_bus(tmp_dir.path().to_path_buf(), bus).unwrap();
+        kestrel_cron::CronService::with_bus(tmp_dir.path().to_path_buf(), bus).unwrap();
 
     // Add a one-shot "at" job that fires immediately (past timestamp)
-    let schedule = nanobot_cron::CronSchedule {
-        kind: nanobot_cron::ScheduleKind::At,
+    let schedule = kestrel_cron::CronSchedule {
+        kind: kestrel_cron::ScheduleKind::At,
         at_ms: Some(1), // 1 ms after epoch — already in the past
         every_ms: None,
         expr: None,
         tz: None,
     };
-    let payload = nanobot_cron::CronPayload {
+    let payload = kestrel_cron::CronPayload {
         message: "Run daily backup".to_string(),
         channel: None,
         chat_id: None,
@@ -667,7 +667,7 @@ async fn test_heartbeat_health_check() {
     let bus = MessageBus::new();
     let mut event_rx = bus.subscribe_events();
 
-    let mut heartbeat = nanobot_heartbeat::HeartbeatService::new(config);
+    let mut heartbeat = kestrel_heartbeat::HeartbeatService::new(config);
     heartbeat.set_bus(bus);
 
     // Register a failing health check
@@ -730,7 +730,7 @@ async fn test_heartbeat_mixed_checks() {
     let bus = MessageBus::new();
     let mut event_rx = bus.subscribe_events();
 
-    let mut heartbeat = nanobot_heartbeat::HeartbeatService::new(config);
+    let mut heartbeat = kestrel_heartbeat::HeartbeatService::new(config);
     heartbeat.set_bus(bus);
 
     struct HealthyCheck;
@@ -804,7 +804,7 @@ async fn test_event_ordering_started_before_completed() {
 
     let session_manager = SessionManager::new(tmp_dir.path().to_path_buf()).unwrap();
 
-    let mut provider_registry = nanobot_providers::ProviderRegistry::new();
+    let mut provider_registry = kestrel_providers::ProviderRegistry::new();
     provider_registry.register("mock", MockProvider::new("Hi."));
     provider_registry.set_default("mock");
 
@@ -884,7 +884,7 @@ async fn test_multi_platform_routing() {
 
     let session_manager = SessionManager::new(tmp_dir.path().to_path_buf()).unwrap();
 
-    let mut provider_registry = nanobot_providers::ProviderRegistry::new();
+    let mut provider_registry = kestrel_providers::ProviderRegistry::new();
     provider_registry.register("mock", MockProvider::new("Multi-platform reply."));
     provider_registry.set_default("mock");
 

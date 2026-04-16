@@ -1,10 +1,10 @@
-//! Daemon subcommand — manage the nanobot-rs background daemon.
+//! Daemon subcommand — manage the kestrel background daemon.
 //!
 //! Provides `start`, `stop`, `restart`, and `status` actions for controlling
-//! the daemonized nanobot-rs process.
+//! the daemonized kestrel process.
 
 use anyhow::{bail, Result};
-use nanobot_config::Config;
+use kestrel_config::Config;
 
 /// Handles returned by [`do_start`] that must live for the daemon's lifetime.
 ///
@@ -12,9 +12,9 @@ use nanobot_config::Config;
 /// then releases the PID file lock.
 pub struct DaemonHandles {
     /// PID file holding the flock — released on drop.
-    pub pid_file: nanobot_daemon::pid_file::PidFile,
+    pub pid_file: kestrel_daemon::pid_file::PidFile,
     /// Non-blocking log writer guard — flushes remaining logs on drop.
-    pub log_guard: nanobot_daemon::logging::LogGuard,
+    pub log_guard: kestrel_daemon::logging::LogGuard,
 }
 
 /// Actions for the `daemon` subcommand.
@@ -74,27 +74,27 @@ fn do_start(config: &Config) -> Result<DaemonHandles> {
     // Ensure log directory exists before daemonize (stderr redirect needs it)
     std::fs::create_dir_all(log_dir)?;
 
-    let log_file_path = std::path::Path::new(log_dir).join("nanobot-rs.err");
+    let log_file_path = std::path::Path::new(log_dir).join("kestrel.err");
     let log_file_str = log_file_path.to_str().unwrap_or("/dev/null");
 
     // Daemonize FIRST: double-fork, setsid, chdir, redirect stdio.
     // After this returns, we are the grandchild (the actual daemon) with a NEW PID.
-    nanobot_daemon::daemonize::daemonize(working_dir, Some(log_file_str))?;
+    kestrel_daemon::daemonize::daemonize(working_dir, Some(log_file_str))?;
 
     // NOW create PID file — after daemonize, so the PID is the grandchild's.
     // flock prevents double-start: if another instance holds the lock, we fail.
     // But first, clean up stale PID file from a previous crashed instance.
-    if let Ok(Some(old_pid)) = nanobot_daemon::pid_file::PidFile::read_pid(pid_file_path) {
-        if !nanobot_daemon::pid_file::is_process_running(old_pid) {
+    if let Ok(Some(old_pid)) = kestrel_daemon::pid_file::PidFile::read_pid(pid_file_path) {
+        if !kestrel_daemon::pid_file::is_process_running(old_pid) {
             let _ = std::fs::remove_file(pid_file_path);
             // No tracing subscriber yet — stderr is redirected to log file
             eprintln!("Cleaned stale PID file from crashed instance (pid={old_pid})");
         }
     }
-    let pid_file = nanobot_daemon::pid_file::PidFile::create(pid_file_path)?;
+    let pid_file = kestrel_daemon::pid_file::PidFile::create(pid_file_path)?;
 
     // Setup file logging in the daemon process
-    let log_guard = nanobot_daemon::logging::setup_file_logging(log_dir, "info")?;
+    let log_guard = kestrel_daemon::logging::setup_file_logging(log_dir, "info")?;
     tracing::info!("Daemon started (pid={})", std::process::id());
 
     Ok(DaemonHandles {
@@ -105,7 +105,7 @@ fn do_start(config: &Config) -> Result<DaemonHandles> {
 
 /// Stop the running daemon by sending SIGTERM.
 fn do_stop(config: &Config) -> Result<()> {
-    let pid = match nanobot_daemon::pid_file::PidFile::read_pid(&config.daemon.pid_file)? {
+    let pid = match kestrel_daemon::pid_file::PidFile::read_pid(&config.daemon.pid_file)? {
         Some(pid) => pid,
         None => {
             bail!(
@@ -115,7 +115,7 @@ fn do_stop(config: &Config) -> Result<()> {
         }
     };
 
-    if !nanobot_daemon::pid_file::is_process_running(pid) {
+    if !kestrel_daemon::pid_file::is_process_running(pid) {
         // Stale PID file — clean it up
         let _ = std::fs::remove_file(&config.daemon.pid_file);
         bail!("Process {pid} is not running. Removed stale PID file.");
@@ -123,7 +123,7 @@ fn do_stop(config: &Config) -> Result<()> {
 
     println!("Stopping daemon (pid={pid})...");
     let timeout = config.daemon.grace_period_secs;
-    nanobot_daemon::signal::send_sigterm_and_wait(pid, timeout)?;
+    kestrel_daemon::signal::send_sigterm_and_wait(pid, timeout)?;
     println!("Daemon stopped.");
 
     // Clean up PID file
@@ -138,7 +138,7 @@ fn do_stop(config: &Config) -> Result<()> {
 /// subcommand so the new process follows the full startup path.
 fn do_restart(config: &Config) -> Result<()> {
     // Try to stop — ignore errors if not running
-    if nanobot_daemon::pid_file::PidFile::read_pid(&config.daemon.pid_file)?.is_some() {
+    if kestrel_daemon::pid_file::PidFile::read_pid(&config.daemon.pid_file)?.is_some() {
         let _ = do_stop(config);
     }
 
@@ -162,9 +162,9 @@ fn do_restart(config: &Config) -> Result<()> {
 
 /// Check the daemon's status.
 fn do_status(config: &Config) -> Result<()> {
-    match nanobot_daemon::pid_file::PidFile::read_pid(&config.daemon.pid_file)? {
+    match kestrel_daemon::pid_file::PidFile::read_pid(&config.daemon.pid_file)? {
         Some(pid) => {
-            if nanobot_daemon::pid_file::is_process_running(pid) {
+            if kestrel_daemon::pid_file::is_process_running(pid) {
                 println!("Daemon is running (pid={pid})");
             } else {
                 // Auto-clean stale PID file

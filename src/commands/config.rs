@@ -1,7 +1,7 @@
 //! Config subcommand — validate config.yaml schema and migrate from Python.
 
 use anyhow::Result;
-use nanobot_config::Config;
+use kestrel_config::Config;
 use std::path::Path;
 use tracing::info;
 
@@ -9,7 +9,7 @@ use tracing::info;
 pub fn validate(config: &Config) -> Result<()> {
     info!("Validating configuration...");
 
-    let report = nanobot_config::validate(config);
+    let report = kestrel_config::validate(config);
 
     if report.is_empty() {
         println!("Configuration is valid. No issues found.");
@@ -44,16 +44,16 @@ pub fn validate(config: &Config) -> Result<()> {
     Ok(())
 }
 
-/// Run Python nanobot config migration.
+/// Run Python kestrel config migration.
 pub fn migrate(from: &Path, dry_run: bool) -> Result<()> {
-    info!("Migrating Python nanobot config from: {}", from.display());
+    info!("Migrating Python kestrel config from: {}", from.display());
 
-    let opts = nanobot_config::MigrationOptions {
+    let opts = kestrel_config::MigrationOptions {
         dry_run,
         ..Default::default()
     };
 
-    let result = nanobot_config::migrate_from_python(from, &opts)?;
+    let result = kestrel_config::migrate_from_python(from, &opts)?;
 
     // Print migration report
     if !result.report.mapped.is_empty() {
@@ -82,9 +82,9 @@ pub fn migrate(from: &Path, dry_run: bool) -> Result<()> {
         let yaml = serde_yaml::to_string(&result.config)?;
         println!("{}", yaml);
     } else {
-        let config_path = nanobot_config::paths::get_config_path()?;
+        let config_path = kestrel_config::paths::get_config_path()?;
         println!("\nWriting config to: {}", config_path.display());
-        nanobot_config::loader::save_config(&result.config, &config_path)?;
+        kestrel_config::loader::save_config(&result.config, &config_path)?;
         println!("Migration complete.");
     }
 

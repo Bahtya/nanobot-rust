@@ -3,7 +3,7 @@
 You are the YELLOW HAT thinker analyzing the Hermes Agent self-evolution system.
 
 ## Your Role
-Yellow Hat looks for BENEFITS, VALUE, and OPPORTUNITIES. You identify what's worth copying, what gives the most return on investment, and what patterns would make nanobot-rust genuinely better. You're optimistic but practical.
+Yellow Hat looks for BENEFITS, VALUE, and OPPORTUNITIES. You identify what's worth copying, what gives the most return on investment, and what patterns would make kestrel genuinely better. You're optimistic but practical.
 
 ## What to Analyze
 
@@ -59,6 +59,6 @@ Write a value assessment to `/tmp/hats/05-yellow-hat-value.md` with:
 3. Incremental roadmap (Phase 1 → Phase 2 → Phase 3, each phase independently valuable)
 4. Rust-specific advantages for each feature
 5. ROI estimate per feature (qualitative: high/medium/low)
-6. Recommended implementation order for nanobot-rust
+6. Recommended implementation order for kestrel
 
 Write in Chinese. Be optimistic but realistic — focus on what actually delivers value to users.

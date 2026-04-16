@@ -1,5 +1,5 @@
 codex --full-auto
-root@claude-code:/opt/nanobot-rust/nanobot-rust# codex --full-auto
+root@claude-code:/opt/kestrel/kestrel# codex --full-auto
 ⚠ Codex could not find bubblewrap on PATH. Install bubblewrap with your OS pack
   age manager. See the sandbox prerequisites:
   https://developers.openai.com/codex/concepts/sandboxing#prerequisites. Codex
@@ -9,14 +9,14 @@ root@claude-code:/opt/nanobot-rust/nanobot-rust# codex --full-auto
 │ >_ OpenAI Codex (v0.120.0)                │
 │                                           │
 │ model:     gpt-5.4   /model to change     │
-│ directory: /opt/nanobot-rust/nanobot-rust │
+│ directory: /opt/kestrel/kestrel │
 ╰───────────────────────────────────────────╯
 
   Tip: Use the OpenAI docs MCP for API questions; enable it with codex mcp add
   openaiDeveloperDocs --url https://developers.openai.com/mcp.
 
 
-› You are the Blue Hat analyst for nanobot-rust. Read CLAUDE.md first, then
+› You are the Blue Hat analyst for kestrel. Read CLAUDE.md first, then
   systematically audit the entire architecture.
 
   Focus on:
@@ -47,7 +47,7 @@ root@claude-code:/opt/nanobot-rust/nanobot-rust# codex --full-auto
     List ls
 
 • Ran pwd
-  └ /opt/nanobot-rust/nanobot-rust
+  └ /opt/kestrel/kestrel
 
 • Explored
   └ List rg --files -g CLAUDE.md -g Cargo.toml -g src/lib.rs -g src/main.rs
@@ -88,7 +88,7 @@ root@claude-code:/opt/nanobot-rust/nanobot-rust# codex --full-auto
 
 • Ran for f in crates/*/Cargo.toml; do echo "== $f =="; sed -n '1,220p' "$f";
   │ done
-  └ == crates/nanobot-agent/Cargo.toml ==
+  └ == crates/kestrel-agent/Cargo.toml ==
     [package]
     … +366 lines (ctrl + t to view transcript)
     tempfile = { workspace = true }
@@ -100,23 +100,23 @@ fn|pub
            tokio::spawn\(|spawn\(|spawn_blocking\(|block_in_place\(|std::fs::|
            std::thread::sleep|sleep\() in crates
     Search use
-nanobot_(agent|channels|api|daemon|tools|providers|heartbeat|cron|
+kestrel_(agent|channels|api|daemon|tools|providers|heartbeat|cron|
            session|memory|skill|learning|security|config|bus|core) in
-nanobot-core
+kestrel-core
     Search tokio::spawn|spawn_blocking|block_in_place|std::fs::|
            std::process::Command|tokio::signal|ctrl_c|sleep\(|interval\(|broadca
 st|
            mpsc|watch in src
     Search anyhow::Result|anyhow!|bail!|Context\(|\.context\(|unwrap\(|expect\(
 in
-           nanobot-core
+           kestrel-core
 
 • Working (1m 34s • esc to interrupt)
 
 
 › Run /review on my current changes
 
-  gpt-5.4 default · /opt/nanobot-rust/nanobot-rust
+  gpt-5.4 default · /opt/kestrel/kestrel
 
 
 • Explored
@@ -126,9 +126,9 @@ fn|pub
     Search \b(anyhow::Result|anyhow!|Context\(|\.context\(|unwrap\(|expect\(|
            tokio::spawn\(|spawn\(|spawn_blocking\(|block_in_place\(|std::fs::|
            std::thread::sleep|sleep\() in crates
-    Search use nanobot_(agent|channels|api|daemon|tools|providers|heartbeat|
+    Search use kestrel_(agent|channels|api|daemon|tools|providers|heartbeat|
 cron|
-           session|memory|skill|learning|security|config|bus|core) in nanobot-
+           session|memory|skill|learning|security|config|bus|core) in kestrel-
 core
     Search tokio::spawn|spawn_blocking|block_in_place|std::fs::|
            std::process::Command|tokio::signal|ctrl_c|sleep\(|interval\(|
@@ -136,7 +136,7 @@ broadcast|
            mpsc|watch in src
     Search anyhow::Result|anyhow!|bail!|Context\(|\.context\(|unwrap\(|
 expect\( in
-           nanobot-core
+           kestrel-core
 
 ────────────────────────────────────────────────────────────────────────────────
 
@@ -147,7 +147,7 @@ expect\( in
 • Explored
   └ Read main.rs, gateway.rs, serve.rs, loop_mod.rs, manager.rs, daemon.rs,
          server.rs, service.rs, registry.rs, base.rs, store.rs
-    Search pub (struct|enum|trait|type|fn|async fn)|pub use|pub mod in nanobot-
+    Search pub (struct|enum|trait|type|fn|async fn)|pub use|pub mod in kestrel-
 agent
     Search unwrap\(|expect\( in *
     Search use anyhow::Result|anyhow::Result|thiserror|pub enum .*Error|type
@@ -165,31 +165,31 @@ Result<
   └ Read service.rs, lib.rs, note_store.rs, store.rs
 
 • Ran for f in crates/*/Cargo.toml; do crate=$(basename "$(dirname "$f")");
-  │ deps=$(rg -o "nanobot-[a-z-]+" "$f" | sort -u | tr '\n' ' '); echo
+  │ deps=$(rg -o "kestrel-[a-z-]+" "$f" | sort -u | tr '\n' ' '); echo
   │ "$crate:$deps"; done | sort
-  └ nanobot-agent:nanobot-agent nanobot-bus nanobot-config nanobot-core
-    nanobot-cron nanobot-heartbeat nanobot-learning nanobot-memory
+  └ kestrel-agent:kestrel-agent kestrel-bus kestrel-config kestrel-core
+    kestrel-cron kestrel-heartbeat kestrel-learning kestrel-memory
     … +19 lines (ctrl + t to view transcript)
-    nanobot-tools:nanobot-bus nanobot-config nanobot-core nanobot-security
-    nanobot-tools
+    kestrel-tools:kestrel-bus kestrel-config kestrel-core kestrel-security
+    kestrel-tools
 
 • Ran for f in crates/*/Cargo.toml; do crate=$(basename "$(dirname "$f")"); echo
-  │ "[$crate]"; sed -n '/^\[dependencies\]/,/^\[/p' "$f" | rg "^nanobot-" -o |
+  │ "[$crate]"; sed -n '/^\[dependencies\]/,/^\[/p' "$f" | rg "^kestrel-" -o |
   │ sort -u | sed 's/^/  -> /'; done
-  └ [nanobot-agent]
-      -> nanobot-
+  └ [kestrel-agent]
+      -> kestrel-
     … +27 lines (ctrl + t to view transcript)
-    [nanobot-tools]
-      -> nanobot-
+    [kestrel-tools]
+      -> kestrel-
 
 • Ran for f in crates/*/Cargo.toml; do crate=$(basename "$(dirname "$f")"); echo
   │ "[$crate]"; sed -n '/^\[dependencies\]/,/^\[/p' "$f" | rg -o
-  │ "^nanobot-[a-z-]+" | sort -u | sed 's/^/  -> /'; done
-  └ [nanobot-cron]
-      -> nanobot-bus
+  │ "^kestrel-[a-z-]+" | sort -u | sed 's/^/  -> /'; done
+  └ [kestrel-cron]
+      -> kestrel-bus
     … +29 lines (ctrl + t to view transcript)
-      -> nanobot-core
-      -> nanobot-security
+      -> kestrel-core
+      -> kestrel-security
 
 • Explored
   └ Read signal.rs
@@ -214,9 +214,9 @@ Result<
      conditionally spawns its own heartbeat. Both use the same default state
      file path, so they can race on heartbeat_state.json, double-emit restart
      events, and disagree on liveness. Refs: src/commands/gateway.rs:181, src/
-     commands/gateway.rs:233, crates/nanobot-agent/src/loop_mod.rs:104, crates/
-     nanobot-agent/src/loop_mod.rs:594, crates/nanobot-heartbeat/src/
-     service.rs:45, crates/nanobot-heartbeat/src/service.rs:455.
+     commands/gateway.rs:233, crates/kestrel-agent/src/loop_mod.rs:104, crates/
+     kestrel-agent/src/loop_mod.rs:594, crates/kestrel-heartbeat/src/
+     service.rs:45, crates/kestrel-heartbeat/src/service.rs:455.
   2. On Unix, the process lifecycle is signal-only; background task failure is
      ignored. gateway and serve wait only on wait_for_signal(), so if the agent
      loop, API server, or heartbeat task dies early, the parent command keeps
@@ -227,111 +227,111 @@ Result<
      ApiServer::run() waits for its own ctrl_c(), but gateway/serve never call
      ApiServer::shutdown(), never await the API task on Unix, and stop the
      process from the outside instead. That bypasses the server’s intended SSE
-     drain path. Refs: crates/nanobot-api/src/server.rs:202, crates/nanobot-api/
+     drain path. Refs: crates/kestrel-api/src/server.rs:202, crates/kestrel-api/
      src/server.rs:218, src/commands/gateway.rs:245, src/commands/serve.rs:60.
   4. /health and /ready are effectively unwired in production startup. ApiServer
      exposes set_health_snapshot/health_snapshot_lock, and the handlers depend
      on that shared snapshot, but gateway startup never connects heartbeat
      output to that state, so health can remain "starting" / not-ready
-     indefinitely. Refs: crates/nanobot-api/src/server.rs:223, crates/nanobot-
+     indefinitely. Refs: crates/kestrel-api/src/server.rs:223, crates/kestrel-
      api/src/server.rs:840, src/commands/gateway.rs:181, src/commands/
      gateway.rs:190.
-  5. nanobot-heartbeat has unnecessary compile-time coupling to higher-level
+  5. kestrel-heartbeat has unnecessary compile-time coupling to higher-level
      registries. with_registries() takes providers/tools/sessions and discards
      them, so the crate depends on those packages without using them. That
-     widens rebuild scope and weakens layering. Refs: crates/nanobot-heartbeat/
-     src/service.rs:80, crates/nanobot-heartbeat/Cargo.toml:6.
+     widens rebuild scope and weakens layering. Refs: crates/kestrel-heartbeat/
+     src/service.rs:80, crates/kestrel-heartbeat/Cargo.toml:6.
   6. There is synchronous filesystem I/O on async hot paths.
      AgentLoop::process_message() calls synchronous session persistence during
      request handling, and the session stores themselves use std::fs throughout.
-     Under load this will block Tokio worker threads. Refs: crates/nanobot-
-     agent/src/loop_mod.rs:169, crates/nanobot-agent/src/loop_mod.rs:310,
-     crates/nanobot-session/src/manager.rs:63, crates/nanobot-session/src/
-     manager.rs:98, crates/nanobot-session/src/store.rs:41, crates/nanobot-
+     Under load this will block Tokio worker threads. Refs: crates/kestrel-
+     agent/src/loop_mod.rs:169, crates/kestrel-agent/src/loop_mod.rs:310,
+     crates/kestrel-session/src/manager.rs:63, crates/kestrel-session/src/
+     manager.rs:98, crates/kestrel-session/src/store.rs:41, crates/kestrel-
      session/src/note_store.rs:42.
   7. Error handling is inconsistent at public boundaries. core, memory, and
      skill define structured error enums, but public traits/APIs in providers,
      channels, session, agent, and daemon mostly expose anyhow::Result, which
-     erases retryability and classification. Refs: crates/nanobot-core/src/
-     error.rs:5, crates/nanobot-memory/src/error.rs:5, crates/nanobot-skill/src/
-     error.rs:5, crates/nanobot-providers/src/base.rs:9, crates/nanobot-
-     channels/src/base.rs:3, crates/nanobot-session/src/manager.rs:9.
+     erases retryability and classification. Refs: crates/kestrel-core/src/
+     error.rs:5, crates/kestrel-memory/src/error.rs:5, crates/kestrel-skill/src/
+     error.rs:5, crates/kestrel-providers/src/base.rs:9, crates/kestrel-
+     channels/src/base.rs:3, crates/kestrel-session/src/manager.rs:9.
   8. The public API surface leaks multiple overlapping “skill” and “memory”
-     systems. nanobot-agent exports its own memory, skills, notes, heartbeat,
-     and subagent internals; nanobot-tools exports a separate skill loader/
-     store; nanobot-skill exports the canonical skill registry/compiler. That is
+     systems. kestrel-agent exports its own memory, skills, notes, heartbeat,
+     and subagent internals; kestrel-tools exports a separate skill loader/
+     store; kestrel-skill exports the canonical skill registry/compiler. That is
      unnecessary surface area and makes crate ownership unclear. Refs: crates/
-     nanobot-agent/src/lib.rs:5, crates/nanobot-tools/src/lib.rs:5, crates/
-     nanobot-skill/src/lib.rs:8.
+     kestrel-agent/src/lib.rs:5, crates/kestrel-tools/src/lib.rs:5, crates/
+     kestrel-skill/src/lib.rs:8.
 
   Dependency Graph
   No Cargo-level circular dependencies exist; the manifest graph is a DAG.
 
-  - nanobot-core → none
-  - nanobot-config → nanobot-core
-  - nanobot-bus → nanobot-core
-  - nanobot-security → nanobot-core
-  - nanobot-memory → nanobot-core
-  - nanobot-learning → nanobot-core
-  - nanobot-skill → nanobot-core
-  - nanobot-session → nanobot-core, nanobot-config
-  - nanobot-providers → nanobot-core, nanobot-config, nanobot-security
-  - nanobot-tools → nanobot-core, nanobot-config, nanobot-bus, nanobot-security
-  - nanobot-cron → nanobot-core, nanobot-config, nanobot-bus
-  - nanobot-daemon → nanobot-config
-  - nanobot-channels → nanobot-core, nanobot-config, nanobot-bus, nanobot-
+  - kestrel-core → none
+  - kestrel-config → kestrel-core
+  - kestrel-bus → kestrel-core
+  - kestrel-security → kestrel-core
+  - kestrel-memory → kestrel-core
+  - kestrel-learning → kestrel-core
+  - kestrel-skill → kestrel-core
+  - kestrel-session → kestrel-core, kestrel-config
+  - kestrel-providers → kestrel-core, kestrel-config, kestrel-security
+  - kestrel-tools → kestrel-core, kestrel-config, kestrel-bus, kestrel-security
+  - kestrel-cron → kestrel-core, kestrel-config, kestrel-bus
+  - kestrel-daemon → kestrel-config
+  - kestrel-channels → kestrel-core, kestrel-config, kestrel-bus, kestrel-
     session
-  - nanobot-heartbeat → nanobot-core, nanobot-config, nanobot-bus, nanobot-
-    providers, nanobot-session, nanobot-tools
-  - nanobot-agent → nanobot-core, nanobot-config, nanobot-bus, nanobot-session,
-    nanobot-providers, nanobot-tools, nanobot-memory, nanobot-cron, nanobot-
-    heartbeat, nanobot-skill, nanobot-learning
-  - nanobot-api → nanobot-core, nanobot-config, nanobot-bus, nanobot-session,
-    nanobot-agent, nanobot-providers, nanobot-tools, nanobot-heartbeat
+  - kestrel-heartbeat → kestrel-core, kestrel-config, kestrel-bus, kestrel-
+    providers, kestrel-session, kestrel-tools
+  - kestrel-agent → kestrel-core, kestrel-config, kestrel-bus, kestrel-session,
+    kestrel-providers, kestrel-tools, kestrel-memory, kestrel-cron, kestrel-
+    heartbeat, kestrel-skill, kestrel-learning
+  - kestrel-api → kestrel-core, kestrel-config, kestrel-bus, kestrel-session,
+    kestrel-agent, kestrel-providers, kestrel-tools, kestrel-heartbeat
 
-  Layering check for low-level crates passed: nanobot-core, nanobot-config, and
-  nanobot-bus do not import high-level crates like agent or channels.
+  Layering check for low-level crates passed: kestrel-core, kestrel-config, and
+  kestrel-bus do not import high-level crates like agent or channels.
 
   Public API Surface
   Crate-root exports and notable public types/functions:
 
-  - nanobot-core: constants, NanobotError, shared message/tool/session types.
-  - nanobot-config: load_config, Config, path helpers, validation/migration
+  - kestrel-core: constants, KestrelError, shared message/tool/session types.
+  - kestrel-config: load_config, Config, path helpers, validation/migration
     reports and schema structs.
-  - nanobot-bus: MessageBus, InboundMessage, OutboundMessage, StreamChunk,
+  - kestrel-bus: MessageBus, InboundMessage, OutboundMessage, StreamChunk,
     AgentEvent.
-  - nanobot-session: SessionManager, NoteStore, full session/note/message types.
-  - nanobot-security: SSRF/network guard surface.
-  - nanobot-providers: LlmProvider, completion request/response/stream types,
+  - kestrel-session: SessionManager, NoteStore, full session/note/message types.
+  - kestrel-security: SSRF/network guard surface.
+  - kestrel-providers: LlmProvider, completion request/response/stream types,
     provider configs, registry, retry/rate-limit types.
-  - nanobot-tools: ToolRegistry, Tool, ToolError, spawn traits/status, built-in
+  - kestrel-tools: ToolRegistry, Tool, ToolError, spawn traits/status, built-in
     tool types, schema, skill loader/store.
-  - nanobot-agent: AgentLoop, AgentRunner, compaction/context-budget APIs, notes
+  - kestrel-agent: AgentLoop, AgentRunner, compaction/context-budget APIs, notes
     APIs, health checks, subagent manager/types, legacy memory/skills loaders.
-  - nanobot-cron: CronService, cron job/store/state types, state stores,
+  - kestrel-cron: CronService, cron job/store/state types, state stores,
     upcoming_from_expression.
-  - nanobot-heartbeat: HeartbeatService, HealthCheck, snapshots/reports/state/
+  - kestrel-heartbeat: HeartbeatService, HealthCheck, snapshots/reports/state/
     registry.
-  - nanobot-channels: BaseChannel, ChannelManager, ChannelRegistry, command
+  - kestrel-channels: BaseChannel, ChannelManager, ChannelRegistry, command
     helpers, Telegram callback/keyboard types, WebSocketChannel.
-  - nanobot-api: ApiServer; public server module also leaks AppState, request/
+  - kestrel-api: ApiServer; public server module also leaks AppState, request/
     response DTOs.
-  - nanobot-daemon: daemonize, logging setup, PidFile, signal helpers.
-  - nanobot-memory: MemoryStore, HotStore, WarmStore, MemoryConfig, MemoryError,
+  - kestrel-daemon: daemonize, logging setup, PidFile, signal helpers.
+  - kestrel-memory: MemoryStore, HotStore, WarmStore, MemoryConfig, MemoryError,
     memory entry/query types.
-  - nanobot-skill: Skill, CompiledSkill, SkillManifest, SkillRegistry,
+  - kestrel-skill: Skill, CompiledSkill, SkillManifest, SkillRegistry,
     SkillCompiler, SkillLoader, SkillError.
-  - nanobot-learning: LearningConfig, LearningEvent, LearningAction,
+  - kestrel-learning: LearningConfig, LearningEvent, LearningAction,
     BasicEventProcessor, PromptAssembler, EventStore.
 
   Most obvious leaked internals:
 
-  - nanobot-api::server being pub instead of reexporting just the stable server
-    type: crates/nanobot-api/src/lib.rs:5, crates/nanobot-api/src/server.rs:52.
-  - nanobot-channels root reexporting Telegram callback/router UI internals and
-    command handlers: crates/nanobot-channels/src/lib.rs:11.
-  - nanobot-agent exposing internal heartbeat/note/subagent/memory helper
-    modules directly: crates/nanobot-agent/src/lib.rs:5.
+  - kestrel-api::server being pub instead of reexporting just the stable server
+    type: crates/kestrel-api/src/lib.rs:5, crates/kestrel-api/src/server.rs:52.
+  - kestrel-channels root reexporting Telegram callback/router UI internals and
+    command handlers: crates/kestrel-channels/src/lib.rs:11.
+  - kestrel-agent exposing internal heartbeat/note/subagent/memory helper
+    modules directly: crates/kestrel-agent/src/lib.rs:5.
 
   Bottom Line
   The manifest layering is mostly sound and there are no crate cycles, but
@@ -345,4 +345,4 @@ Result<
 › codex --full-auto
 
 
-  gpt-5.4 default · /opt/nanobot-rust/nanobot-rust
+  gpt-5.4 default · /opt/kestrel/kestrel

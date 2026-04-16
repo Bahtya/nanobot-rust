@@ -1,0 +1,19 @@
+[package]
+name = "kestrel-config"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+kestrel-core = { path = "../kestrel-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+anyhow = { workspace = true }
+regex = { workspace = true }
+dirs = "5"
+tracing = { workspace = true }
+ipnet = "2"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+clap = { workspace = true }

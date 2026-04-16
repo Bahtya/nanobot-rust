@@ -1031,6 +1031,364 @@ dependencies = [
 ]
 
 [[package]]
+name = "kestrel"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "clap",
+ "futures",
+ "kestrel-agent",
+ "kestrel-api",
+ "kestrel-bus",
+ "kestrel-channels",
+ "kestrel-config",
+ "kestrel-core",
+ "kestrel-cron",
+ "kestrel-daemon",
+ "kestrel-heartbeat",
+ "kestrel-learning",
+ "kestrel-memory",
+ "kestrel-providers",
+ "kestrel-security",
+ "kestrel-session",
+ "kestrel-skill",
+ "kestrel-tools",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "kestrel-agent"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "dashmap",
+ "filetime",
+ "futures",
+ "glob",
+ "kestrel-bus",
+ "kestrel-config",
+ "kestrel-core",
+ "kestrel-cron",
+ "kestrel-heartbeat",
+ "kestrel-learning",
+ "kestrel-memory",
+ "kestrel-providers",
+ "kestrel-session",
+ "kestrel-skill",
+ "kestrel-tools",
+ "parking_lot",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "kestrel-api"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "chrono",
+ "futures",
+ "http-body-util",
+ "kestrel-agent",
+ "kestrel-bus",
+ "kestrel-config",
+ "kestrel-core",
+ "kestrel-heartbeat",
+ "kestrel-providers",
+ "kestrel-session",
+ "kestrel-tools",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tower",
+ "tower-http",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "kestrel-bus"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "kestrel-core",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "kestrel-channels"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "dashmap",
+ "futures",
+ "kestrel-bus",
+ "kestrel-config",
+ "kestrel-core",
+ "kestrel-session",
+ "parking_lot",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+ "tungstenite",
+ "uuid",
+]
+
+[[package]]
+name = "kestrel-config"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "dirs",
+ "ipnet",
+ "kestrel-core",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
+name = "kestrel-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "kestrel-cron"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "cron",
+ "kestrel-bus",
+ "kestrel-config",
+ "kestrel-core",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "kestrel-daemon"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "kestrel-config",
+ "libc",
+ "nix",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "kestrel-heartbeat"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "futures",
+ "kestrel-bus",
+ "kestrel-config",
+ "kestrel-core",
+ "kestrel-memory",
+ "kestrel-providers",
+ "kestrel-session",
+ "kestrel-tools",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "kestrel-learning"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "dirs",
+ "kestrel-core",
+ "kestrel-memory",
+ "kestrel-skill",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
+ "tracing",
+]
+
+[[package]]
+name = "kestrel-memory"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "dirs",
+ "kestrel-core",
+ "lru",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "kestrel-providers"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bytes",
+ "chrono",
+ "futures",
+ "kestrel-config",
+ "kestrel-core",
+ "kestrel-security",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+]
+
+[[package]]
+name = "kestrel-security"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ipnet",
+ "kestrel-core",
+ "regex",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "kestrel-session"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "dashmap",
+ "kestrel-config",
+ "kestrel-core",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "kestrel-skill"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "dirs",
+ "kestrel-core",
+ "parking_lot",
+ "rand",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
+ "tracing",
+]
+
+[[package]]
+name = "kestrel-tools"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64",
+ "chrono",
+ "dashmap",
+ "filetime",
+ "glob",
+ "kestrel-bus",
+ "kestrel-config",
+ "kestrel-core",
+ "kestrel-security",
+ "notify",
+ "parking_lot",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "kqueue"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1164,364 +1522,6 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "nanobot-agent"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "dashmap",
- "filetime",
- "futures",
- "glob",
- "nanobot-bus",
- "nanobot-config",
- "nanobot-core",
- "nanobot-cron",
- "nanobot-heartbeat",
- "nanobot-learning",
- "nanobot-memory",
- "nanobot-providers",
- "nanobot-session",
- "nanobot-skill",
- "nanobot-tools",
- "parking_lot",
- "regex",
- "serde",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "nanobot-api"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "axum",
- "chrono",
- "futures",
- "http-body-util",
- "nanobot-agent",
- "nanobot-bus",
- "nanobot-config",
- "nanobot-core",
- "nanobot-heartbeat",
- "nanobot-providers",
- "nanobot-session",
- "nanobot-tools",
- "parking_lot",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-util",
- "tower",
- "tower-http",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "nanobot-bus"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "nanobot-core",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "nanobot-channels"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "dashmap",
- "futures",
- "nanobot-bus",
- "nanobot-config",
- "nanobot-core",
- "nanobot-session",
- "parking_lot",
- "reqwest",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-tungstenite",
- "tracing",
- "tungstenite",
- "uuid",
-]
-
-[[package]]
-name = "nanobot-config"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "dirs",
- "ipnet",
- "nanobot-core",
- "regex",
- "serde",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "tracing",
-]
-
-[[package]]
-name = "nanobot-core"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "nanobot-cron"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "cron",
- "nanobot-bus",
- "nanobot-config",
- "nanobot-core",
- "parking_lot",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "nanobot-daemon"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "libc",
- "nanobot-config",
- "nix",
- "tempfile",
- "tokio",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "nanobot-heartbeat"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "futures",
- "nanobot-bus",
- "nanobot-config",
- "nanobot-core",
- "nanobot-memory",
- "nanobot-providers",
- "nanobot-session",
- "nanobot-tools",
- "parking_lot",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "nanobot-learning"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "chrono",
- "dirs",
- "nanobot-core",
- "nanobot-memory",
- "nanobot-skill",
- "parking_lot",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "toml",
- "tracing",
-]
-
-[[package]]
-name = "nanobot-memory"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "chrono",
- "dirs",
- "lru",
- "nanobot-core",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "toml",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "nanobot-providers"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "bytes",
- "chrono",
- "futures",
- "nanobot-config",
- "nanobot-core",
- "nanobot-security",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
- "tokio-stream",
- "tracing",
-]
-
-[[package]]
-name = "nanobot-rust"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "clap",
- "futures",
- "nanobot-agent",
- "nanobot-api",
- "nanobot-bus",
- "nanobot-channels",
- "nanobot-config",
- "nanobot-core",
- "nanobot-cron",
- "nanobot-daemon",
- "nanobot-heartbeat",
- "nanobot-learning",
- "nanobot-memory",
- "nanobot-providers",
- "nanobot-security",
- "nanobot-session",
- "nanobot-skill",
- "nanobot-tools",
- "parking_lot",
- "serde",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "tokio",
- "toml",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "nanobot-security"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "ipnet",
- "nanobot-core",
- "regex",
- "tokio",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "nanobot-session"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "dashmap",
- "nanobot-config",
- "nanobot-core",
- "parking_lot",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "nanobot-skill"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "chrono",
- "dirs",
- "nanobot-core",
- "parking_lot",
- "rand",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "toml",
- "tracing",
-]
-
-[[package]]
-name = "nanobot-tools"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64",
- "chrono",
- "dashmap",
- "filetime",
- "glob",
- "nanobot-bus",
- "nanobot-config",
- "nanobot-core",
- "nanobot-security",
- "notify",
- "parking_lot",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "url",
 ]
 
 [[package]]

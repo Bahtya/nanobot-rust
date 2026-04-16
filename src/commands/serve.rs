@@ -4,13 +4,13 @@
 //! pre-built provider/tool registries for direct agent processing.
 
 use anyhow::Result;
-use nanobot_agent::AgentLoop;
-use nanobot_api::ApiServer;
-use nanobot_bus::MessageBus;
-use nanobot_config::Config;
-use nanobot_providers::ProviderRegistry;
-use nanobot_session::SessionManager;
-use nanobot_tools::builtins;
+use kestrel_agent::AgentLoop;
+use kestrel_api::ApiServer;
+use kestrel_bus::MessageBus;
+use kestrel_config::Config;
+use kestrel_providers::ProviderRegistry;
+use kestrel_session::SessionManager;
+use kestrel_tools::builtins;
 use tracing::info;
 
 /// Run the API server.
@@ -18,10 +18,10 @@ use tracing::info;
 /// `port_override`: when `Some`, overrides the port from `config.api.port`.
 pub async fn run(config: Config, port_override: Option<u16>, dangerous: bool) -> Result<()> {
     let effective_port = port_override.unwrap_or(config.api.port);
-    info!("Starting nanobot API server on port {}...", effective_port);
+    info!("Starting kestrel API server on port {}...", effective_port);
 
     let bus = MessageBus::new();
-    let home = nanobot_config::paths::get_nanobot_home()?;
+    let home = kestrel_config::paths::get_kestrel_home()?;
     let session_manager = SessionManager::new(home)?;
 
     // ── Provider registry ─────────────────────────────────────
@@ -29,7 +29,7 @@ pub async fn run(config: Config, port_override: Option<u16>, dangerous: bool) ->
     info!("Providers: {:?}", provider_registry.provider_names());
 
     // ── Tool registry ─────────────────────────────────────────
-    let tool_registry = nanobot_tools::ToolRegistry::new();
+    let tool_registry = kestrel_tools::ToolRegistry::new();
     builtins::register_all_with_config(&tool_registry, builtins::BuiltinsConfig { dangerous });
     info!("Tools: {:?}", tool_registry.tool_names());
 
@@ -69,17 +69,17 @@ pub async fn run(config: Config, port_override: Option<u16>, dangerous: bool) ->
     #[cfg(target_family = "unix")]
     {
         loop {
-            let sig = nanobot_daemon::signal::wait_for_signal().await;
+            let sig = kestrel_daemon::signal::wait_for_signal().await;
             match sig {
-                nanobot_daemon::signal::ShutdownSignal::Graceful => {
+                kestrel_daemon::signal::ShutdownSignal::Graceful => {
                     info!("Received graceful shutdown signal (SIGTERM)");
                     break;
                 }
-                nanobot_daemon::signal::ShutdownSignal::Fast => {
+                kestrel_daemon::signal::ShutdownSignal::Fast => {
                     info!("Received fast shutdown signal (SIGINT)");
                     break;
                 }
-                nanobot_daemon::signal::ShutdownSignal::Reload => {
+                kestrel_daemon::signal::ShutdownSignal::Reload => {
                     info!("Received SIGHUP (log rotation placeholder)");
                     continue;
                 }

@@ -1,0 +1,16 @@
+[package]
+name = "kestrel-security"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+kestrel-core = { path = "../kestrel-core" }
+anyhow = { workspace = true }
+ipnet = { workspace = true }
+url = { workspace = true }
+regex = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

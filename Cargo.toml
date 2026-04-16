@@ -1,22 +1,22 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/nanobot-core",
-    "crates/nanobot-config",
-    "crates/nanobot-bus",
-    "crates/nanobot-session",
-    "crates/nanobot-security",
-    "crates/nanobot-providers",
-    "crates/nanobot-tools",
-    "crates/nanobot-agent",
-    "crates/nanobot-cron",
-    "crates/nanobot-heartbeat",
-    "crates/nanobot-channels",
-    "crates/nanobot-api",
-    "crates/nanobot-daemon",
-    "crates/nanobot-memory",
-    "crates/nanobot-skill",
-    "crates/nanobot-learning",
+    "crates/kestrel-core",
+    "crates/kestrel-config",
+    "crates/kestrel-bus",
+    "crates/kestrel-session",
+    "crates/kestrel-security",
+    "crates/kestrel-providers",
+    "crates/kestrel-tools",
+    "crates/kestrel-agent",
+    "crates/kestrel-cron",
+    "crates/kestrel-heartbeat",
+    "crates/kestrel-channels",
+    "crates/kestrel-api",
+    "crates/kestrel-daemon",
+    "crates/kestrel-memory",
+    "crates/kestrel-skill",
+    "crates/kestrel-learning",
 ]
 
 [workspace.package]
@@ -79,31 +79,31 @@ lru = "0.12"
 # ─── Main binary package ────────────────────────────────────
 
 [package]
-name = "nanobot-rust"
+name = "kestrel"
 version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "nanobot-rs"
+name = "kestrel"
 path = "src/main.rs"
 
 [dependencies]
-nanobot-core = { path = "crates/nanobot-core" }
-nanobot-config = { path = "crates/nanobot-config" }
-nanobot-bus = { path = "crates/nanobot-bus" }
-nanobot-session = { path = "crates/nanobot-session" }
-nanobot-security = { path = "crates/nanobot-security" }
-nanobot-providers = { path = "crates/nanobot-providers" }
-nanobot-tools = { path = "crates/nanobot-tools" }
-nanobot-agent = { path = "crates/nanobot-agent" }
-nanobot-cron = { path = "crates/nanobot-cron" }
-nanobot-heartbeat = { path = "crates/nanobot-heartbeat" }
-nanobot-channels = { path = "crates/nanobot-channels" }
-nanobot-api = { path = "crates/nanobot-api" }
-nanobot-daemon = { path = "crates/nanobot-daemon" }
-nanobot-memory = { path = "crates/nanobot-memory" }
-nanobot-skill = { path = "crates/nanobot-skill" }
-nanobot-learning = { path = "crates/nanobot-learning" }
+kestrel-core = { path = "crates/kestrel-core" }
+kestrel-config = { path = "crates/kestrel-config" }
+kestrel-bus = { path = "crates/kestrel-bus" }
+kestrel-session = { path = "crates/kestrel-session" }
+kestrel-security = { path = "crates/kestrel-security" }
+kestrel-providers = { path = "crates/kestrel-providers" }
+kestrel-tools = { path = "crates/kestrel-tools" }
+kestrel-agent = { path = "crates/kestrel-agent" }
+kestrel-cron = { path = "crates/kestrel-cron" }
+kestrel-heartbeat = { path = "crates/kestrel-heartbeat" }
+kestrel-channels = { path = "crates/kestrel-channels" }
+kestrel-api = { path = "crates/kestrel-api" }
+kestrel-daemon = { path = "crates/kestrel-daemon" }
+kestrel-memory = { path = "crates/kestrel-memory" }
+kestrel-skill = { path = "crates/kestrel-skill" }
+kestrel-learning = { path = "crates/kestrel-learning" }
 tokio = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }

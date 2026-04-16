@@ -1,12 +1,12 @@
 //! Status command — show current configuration and system status.
 
 use anyhow::Result;
-use nanobot_config::Config;
+use kestrel_config::Config;
 
 /// Show status information.
 pub fn run(config: &Config) -> Result<()> {
-    println!("=== Nanobot Status ===\n");
-    println!("Version: {}", nanobot_core::VERSION);
+    println!("=== Kestrel Status ===\n");
+    println!("Version: {}", kestrel_core::VERSION);
     println!();
 
     println!("Configuration:");
@@ -93,7 +93,7 @@ pub fn run(config: &Config) -> Result<()> {
     );
 
     // Config file location
-    if let Ok(path) = nanobot_config::paths::get_config_path() {
+    if let Ok(path) = kestrel_config::paths::get_config_path() {
         let exists = path.exists();
         println!(
             "\nConfig file: {} {}",
@@ -106,7 +106,7 @@ pub fn run(config: &Config) -> Result<()> {
         );
     }
 
-    if let Ok(home) = nanobot_config::paths::get_nanobot_home() {
+    if let Ok(home) = kestrel_config::paths::get_kestrel_home() {
         println!("Data directory: {}", home.display());
     }
 

@@ -5,16 +5,16 @@
 //! All assertions are fully deterministic using mock providers.
 
 use async_trait::async_trait;
-use nanobot_agent::{AgentLoop, ParallelSpawnConfig, SubAgentManager, SubAgentTask};
-use nanobot_bus::events::AgentEvent;
-use nanobot_bus::MessageBus;
-use nanobot_config::Config;
-use nanobot_core::{FunctionCall, MessageType, Platform, ToolCall, Usage};
-use nanobot_cron::{CronPayload, CronSchedule, CronService, JobState, ScheduleKind};
-use nanobot_providers::base::{BoxStream, CompletionChunk};
-use nanobot_providers::{CompletionRequest, CompletionResponse, LlmProvider, ProviderRegistry};
-use nanobot_session::SessionManager;
-use nanobot_tools::{Tool, ToolError, ToolRegistry};
+use kestrel_agent::{AgentLoop, ParallelSpawnConfig, SubAgentManager, SubAgentTask};
+use kestrel_bus::events::AgentEvent;
+use kestrel_bus::MessageBus;
+use kestrel_config::Config;
+use kestrel_core::{FunctionCall, MessageType, Platform, ToolCall, Usage};
+use kestrel_cron::{CronPayload, CronSchedule, CronService, JobState, ScheduleKind};
+use kestrel_providers::base::{BoxStream, CompletionChunk};
+use kestrel_providers::{CompletionRequest, CompletionResponse, LlmProvider, ProviderRegistry};
+use kestrel_session::SessionManager;
+use kestrel_tools::{Tool, ToolError, ToolRegistry};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -98,7 +98,7 @@ impl LlmProvider for MockProvider {
         let tool_call_deltas = resp.tool_calls.as_ref().map(|tcs| {
             tcs.iter()
                 .enumerate()
-                .map(|(i, tc)| nanobot_providers::base::ToolCallDelta {
+                .map(|(i, tc)| kestrel_providers::base::ToolCallDelta {
                     index: i,
                     id: Some(tc.id.clone()),
                     function_name: Some(tc.function.name.clone()),
@@ -187,8 +187,8 @@ fn make_config() -> Config {
     config
 }
 
-fn make_inbound(content: &str) -> nanobot_bus::events::InboundMessage {
-    nanobot_bus::events::InboundMessage {
+fn make_inbound(content: &str) -> kestrel_bus::events::InboundMessage {
+    kestrel_bus::events::InboundMessage {
         channel: Platform::Telegram,
         sender_id: "user_42".to_string(),
         chat_id: "chat_100".to_string(),
@@ -237,7 +237,7 @@ fn make_provider_registry(provider: MockProvider) -> ProviderRegistry {
 #[allow(dead_code)]
 struct AgentStack {
     bus: MessageBus,
-    outbound_rx: tokio::sync::mpsc::Receiver<nanobot_bus::events::OutboundMessage>,
+    outbound_rx: tokio::sync::mpsc::Receiver<kestrel_bus::events::OutboundMessage>,
     event_rx: tokio::sync::broadcast::Receiver<AgentEvent>,
     agent_handle: tokio::task::JoinHandle<()>,
     session_dir: tempfile::TempDir,
@@ -1171,7 +1171,7 @@ async fn test_pipeline_cron_to_agent_full_flow() {
     }
 
     // Now manually route the cron message through the agent (simulating gateway wiring)
-    let cron_inbound = nanobot_bus::events::InboundMessage {
+    let cron_inbound = kestrel_bus::events::InboundMessage {
         channel: Platform::Telegram,
         sender_id: "cron".to_string(),
         chat_id: "chat_cron".to_string(),

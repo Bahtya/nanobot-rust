@@ -827,9 +827,9 @@ Hermes Agent 的自演化不是"修改自身代码"或"改变模型权重"，而
 
 ### 1. 架构差距矩阵
 
-以下矩阵对比 Hermes 自演化系统的每个核心组件与 nanobot-rust 现有实现之间的差距。
+以下矩阵对比 Hermes 自演化系统的每个核心组件与 kestrel 现有实现之间的差距。
 
-| # | 组件 | nanobot-rust 现状 | 缺失程度 | 预估工作量 |
+| # | 组件 | kestrel 现状 | 缺失程度 | 预估工作量 |
 |---|------|-------------------|---------|-----------|
 | C1 | **持久化记忆 (MEMORY.md/USER.md)** | 仅有 NotesManager（结构化笔记），无自由文本记忆存储、无冻结快照、无安全扫描 | **严重缺失** | 5-8 人天 |
 | C2 | **后台审查系统** | 完全不存在。无 forked agent、无后台线程审查、无计数器触发机制 | **完全缺失** | 8-12 人天 |
@@ -842,35 +842,35 @@ Hermes Agent 的自演化不是"修改自身代码"或"改变模型权重"，而
 | C9 | **SOUL.md 身份系统** | ContextBuilder 使用 `config.name` 作为身份，无 SOUL.md 文件加载、无 DEFAULT_AGENT_IDENTITY 等价物 | **轻度缺失** | 1-2 人天 |
 | C10 | **上下文文件发现** | 无 AGENTS.md / .hermes.md / .cursorrules 等项目上下文文件的自动发现和注入 | **轻度缺失** | 2-3 人天 |
 | C11 | **委托任务 (delegate_task)** | SubAgentManager 存在且功能完善，支持并行执行、超时、工具继承 | **基本完备** | 0.5-1 人天（适配） |
-| C12 | **Cron 调度系统** | nanobot-cron 存在，支持 tick 调度、JSON 状态、CronTool 工具 | **基本完备** | 1-2 人天（增强） |
+| C12 | **Cron 调度系统** | kestrel-cron 存在，支持 tick 调度、JSON 状态、CronTool 工具 | **基本完备** | 1-2 人天（增强） |
 
 **总预估工作量：44-68 人天**
 
 ### 2. 模块映射表
 
-| Hermes 模块 | Hermes 实现位置 | nanobot-rust 对应位置 | 操作 |
+| Hermes 模块 | Hermes 实现位置 | kestrel 对应位置 | 操作 |
 |------------|----------------|---------------------|------|
-| **MemoryStore** (内置记忆) | `tools/memory_tool.py` | 无直接对应。NotesManager 最接近但设计不同 | **新建** → `nanobot-memory` crate |
-| **MemoryManager** (记忆编排) | `agent/memory_manager.py` | 无对应 | **新建** → `nanobot-memory` crate |
-| **MemoryProvider** (外部记忆插件) | `agent/memory_provider.py` + `plugins/memory/` | 无对应 | **新建** → `nanobot-memory` crate（含 trait + 插件目录） |
-| **PromptBuilder** (系统提示组装) | `agent/prompt_builder.py` | `nanobot-agent/src/context.rs` (ContextBuilder) | **扩展** — 增强 ContextBuilder |
-| **ContextCompressor** (上下文压缩) | `agent/context_compressor.py` | `nanobot-agent/src/compaction.rs` (简单截断) | **扩展** — 重写为 LLM 驱动的结构化压缩 |
-| **BackgroundReview** (后台审查) | `run_agent.py:_spawn_background_review()` | 无对应 | **新建** → `nanobot-agent` 内新模块 |
-| **SkillManager** (技能管理 CRUD) | `tools/skill_manager_tool.py` | 无对应（SkillsLoader 仅读取） | **新建** → `nanobot-agent/src/skills.rs` 扩展 |
-| **SkillsList/SkillView** (技能查看) | `tools/skills_tool.py` | 无对应工具（SkillsLoader 仅内部使用） | **新建** → `nanobot-tools` 新工具 |
-| **SkillCommands** (技能命令 /skill) | `agent/skill_commands.py` | 无对应 | **新建** → `nanobot-agent` 或 `nanobot-tools` |
-| **SessionSearch** (会话搜索) | `tools/session_search_tool.py` | `nanobot-session/src/manager.rs` (基本 note 搜索) | **扩展** — 增加对话内容全文检索 |
-| **CronScheduler** (定时调度) | `cron/scheduler.py` | `nanobot-cron/` | **扩展** — 增加技能绑定和审查调度 |
-| **DelegateTask** (委托任务) | `tools/delegate_tool.py` | `nanobot-agent/src/subagent.rs` (SubAgentManager) | **适配** — 接入自演化上下文 |
-| **MemoryTool** (记忆工具) | `tools/memory_tool.py` | 无对应 | **新建** → `nanobot-tools` 新工具 |
-| **SkillManageTool** (技能管理工具) | `tools/skill_manager_tool.py` | 无对应 | **新建** → `nanobot-tools` 新工具 |
-| **SOUL.md 加载** | `agent/prompt_builder.py:load_soul_md()` | 无对应 | **新建** → `nanobot-agent/src/context.rs` 扩展 |
-| **上下文文件发现** | `agent/prompt_builder.py:build_context_files_prompt()` | 无对应 | **新建** → `nanobot-agent/src/context.rs` 扩展 |
+| **MemoryStore** (内置记忆) | `tools/memory_tool.py` | 无直接对应。NotesManager 最接近但设计不同 | **新建** → `kestrel-memory` crate |
+| **MemoryManager** (记忆编排) | `agent/memory_manager.py` | 无对应 | **新建** → `kestrel-memory` crate |
+| **MemoryProvider** (外部记忆插件) | `agent/memory_provider.py` + `plugins/memory/` | 无对应 | **新建** → `kestrel-memory` crate（含 trait + 插件目录） |
+| **PromptBuilder** (系统提示组装) | `agent/prompt_builder.py` | `kestrel-agent/src/context.rs` (ContextBuilder) | **扩展** — 增强 ContextBuilder |
+| **ContextCompressor** (上下文压缩) | `agent/context_compressor.py` | `kestrel-agent/src/compaction.rs` (简单截断) | **扩展** — 重写为 LLM 驱动的结构化压缩 |
+| **BackgroundReview** (后台审查) | `run_agent.py:_spawn_background_review()` | 无对应 | **新建** → `kestrel-agent` 内新模块 |
+| **SkillManager** (技能管理 CRUD) | `tools/skill_manager_tool.py` | 无对应（SkillsLoader 仅读取） | **新建** → `kestrel-agent/src/skills.rs` 扩展 |
+| **SkillsList/SkillView** (技能查看) | `tools/skills_tool.py` | 无对应工具（SkillsLoader 仅内部使用） | **新建** → `kestrel-tools` 新工具 |
+| **SkillCommands** (技能命令 /skill) | `agent/skill_commands.py` | 无对应 | **新建** → `kestrel-agent` 或 `kestrel-tools` |
+| **SessionSearch** (会话搜索) | `tools/session_search_tool.py` | `kestrel-session/src/manager.rs` (基本 note 搜索) | **扩展** — 增加对话内容全文检索 |
+| **CronScheduler** (定时调度) | `cron/scheduler.py` | `kestrel-cron/` | **扩展** — 增加技能绑定和审查调度 |
+| **DelegateTask** (委托任务) | `tools/delegate_tool.py` | `kestrel-agent/src/subagent.rs` (SubAgentManager) | **适配** — 接入自演化上下文 |
+| **MemoryTool** (记忆工具) | `tools/memory_tool.py` | 无对应 | **新建** → `kestrel-tools` 新工具 |
+| **SkillManageTool** (技能管理工具) | `tools/skill_manager_tool.py` | 无对应 | **新建** → `kestrel-tools` 新工具 |
+| **SOUL.md 加载** | `agent/prompt_builder.py:load_soul_md()` | 无对应 | **新建** → `kestrel-agent/src/context.rs` 扩展 |
+| **上下文文件发现** | `agent/prompt_builder.py:build_context_files_prompt()` | 无对应 | **新建** → `kestrel-agent/src/context.rs` 扩展 |
 
 ### 3. 数据流适配方案
 
 ```
-nanobot-rust 现有消息流:
+kestrel 现有消息流:
 
   InboundMessage ──→ Bus ──→ AgentLoop::handle_message()
                                 │
@@ -905,7 +905,7 @@ nanobot-rust 现有消息流:
                                 │      ├─ ★ 冻结记忆快照 (MEMORY.md / USER.md)
                                 │      ├─ ★ 外部记忆预取 (MemoryProvider::prefetch)
                                 │      ├─ ★ 技能索引 (Tier 1: 名称+描述列表)
-                                │      ├─ ★ 上下文文件 (AGENTS.md, .nanobot.md 等)
+                                │      ├─ ★ 上下文文件 (AGENTS.md, .kestrel.md 等)
                                 │      ├─ runtime metadata + timestamp
                                 │      └─ platform hints
                                 │
@@ -963,7 +963,7 @@ nanobot-rust 现有消息流:
 #### 4.1 新建 Crate
 
 ```
-nanobot-memory/                      # 新 crate：持久化记忆系统
+kestrel-memory/                      # 新 crate：持久化记忆系统
 ├── Cargo.toml
 └── src/
     ├── lib.rs                       # 公共接口导出
@@ -983,62 +983,62 @@ nanobot-memory/                      # 新 crate：持久化记忆系统
 
 | Crate | 职责 | 关键新增内容 |
 |-------|------|------------|
-| **nanobot-memory** (新) | 持久化记忆存储、管理、插件 | MemoryStore、MemoryManager、MemoryProvider trait、冻结快照、安全扫描 |
-| **nanobot-agent** | Agent 主循环、审查、上下文 | 扩展 ContextBuilder、新增 BackgroundReview 模块、扩展 SkillsLoader 为完整的 SkillManager |
-| **nanobot-tools** | 工具定义和注册 | 新增 MemoryTool、SkillViewTool、SkillManageTool、SessionSearchTool |
-| **nanobot-session** | 会话持久化 | 扩展搜索能力（对话内容全文检索） |
-| **nanobot-core** | 核心类型 | 新增 ReviewTrigger、MemorySnapshot 等类型 |
+| **kestrel-memory** (新) | 持久化记忆存储、管理、插件 | MemoryStore、MemoryManager、MemoryProvider trait、冻结快照、安全扫描 |
+| **kestrel-agent** | Agent 主循环、审查、上下文 | 扩展 ContextBuilder、新增 BackgroundReview 模块、扩展 SkillsLoader 为完整的 SkillManager |
+| **kestrel-tools** | 工具定义和注册 | 新增 MemoryTool、SkillViewTool、SkillManageTool、SessionSearchTool |
+| **kestrel-session** | 会话持久化 | 扩展搜索能力（对话内容全文检索） |
+| **kestrel-core** | 核心类型 | 新增 ReviewTrigger、MemorySnapshot 等类型 |
 
 #### 4.3 依赖关系图
 
 ```
                     ┌─────────────┐
-                    │ nanobot-core│  ← 无内部依赖
+                    │ kestrel-core│  ← 无内部依赖
                     └──────┬──────┘
                            │
               ┌────────────┼────────────────┐
               │            │                │
       ┌───────▼──────┐ ┌───▼────────┐ ┌────▼────────┐
-      │nanobot-config│ │nanobot-bus │ │nanobot-memory│ ← 新 crate
+      │kestrel-config│ │kestrel-bus │ │kestrel-memory│ ← 新 crate
       └───────┬──────┘ └─────┬──────┘ └────┬────────┘
               │              │              │        │
               │              │              │        │
               └──────┬───────┘              │        │
                      │                      │        │
            ┌─────────▼──────────┐           │        │
-           │  nanobot-session   │◄──────────┤        │
+           │  kestrel-session   │◄──────────┤        │
            └─────────┬──────────┘           │        │
                      │                      │        │
            ┌─────────▼──────────┐           │        │
-           │  nanobot-security  │           │        │
+           │  kestrel-security  │           │        │
            └─────────┬──────────┘           │        │
                      │                      │        │
            ┌─────────▼──────────┐           │        │
-           │ nanobot-providers  │           │        │
+           │ kestrel-providers  │           │        │
            └─────────┬──────────┘           │        │
                      │                      │        │
            ┌─────────▼──────────┐           │        │
-           │  nanobot-tools     │◄──────────┤  (memory tool 使用 nanobot-memory)
+           │  kestrel-tools     │◄──────────┤  (memory tool 使用 kestrel-memory)
            └─────────┬──────────┘           │        │
                      │                      │        │
            ┌─────────▼──────────┐           │        │
-           │  nanobot-agent     │◄──────────┘  (审查使用 nanobot-memory)
+           │  kestrel-agent     │◄──────────┘  (审查使用 kestrel-memory)
            └─────────┬──────────┘
                      │
            ┌─────────▼──────────┐
-           │  nanobot (binary)  │
+           │  kestrel (binary)  │
            └────────────────────┘
 
 循环依赖分析:
-  nanobot-memory → nanobot-core       ✓ 无循环
-  nanobot-tools  → nanobot-memory     ✓ 单向
-  nanobot-agent  → nanobot-memory     ✓ 单向
-  nanobot-agent  → nanobot-tools      ✓ 单向
-  nanobot-memory 不依赖 nanobot-tools  ✓ 安全
-  nanobot-memory 不依赖 nanobot-agent  ✓ 安全
+  kestrel-memory → kestrel-core       ✓ 无循环
+  kestrel-tools  → kestrel-memory     ✓ 单向
+  kestrel-agent  → kestrel-memory     ✓ 单向
+  kestrel-agent  → kestrel-tools      ✓ 单向
+  kestrel-memory 不依赖 kestrel-tools  ✓ 安全
+  kestrel-memory 不依赖 kestrel-agent  ✓ 安全
 ```
 
-**关键设计决策**：`nanobot-memory` 仅依赖 `nanobot-core`，不依赖 `nanobot-tools` 或 `nanobot-agent`。这确保了：
+**关键设计决策**：`kestrel-memory` 仅依赖 `kestrel-core`，不依赖 `kestrel-tools` 或 `kestrel-agent`。这确保了：
 - MemoryStore 可以被 ReviewAgent 直接使用（无需完整工具系统）
 - 工具层（MemoryTool）通过依赖 memory crate 来暴露功能
 - 不会引入循环依赖
@@ -1047,18 +1047,18 @@ nanobot-memory/                      # 新 crate：持久化记忆系统
 
 | # | Hook 点 | 文件 | 函数/位置 | 侵入性 | 说明 |
 |---|--------|------|----------|--------|------|
-| H1 | **系统提示构建** | `nanobot-agent/src/context.rs` | `ContextBuilder::build_system_prompt()` | **中** | 需要大幅扩展：增加 SOUL.md 加载、记忆注入、技能索引注入、上下文文件发现。现有逻辑保留，新增多个构建步骤 |
-| H2 | **消息处理主循环** | `nanobot-agent/src/loop_mod.rs` | `AgentLoop::handle_message()` | **中** | 在 LLM 调用前插入：记忆预取、增强压缩检查；在 LLM 调用后插入：计数器更新、审查触发 |
-| H3 | **工具注册** | `nanobot-tools/src/builtins/mod.rs` | `register_all()` | **低** | 新增 memory、skill_view、skill_manage、session_search 工具注册 |
-| H4 | **上下文压缩** | `nanobot-agent/src/compaction.rs` | `compact_session()` / `prune_messages()` | **高** | 需要重写为 LLM 驱动的结构化摘要。现有截断逻辑可作为 fallback 保留 |
-| H5 | **后台审查触发** | `nanobot-agent/src/loop_mod.rs` | 响应处理之后（新增代码段） | **中** | 在 `handle_message()` 末尾新增审查触发逻辑。需要新增计数器字段到 AgentLoop |
-| H6 | **审查执行** | `nanobot-agent/src/` (新文件) | `background_review.rs` (新模块) | **低** | 独立新模块，创建轻量 ReviewAgent，不侵入现有代码 |
-| H7 | **会话管理** | `nanobot-session/src/manager.rs` | `SessionManager` | **低** | 扩展搜索方法（search_conversations），不影响现有接口 |
-| H8 | **Config Schema** | `nanobot-config/src/schema.rs` | `Config` struct | **低** | 新增 `memory`、`skills`、`review` 配置段落，均为可选（有默认值） |
-| H9 | **配置验证** | `nanobot-config/src/validate.rs` | `validate()` | **低** | 新增 memory/skills/review 配置验证规则 |
-| H10 | **Skills 加载** | `nanobot-agent/src/skills.rs` | `SkillsLoader` | **中** | 扩展为完整的 SkillManager：增加 create/patch/delete 能力，增加渐进式披露支持 |
-| H11 | **核心类型** | `nanobot-core/src/types.rs` | 类型定义 | **低** | 新增 ReviewTrigger、MemorySnapshot、SkillIndex 等辅助类型 |
-| H12 | **核心常量** | `nanobot-core/src/constants.rs` | 常量定义 | **低** | 新增审查间隔默认值、记忆容量限制等常量 |
+| H1 | **系统提示构建** | `kestrel-agent/src/context.rs` | `ContextBuilder::build_system_prompt()` | **中** | 需要大幅扩展：增加 SOUL.md 加载、记忆注入、技能索引注入、上下文文件发现。现有逻辑保留，新增多个构建步骤 |
+| H2 | **消息处理主循环** | `kestrel-agent/src/loop_mod.rs` | `AgentLoop::handle_message()` | **中** | 在 LLM 调用前插入：记忆预取、增强压缩检查；在 LLM 调用后插入：计数器更新、审查触发 |
+| H3 | **工具注册** | `kestrel-tools/src/builtins/mod.rs` | `register_all()` | **低** | 新增 memory、skill_view、skill_manage、session_search 工具注册 |
+| H4 | **上下文压缩** | `kestrel-agent/src/compaction.rs` | `compact_session()` / `prune_messages()` | **高** | 需要重写为 LLM 驱动的结构化摘要。现有截断逻辑可作为 fallback 保留 |
+| H5 | **后台审查触发** | `kestrel-agent/src/loop_mod.rs` | 响应处理之后（新增代码段） | **中** | 在 `handle_message()` 末尾新增审查触发逻辑。需要新增计数器字段到 AgentLoop |
+| H6 | **审查执行** | `kestrel-agent/src/` (新文件) | `background_review.rs` (新模块) | **低** | 独立新模块，创建轻量 ReviewAgent，不侵入现有代码 |
+| H7 | **会话管理** | `kestrel-session/src/manager.rs` | `SessionManager` | **低** | 扩展搜索方法（search_conversations），不影响现有接口 |
+| H8 | **Config Schema** | `kestrel-config/src/schema.rs` | `Config` struct | **低** | 新增 `memory`、`skills`、`review` 配置段落，均为可选（有默认值） |
+| H9 | **配置验证** | `kestrel-config/src/validate.rs` | `validate()` | **低** | 新增 memory/skills/review 配置验证规则 |
+| H10 | **Skills 加载** | `kestrel-agent/src/skills.rs` | `SkillsLoader` | **中** | 扩展为完整的 SkillManager：增加 create/patch/delete 能力，增加渐进式披露支持 |
+| H11 | **核心类型** | `kestrel-core/src/types.rs` | 类型定义 | **低** | 新增 ReviewTrigger、MemorySnapshot、SkillIndex 等辅助类型 |
+| H12 | **核心常量** | `kestrel-core/src/constants.rs` | 常量定义 | **低** | 新增审查间隔默认值、记忆容量限制等常量 |
 
 **侵入性评级说明**：
 - **低**：纯新增代码或仅添加字段/函数，不影响现有行为
@@ -1090,23 +1090,23 @@ Phase 1 架构:
   └─────────────────────────────────────────────────────────┘
 
   交付物:
-  ├─ nanobot-memory crate (store + security)
-  ├─ nanobot-tools 新增 MemoryTool、SkillViewTool
+  ├─ kestrel-memory crate (store + security)
+  ├─ kestrel-tools 新增 MemoryTool、SkillViewTool
   ├─ ContextBuilder 增强 (记忆注入 + SOUL.md + 上下文文件)
   ├─ Config 扩展 (memory 段落)
   └─ 测试: 记忆读写、快照冻结、安全扫描
 ```
 
 **具体任务**：
-1. 创建 `nanobot-memory` crate，实现 `MemoryStore`（MEMORY.md/USER.md 读写、冻结快照、安全扫描）
-2. 在 `nanobot-tools` 新增 `MemoryTool`（memory 工具：add/replace/remove）
-3. 在 `nanobot-tools` 新增 `SkillViewTool`（skill_view 工具：渐进式披露）
+1. 创建 `kestrel-memory` crate，实现 `MemoryStore`（MEMORY.md/USER.md 读写、冻结快照、安全扫描）
+2. 在 `kestrel-tools` 新增 `MemoryTool`（memory 工具：add/replace/remove）
+3. 在 `kestrel-tools` 新增 `SkillViewTool`（skill_view 工具：渐进式披露）
 4. 扩展 `ContextBuilder`：
    - 加载 SOUL.md / DEFAULT_IDENTITY
    - 注入冻结记忆快照
    - 注入技能索引（Tier 1 列表）
    - 发现并注入上下文文件（AGENTS.md 等）
-5. 在 `nanobot-config` 新增 `memory` 配置段落
+5. 在 `kestrel-config` 新增 `memory` 配置段落
 6. 集成测试
 
 #### Phase 2：自演化核心 (预计 18-28 人天)
@@ -1141,14 +1141,14 @@ Phase 2 架构:
   交付物:
   ├─ BackgroundReview 模块 (审查触发 + ReviewAgent)
   ├─ ContextCompressor 重写 (LLM 结构化摘要)
-  ├─ nanobot-tools 新增 SkillManageTool、SessionSearchTool
+  ├─ kestrel-tools 新增 SkillManageTool、SessionSearchTool
   ├─ SkillsLoader → SkillManager 升级 (create/patch/delete)
-  ├─ nanobot-session 搜索增强
+  ├─ kestrel-session 搜索增强
   └─ 测试: 审查触发、压缩质量、技能 CRUD
 ```
 
 **具体任务**：
-1. 在 `nanobot-agent` 新增 `background_review.rs` 模块：
+1. 在 `kestrel-agent` 新增 `background_review.rs` 模块：
    - `ReviewTrigger` 逻辑（计数器 + 阈值判断）
    - `ReviewAgent`（轻量 AgentRunner + 审查 prompt）
    - 后台 tokio task 执行（不阻塞主循环）
@@ -1157,11 +1157,11 @@ Phase 2 架构:
    - 迭代式摘要更新
    - 工具调用/结果配对保护
    - 失败时回退到简单截断
-3. 在 `nanobot-tools` 新增 `SkillManageTool`（skill_manage: create/patch/edit/delete）
+3. 在 `kestrel-tools` 新增 `SkillManageTool`（skill_manage: create/patch/edit/delete）
 4. 扩展 `SkillsLoader` 为完整 `SkillManager`
-5. 在 `nanobot-tools` 新增 `SessionSearchTool`
-6. 扩展 `nanobot-session` 的搜索能力
-7. 在 `nanobot-config` 新增 `skills`、`review` 配置段落
+5. 在 `kestrel-tools` 新增 `SessionSearchTool`
+6. 扩展 `kestrel-session` 的搜索能力
+7. 在 `kestrel-config` 新增 `skills`、`review` 配置段落
 8. 集成测试
 
 #### Phase 3：生态增强 (预计 11-20 人天)
@@ -1205,11 +1205,11 @@ Phase 3 架构:
 ```
 
 **具体任务**：
-1. 在 `nanobot-memory` 新增 `provider.rs`（MemoryProvider trait）和 `manager.rs`（MemoryManager 编排层）
+1. 在 `kestrel-memory` 新增 `provider.rs`（MemoryProvider trait）和 `manager.rs`（MemoryManager 编排层）
 2. 实现至少 2 个外部记忆提供者插件（如 Honcho、Mem0）
-3. 扩展 `nanobot-cron`：支持审查调度（定期触发审查，独立于对话）
+3. 扩展 `kestrel-cron`：支持审查调度（定期触发审查，独立于对话）
 4. 扩展 `SubAgentManager`：继承 MemoryStore 上下文
-5. 在 `nanobot-agent` 或 `nanobot-tools` 新增 `/skill` 命令处理
+5. 在 `kestrel-agent` 或 `kestrel-tools` 新增 `/skill` 命令处理
 6. 端到端集成测试
 7. 性能基准测试（审查延迟、压缩质量、记忆命中率）
 

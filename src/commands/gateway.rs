@@ -1,42 +1,42 @@
-//! Gateway command — start the full nanobot gateway.
+//! Gateway command — start the full kestrel gateway.
 //!
 //! Wires together: bus, channels, agent loop, session manager,
 //! provider registry, tool registry, skill registry, heartbeat, and API server.
 //!
-//! Supports daemon mode when launched via `nanobot-rs daemon start`.
+//! Supports daemon mode when launched via `kestrel daemon start`.
 
 use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use nanobot_agent::AgentLoop;
-use nanobot_api::ApiServer;
-use nanobot_bus::events::AgentEvent;
-use nanobot_bus::MessageBus;
-use nanobot_channels::{ChannelManager, ChannelRegistry};
-use nanobot_config::Config;
-use nanobot_heartbeat::{
+use kestrel_agent::AgentLoop;
+use kestrel_api::ApiServer;
+use kestrel_bus::events::AgentEvent;
+use kestrel_bus::MessageBus;
+use kestrel_channels::{ChannelManager, ChannelRegistry};
+use kestrel_config::Config;
+use kestrel_heartbeat::{
     BusHealthCheck, ChannelHealthCheck, HeartbeatService, MemoryStoreHealthCheck,
     ProviderHealthCheck,
 };
-use nanobot_learning::config::LearningConfig;
-use nanobot_learning::event::{LearningAction, LearningEvent, LearningEventBus};
-use nanobot_learning::processor::BasicEventProcessor;
-use nanobot_learning::prompt::PromptAssembler;
-use nanobot_learning::store::EventStore;
-use nanobot_learning::LearningEventHandler;
-use nanobot_memory::{HotStore, MemoryCategory, MemoryConfig, MemoryEntry, MemoryStore};
-use nanobot_providers::ProviderRegistry;
-use nanobot_session::SessionManager;
-use nanobot_skill::{SkillConfig, SkillLoader, SkillRegistry};
-use nanobot_tools::builtins;
+use kestrel_learning::config::LearningConfig;
+use kestrel_learning::event::{LearningAction, LearningEvent, LearningEventBus};
+use kestrel_learning::processor::BasicEventProcessor;
+use kestrel_learning::prompt::PromptAssembler;
+use kestrel_learning::store::EventStore;
+use kestrel_learning::LearningEventHandler;
+use kestrel_memory::{HotStore, MemoryCategory, MemoryConfig, MemoryEntry, MemoryStore};
+use kestrel_providers::ProviderRegistry;
+use kestrel_session::SessionManager;
+use kestrel_skill::{SkillConfig, SkillLoader, SkillRegistry};
+use kestrel_tools::builtins;
 use tokio::sync::{broadcast, watch};
 use tracing::info;
 
 /// Initialize the skill registry by loading TOML manifests from the skills directory.
 ///
-/// Looks for `skills/` under the given nanobot home directory. If the directory
+/// Looks for `skills/` under the given kestrel home directory. If the directory
 /// does not exist, returns an empty registry. Invalid manifests are logged and skipped.
 async fn init_skill_registry(home: &Path) -> Arc<SkillRegistry> {
     let skills_dir = home.join("skills");
@@ -275,13 +275,13 @@ async fn run_learning_consumer<P>(
 ///
 /// PID file management is handled by the `daemon start` command, not here.
 pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Result<()> {
-    info!("Starting nanobot gateway...");
+    info!("Starting kestrel gateway...");
 
     // ── Shared bus ────────────────────────────────────────────
     let bus = MessageBus::new();
 
     // ── Session manager ───────────────────────────────────────
-    let home = nanobot_config::paths::get_nanobot_home()?;
+    let home = kestrel_config::paths::get_kestrel_home()?;
     let session_manager = SessionManager::new(home.clone())?;
 
     // ── Provider registry ─────────────────────────────────────
@@ -289,7 +289,7 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
     info!("Providers: {:?}", provider_registry.provider_names());
 
     // ── Tool registry ─────────────────────────────────────────
-    let tool_registry = nanobot_tools::ToolRegistry::new();
+    let tool_registry = kestrel_tools::ToolRegistry::new();
     builtins::register_all_with_config(&tool_registry, builtins::BuiltinsConfig { dangerous });
     info!("Tools: {:?}", tool_registry.tool_names());
 
@@ -321,7 +321,7 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
         hot_store_path: home.join("memory").join("hot.jsonl"),
         ..MemoryConfig::default()
     };
-    let memory_store: Option<Arc<dyn nanobot_memory::MemoryStore>> =
+    let memory_store: Option<Arc<dyn kestrel_memory::MemoryStore>> =
         match HotStore::new(&memory_config).await {
             Ok(hot_store) => {
                 info!("Memory store initialized (HotStore L1)");
@@ -547,17 +547,17 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
     #[cfg(target_family = "unix")]
     {
         loop {
-            let sig = nanobot_daemon::signal::wait_for_signal().await;
+            let sig = kestrel_daemon::signal::wait_for_signal().await;
             match sig {
-                nanobot_daemon::signal::ShutdownSignal::Graceful => {
+                kestrel_daemon::signal::ShutdownSignal::Graceful => {
                     info!("Received graceful shutdown signal (SIGTERM)");
                     break;
                 }
-                nanobot_daemon::signal::ShutdownSignal::Fast => {
+                kestrel_daemon::signal::ShutdownSignal::Fast => {
                     info!("Received fast shutdown signal (SIGINT)");
                     break;
                 }
-                nanobot_daemon::signal::ShutdownSignal::Reload => {
+                kestrel_daemon::signal::ShutdownSignal::Reload => {
                     info!("Received SIGHUP (log rotation placeholder — not yet implemented)");
                     // Keep running; future sprint will add config reload
                     continue;
@@ -609,11 +609,11 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
 mod tests {
     use super::*;
     use chrono::Utc;
-    use nanobot_learning::event::SkillOutcome;
-    use nanobot_memory::{MemoryQuery, ScoredEntry};
-    use nanobot_skill::manifest::SkillManifestBuilder;
-    use nanobot_skill::skill::CompiledSkill;
-    use nanobot_skill::Skill;
+    use kestrel_learning::event::SkillOutcome;
+    use kestrel_memory::{MemoryQuery, ScoredEntry};
+    use kestrel_skill::manifest::SkillManifestBuilder;
+    use kestrel_skill::skill::CompiledSkill;
+    use kestrel_skill::Skill;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
     use tempfile::tempdir;
@@ -639,7 +639,7 @@ mod tests {
 
     #[async_trait]
     impl MemoryStore for MockMemoryStore {
-        async fn store(&self, entry: MemoryEntry) -> nanobot_memory::error::Result<()> {
+        async fn store(&self, entry: MemoryEntry) -> kestrel_memory::error::Result<()> {
             if self
                 .fail_count
                 .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |count| {
@@ -651,7 +651,7 @@ mod tests {
                 })
                 .is_ok()
             {
-                return Err(nanobot_memory::MemoryError::Io(std::io::Error::other(
+                return Err(kestrel_memory::MemoryError::Io(std::io::Error::other(
                     "mock store failure",
                 )));
             }
@@ -659,18 +659,18 @@ mod tests {
             Ok(())
         }
 
-        async fn recall(&self, _id: &str) -> nanobot_memory::error::Result<Option<MemoryEntry>> {
+        async fn recall(&self, _id: &str) -> kestrel_memory::error::Result<Option<MemoryEntry>> {
             Ok(None)
         }
 
         async fn search(
             &self,
             _query: &MemoryQuery,
-        ) -> nanobot_memory::error::Result<Vec<ScoredEntry>> {
+        ) -> kestrel_memory::error::Result<Vec<ScoredEntry>> {
             Ok(Vec::new())
         }
 
-        async fn delete(&self, _id: &str) -> nanobot_memory::error::Result<()> {
+        async fn delete(&self, _id: &str) -> kestrel_memory::error::Result<()> {
             Ok(())
         }
 
@@ -678,7 +678,7 @@ mod tests {
             self.stored.lock().unwrap().len()
         }
 
-        async fn clear(&self) -> nanobot_memory::error::Result<()> {
+        async fn clear(&self) -> kestrel_memory::error::Result<()> {
             self.stored.lock().unwrap().clear();
             Ok(())
         }
@@ -711,7 +711,7 @@ mod tests {
 
     /// Write a valid TOML skill manifest to a directory.
     fn write_skill(dir: &Path, name: &str, triggers: &[&str]) -> std::path::PathBuf {
-        let manifest = nanobot_skill::SkillManifest {
+        let manifest = kestrel_skill::SkillManifest {
             name: name.to_string(),
             version: "1.0.0".to_string(),
             description: format!("Skill {name}"),
@@ -805,7 +805,7 @@ mod tests {
         let skills_dir = home.path().join("skills");
         std::fs::create_dir_all(&skills_dir).unwrap();
 
-        let manifest = nanobot_skill::SkillManifest {
+        let manifest = kestrel_skill::SkillManifest {
             name: "deploy-k8s".to_string(),
             version: "1.0.0".to_string(),
             description: "Deploy to Kubernetes".to_string(),

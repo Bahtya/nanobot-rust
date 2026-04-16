@@ -1,13 +1,16 @@
-//! HotStore (L1) — in-memory HashMap with JSON lines file persistence.
+//! HotStore (L1) — in-memory LRU cache with JSON lines file persistence.
 //!
 //! The hot store provides the fastest access layer (zero latency) for frequently
-//! used memory entries. Data is kept in memory and periodically flushed to disk
-//! in JSON lines format (one JSON object per line).
+//! used memory entries. Evictable entries are kept in an [`lru::LruCache`] so
+//! least-recently-used eviction is O(1), while critical entries stay pinned in
+//! a separate map and are never evicted automatically.
 //!
 //! File writes use the atomic temp-file-rename pattern to prevent corruption.
 
 use async_trait::async_trait;
+use lru::LruCache;
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::fs;
 use tokio::sync::RwLock;
@@ -17,14 +20,89 @@ use crate::error::{MemoryError, Result};
 use crate::store::MemoryStore;
 use crate::types::{EntryId, MemoryCategory, MemoryEntry, MemoryQuery, ScoredEntry};
 
+#[derive(Clone)]
+struct HotStoreState {
+    evictable: LruCache<EntryId, MemoryEntry>,
+    critical: HashMap<EntryId, MemoryEntry>,
+}
+
+impl HotStoreState {
+    fn new(max_entries: usize) -> Self {
+        Self {
+            evictable: LruCache::new(Self::cache_capacity(max_entries)),
+            critical: HashMap::new(),
+        }
+    }
+
+    fn cache_capacity(max_entries: usize) -> NonZeroUsize {
+        NonZeroUsize::new(max_entries.max(1)).expect("max(1) always produces non-zero")
+    }
+
+    fn total_len(&self) -> usize {
+        self.evictable.len() + self.critical.len()
+    }
+
+    fn contains(&self, id: &str) -> bool {
+        self.evictable.contains(id) || self.critical.contains_key(id)
+    }
+
+    fn remove(&mut self, id: &str) -> Option<MemoryEntry> {
+        self.evictable.pop(id).or_else(|| self.critical.remove(id))
+    }
+
+    fn insert(&mut self, entry: MemoryEntry) {
+        let id = entry.id.clone();
+        if entry.category == MemoryCategory::Critical {
+            self.critical.insert(id, entry);
+        } else {
+            self.evictable.put(id, entry);
+        }
+    }
+
+    fn find_and_touch(&mut self, id: &str) -> Option<MemoryEntry> {
+        if let Some(entry) = self.evictable.get_mut(id) {
+            entry.touch();
+            return Some(entry.clone());
+        }
+        if let Some(entry) = self.critical.get_mut(id) {
+            entry.touch();
+            return Some(entry.clone());
+        }
+        None
+    }
+
+    fn evict_lru(&mut self) -> Option<MemoryEntry> {
+        self.evictable.pop_lru().map(|(_, entry)| entry)
+    }
+
+    fn ordered_entries(&self) -> Vec<MemoryEntry> {
+        let mut evictable = self.evictable.clone();
+        let mut entries = Vec::with_capacity(self.total_len());
+        while let Some((_, entry)) = evictable.pop_lru() {
+            entries.push(entry);
+        }
+        entries.extend(self.critical.values().cloned());
+        entries
+    }
+
+    fn values(&self) -> impl Iterator<Item = &MemoryEntry> {
+        self.evictable
+            .iter()
+            .map(|(_, entry)| entry)
+            .chain(self.critical.values())
+    }
+}
+
 /// L1 hot memory store — fast in-memory access with file persistence.
 ///
-/// Entries are kept in a [`HashMap`] for O(1) lookups and persisted to disk
-/// in JSON lines format (one JSON object per line). File writes are atomic
-/// using the temp-file-rename pattern.
+/// Evictable entries are kept in an [`LruCache`] so LRU eviction is O(1).
+/// Critical entries stay pinned in a separate map and are excluded from
+/// eviction. All entries are persisted to disk in JSON lines format, and
+/// evictable entries are written from LRU to MRU so restart reconstructs the
+/// same recency order.
 pub struct HotStore {
-    /// In-memory entry map.
-    entries: RwLock<HashMap<EntryId, MemoryEntry>>,
+    /// In-memory hot-store state.
+    entries: RwLock<HotStoreState>,
     /// Path to the persistence file.
     path: std::path::PathBuf,
     /// Maximum number of entries allowed.
@@ -37,7 +115,7 @@ impl HotStore {
     /// Create a new HotStore, loading any existing data from disk.
     pub async fn new(config: &MemoryConfig) -> Result<Self> {
         let store = Self {
-            entries: RwLock::new(HashMap::new()),
+            entries: RwLock::new(HotStoreState::new(config.max_entries)),
             path: config.hot_store_path.clone(),
             max_entries: config.max_entries,
             eviction_count: AtomicU64::new(0),
@@ -51,53 +129,59 @@ impl HotStore {
         if !self.path.exists() {
             return Ok(());
         }
+
         let content = fs::read_to_string(&self.path).await?;
-        let mut entries = self.entries.write().await;
+        let mut evictable_entries = Vec::new();
+        let mut critical_entries = HashMap::new();
+
         for line in content.lines() {
             if line.trim().is_empty() {
                 continue;
             }
-            match serde_json::from_str::<MemoryEntry>(line) {
-                Ok(entry) => {
-                    entries.insert(entry.id.clone(), entry);
-                }
-                Err(_) => continue,
+
+            let Ok(entry) = serde_json::from_str::<MemoryEntry>(line) else {
+                continue;
+            };
+
+            if entry.category == MemoryCategory::Critical {
+                critical_entries.insert(entry.id.clone(), entry);
+            } else {
+                evictable_entries.push(entry);
             }
         }
+
+        evictable_entries.sort_by_key(|entry| entry.updated_at);
+
+        let mut entries = self.entries.write().await;
+        *entries = HotStoreState::new(self.max_entries);
+        entries.critical = critical_entries;
+        for entry in evictable_entries {
+            entries.insert(entry);
+        }
+
         Ok(())
     }
 
     /// Persist all entries to disk using atomic write (temp + rename).
     async fn save_to_disk(&self) -> Result<()> {
-        let entries = self.entries.read().await;
+        let lines = {
+            let entries = self.entries.read().await;
+            let mut lines = String::new();
+            for entry in entries.ordered_entries() {
+                lines.push_str(&serde_json::to_string(&entry)?);
+                lines.push('\n');
+            }
+            lines
+        };
 
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent).await?;
         }
 
         let temp_path = self.path.with_extension("jsonl.tmp");
-        let mut lines = String::new();
-        for entry in entries.values() {
-            lines.push_str(&serde_json::to_string(entry)?);
-            lines.push('\n');
-        }
         fs::write(&temp_path, &lines).await?;
         fs::rename(&temp_path, &self.path).await?;
         Ok(())
-    }
-
-    /// Find and return the ID of the least-recently-used non-critical entry.
-    ///
-    /// Returns `None` if all entries are pinned (Critical category).
-    fn evict_lru(entries: &HashMap<EntryId, MemoryEntry>) -> Option<EntryId> {
-        entries
-            .iter()
-            .filter(|(_, e)| e.category != MemoryCategory::Critical)
-            .min_by_key(|(_, e)| e.updated_at)
-            .map(|(id, e)| {
-                tracing::debug!("Evicted LRU entry {} (last_accessed: {})", id, e.updated_at);
-                id.clone()
-            })
     }
 
     /// Return the total number of entries evicted since store creation.
@@ -111,31 +195,44 @@ impl MemoryStore for HotStore {
     async fn store(&self, entry: MemoryEntry) -> Result<()> {
         {
             let mut entries = self.entries.write().await;
-            if entries.len() >= self.max_entries && !entries.contains_key(&entry.id) {
-                if let Some(evict_id) = Self::evict_lru(&entries) {
-                    entries.remove(&evict_id);
-                    self.eviction_count.fetch_add(1, Ordering::Relaxed);
-                } else {
+            let entry_exists = entries.contains(&entry.id);
+
+            if entry_exists {
+                entries.remove(&entry.id);
+            } else if entries.total_len() >= self.max_entries {
+                let Some(evicted) = entries.evict_lru() else {
                     return Err(MemoryError::CapacityExceeded {
                         max: self.max_entries,
-                        current: entries.len(),
+                        current: entries.total_len(),
                     });
-                }
+                };
+
+                tracing::warn!(
+                    "Evicted LRU entry {} (last_accessed: {})",
+                    evicted.id,
+                    evicted.updated_at
+                );
+                self.eviction_count.fetch_add(1, Ordering::Relaxed);
             }
-            entries.insert(entry.id.clone(), entry);
+
+            entries.insert(entry);
         }
+
         self.save_to_disk().await?;
         Ok(())
     }
 
     async fn recall(&self, id: &str) -> Result<Option<MemoryEntry>> {
-        let mut entries = self.entries.write().await;
-        if let Some(entry) = entries.get_mut(id) {
-            entry.touch();
-            Ok(Some(entry.clone()))
-        } else {
-            Ok(None)
+        let entry = {
+            let mut entries = self.entries.write().await;
+            entries.find_and_touch(id)
+        };
+
+        if entry.is_some() {
+            self.save_to_disk().await?;
         }
+
+        Ok(entry)
     }
 
     async fn search(&self, query: &MemoryQuery) -> Result<Vec<ScoredEntry>> {
@@ -166,18 +263,20 @@ impl MemoryStore for HotStore {
             let mut entries = self.entries.write().await;
             entries.remove(id).is_some()
         };
+
         if removed {
             self.save_to_disk().await?;
         }
+
         Ok(())
     }
 
     async fn len(&self) -> usize {
-        self.entries.read().await.len()
+        self.entries.read().await.total_len()
     }
 
     async fn clear(&self) -> Result<()> {
-        self.entries.write().await.clear();
+        *self.entries.write().await = HotStoreState::new(self.max_entries);
         self.save_to_disk().await?;
         Ok(())
     }
@@ -247,6 +346,7 @@ mod tests {
     use crate::config::MemoryConfig;
     use crate::types::MemoryCategory;
     use chrono::{Duration, Utc};
+    use std::time::Instant;
 
     async fn make_test_store() -> (HotStore, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
@@ -258,6 +358,16 @@ mod tests {
     fn test_entry_with_age(content: &str, category: MemoryCategory, age: Duration) -> MemoryEntry {
         let mut entry = MemoryEntry::new(content, category);
         entry.updated_at = Utc::now() - age;
+        entry
+    }
+
+    fn test_entry_with_timestamp(
+        content: &str,
+        category: MemoryCategory,
+        updated_at: chrono::DateTime<Utc>,
+    ) -> MemoryEntry {
+        let mut entry = MemoryEntry::new(content, category);
+        entry.updated_at = updated_at;
         entry
     }
 
@@ -305,11 +415,9 @@ mod tests {
             store.store(entry).await.unwrap();
         }
 
-        // Verify file exists and contains the entry
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("persisted"));
 
-        // Load into a new store instance
         let store2 = HotStore::new(&config).await.unwrap();
         let recalled = store2.recall(&id).await.unwrap();
         assert!(recalled.is_some());
@@ -333,7 +441,6 @@ mod tests {
     #[tokio::test]
     async fn test_delete_nonexistent() {
         let (store, _dir) = make_test_store().await;
-        // Should not error
         store.delete("no-such-id").await.unwrap();
     }
 
@@ -568,6 +675,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_recall_persists_recency_after_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = MemoryConfig::for_test(dir.path());
+        config.max_entries = 2;
+
+        let older_ts = Utc::now() - Duration::seconds(60);
+        let newer_ts = Utc::now() - Duration::seconds(30);
+
+        let older = test_entry_with_timestamp("older", MemoryCategory::Fact, older_ts);
+        let older_id = older.id.clone();
+        let newer = test_entry_with_timestamp("newer", MemoryCategory::Fact, newer_ts);
+        let newer_id = newer.id.clone();
+
+        {
+            let store = HotStore::new(&config).await.unwrap();
+            store.store(older).await.unwrap();
+            store.store(newer).await.unwrap();
+            store.recall(&older_id).await.unwrap();
+        }
+
+        let store = HotStore::new(&config).await.unwrap();
+        store
+            .store(MemoryEntry::new("fresh", MemoryCategory::Fact))
+            .await
+            .unwrap();
+
+        assert!(store.recall(&older_id).await.unwrap().is_some());
+        assert!(store.recall(&newer_id).await.unwrap().is_none());
+        assert_eq!(store.eviction_count(), 1);
+    }
+
+    #[tokio::test]
     async fn test_eviction_count_tracks_multiple() {
         let dir = tempfile::tempdir().unwrap();
         let mut config = MemoryConfig::for_test(dir.path());
@@ -584,7 +723,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Evict 3 entries total
         store
             .store(MemoryEntry::new("c", MemoryCategory::Fact))
             .await
@@ -615,7 +753,6 @@ mod tests {
         let id = entry.id.clone();
         store.store(entry).await.unwrap();
 
-        // Overwrite same ID should work
         entry = MemoryEntry::new("updated", MemoryCategory::Fact);
         entry.id = id.clone();
         store.store(entry).await.unwrap();
@@ -631,7 +768,6 @@ mod tests {
         let config = MemoryConfig::for_test(dir.path());
         let path = config.hot_store_path.clone();
 
-        // Write file with one valid and one malformed line
         let valid_entry = MemoryEntry::new("valid", MemoryCategory::Fact);
         let valid_id = valid_entry.id.clone();
         let mut content = serde_json::to_string(&valid_entry).unwrap();
@@ -644,6 +780,47 @@ mod tests {
         assert!(recalled.is_some());
         assert_eq!(recalled.unwrap().content, "valid");
         assert_eq!(store.len().await, 1);
+    }
+
+    #[test]
+    #[ignore = "benchmark smoke test"]
+    fn benchmark_o1_eviction_smoke() {
+        fn benchmark_for(size: usize) -> u128 {
+            let runtime = tokio::runtime::Runtime::new().unwrap();
+            let dir = tempfile::tempdir().unwrap();
+            let mut config = MemoryConfig::for_test(dir.path());
+            config.max_entries = size;
+
+            runtime.block_on(async {
+                let store = HotStore::new(&config).await.unwrap();
+                for i in 0..size {
+                    store
+                        .store(MemoryEntry::new(format!("entry {i}"), MemoryCategory::Fact))
+                        .await
+                        .unwrap();
+                }
+
+                let start = Instant::now();
+                for i in 0..200 {
+                    store
+                        .store(MemoryEntry::new(
+                            format!("eviction {size}-{i}"),
+                            MemoryCategory::Fact,
+                        ))
+                        .await
+                        .unwrap();
+                }
+                start.elapsed().as_nanos() / 200
+            })
+        }
+
+        let small = benchmark_for(128);
+        let large = benchmark_for(8_192);
+
+        assert!(
+            large < small.saturating_mul(8),
+            "expected near-constant eviction cost, small={small}ns large={large}ns"
+        );
     }
 
     #[test]

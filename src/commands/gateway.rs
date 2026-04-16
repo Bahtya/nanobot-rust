@@ -338,7 +338,7 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
                 info!("Memory store initialized (HotStore L1)");
                 let hot_store: Arc<dyn MemoryStore> = Arc::new(hot_store);
                 heartbeat_memory_store = Some(hot_store.clone());
-                learning_memory_store = Some(hot_store);
+                learning_memory_store = Some(hot_store.clone());
                 al = al.with_memory_store(hot_store);
             }
             Err(e) => {
@@ -505,7 +505,6 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
                 processor.stats().events_processed
             );
         }
-        let processor = Arc::new(processor);
         let store = event_store.clone();
         let memory_store = learning_memory_store.clone();
         let skill_registry = skill_registry.clone();
@@ -597,7 +596,6 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
     }
     if let Err(e) = learning_handle.await {
         tracing::warn!("Learning consumer task join failed: {}", e);
-    }
     }
 
     info!("Gateway shutting down");

@@ -16,6 +16,8 @@ use tracing;
 
 use crate::event::{LearningAction, LearningEvent};
 
+const PROCESSOR_STATS_VERSION: u32 = 1;
+
 /// Trait for processing learning events.
 #[async_trait]
 pub trait LearningEventHandler: Send + Sync {
@@ -72,14 +74,28 @@ pub struct CorrectionStats {
 }
 
 /// Aggregate statistics from the [`BasicEventProcessor`].
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessorStats {
+    /// Schema version for persisted processor stats.
+    #[serde(default = "default_processor_stats_version")]
+    pub version: u32,
     /// Per-tool statistics.
     pub tools: HashMap<String, ToolStats>,
     /// Per-topic correction statistics.
     pub corrections: HashMap<String, CorrectionStats>,
     /// Total events processed.
     pub events_processed: u64,
+}
+
+impl Default for ProcessorStats {
+    fn default() -> Self {
+        Self {
+            version: PROCESSOR_STATS_VERSION,
+            tools: HashMap::new(),
+            corrections: HashMap::new(),
+            events_processed: 0,
+        }
+    }
 }
 
 /// A basic event processor that tracks tool success/failure patterns,
@@ -163,11 +179,26 @@ impl BasicEventProcessor {
         }
 
         let data = tokio::fs::read_to_string(path).await?;
-        let loaded: ProcessorStats = serde_json::from_str(&data)?;
+        let mut loaded: ProcessorStats = serde_json::from_str(&data)?;
+        if loaded.version != PROCESSOR_STATS_VERSION {
+            tracing::warn!(
+                "Processor stats version mismatch at {}: found {}, expected {}",
+                path.display(),
+                loaded.version,
+                PROCESSOR_STATS_VERSION
+            );
+            loaded = Self::migrate_stats(loaded);
+        }
         *self.stats.write() = loaded;
 
         tracing::debug!("Loaded processor stats from {}", path.display());
         Ok(())
+    }
+
+    /// Migrate loaded stats into the current in-memory schema version.
+    fn migrate_stats(mut stats: ProcessorStats) -> ProcessorStats {
+        stats.version = PROCESSOR_STATS_VERSION;
+        stats
     }
 }
 
@@ -175,6 +206,10 @@ impl Default for BasicEventProcessor {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn default_processor_stats_version() -> u32 {
+    PROCESSOR_STATS_VERSION
 }
 
 #[async_trait]
@@ -511,6 +546,7 @@ mod tests {
         let content = std::fs::read_to_string(&stats_path).unwrap();
         let parsed: ProcessorStats = serde_json::from_str(&content).unwrap();
         assert_eq!(parsed.events_processed, 1);
+        assert_eq!(parsed.version, PROCESSOR_STATS_VERSION);
 
         // Temp file should not linger.
         assert!(!stats_path.with_extension("tmp").exists());
@@ -576,5 +612,22 @@ mod tests {
             .iter()
             .any(|a| matches!(a, LearningAction::RecordInsight { .. })));
         assert_eq!(proc2.stats().events_processed, 6);
+    }
+
+    #[tokio::test]
+    async fn save_and_load_stats_preserves_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let stats_path = dir.path().join("stats.json");
+
+        let proc = BasicEventProcessor::new().with_stats_path(&stats_path);
+        proc.save_stats().await.unwrap();
+
+        let content = std::fs::read_to_string(&stats_path).unwrap();
+        let saved: ProcessorStats = serde_json::from_str(&content).unwrap();
+        assert_eq!(saved.version, PROCESSOR_STATS_VERSION);
+
+        let mut loaded = BasicEventProcessor::new().with_stats_path(&stats_path);
+        loaded.load_stats().await.unwrap();
+        assert_eq!(loaded.stats().version, PROCESSOR_STATS_VERSION);
     }
 }

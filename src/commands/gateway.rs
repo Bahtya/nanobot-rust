@@ -256,7 +256,7 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
         learning_config.max_events
     );
 
-    let _learning_handle = {
+    let learning_processor = {
         let mut learning_rx = learning_bus.subscribe();
         let stats_path = learning_config.stats_file();
         let mut processor = BasicEventProcessor::new().with_stats_path(&stats_path);
@@ -269,8 +269,10 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
                 processor.stats().events_processed
             );
         }
+        let processor = Arc::new(processor);
         let store = event_store.clone();
-        tokio::spawn(async move {
+        let task_processor = Arc::clone(&processor);
+        let _learning_handle = tokio::spawn(async move {
             let mut events_since_save: u64 = 0;
             loop {
                 match learning_rx.recv().await {
@@ -280,14 +282,14 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
                             tracing::warn!("Failed to persist learning event: {}", e);
                         }
                         // Process through the basic processor
-                        let actions = processor.handle(&event).await;
+                        let actions = task_processor.handle(&event).await;
                         for action in actions {
                             tracing::debug!("Learning action: {:?}", action);
                         }
                         // Periodically save stats
                         events_since_save += 1;
                         if events_since_save >= 50 {
-                            if let Err(e) = processor.save_stats().await {
+                            if let Err(e) = task_processor.save_stats().await {
                                 tracing::warn!("Failed to save processor stats: {}", e);
                             }
                             events_since_save = 0;
@@ -299,7 +301,14 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
                     Err(_) => break,
                 }
             }
-        })
+            if let Err(e) = task_processor.save_stats().await {
+                tracing::warn!(
+                    "Failed to flush processor stats on learning shutdown: {}",
+                    e
+                );
+            }
+        });
+        processor
     };
 
     // ── Periodic event log prune task ─────────────────────────
@@ -369,6 +378,13 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
     // ── Graceful shutdown ─────────────────────────────────────
     info!("Stopping all channels...");
     channel_manager.stop_all().await;
+
+    if let Err(e) = learning_processor.save_stats().await {
+        tracing::warn!(
+            "Failed to flush processor stats during gateway shutdown: {}",
+            e
+        );
+    }
 
     info!("Gateway shutting down");
     Ok(())

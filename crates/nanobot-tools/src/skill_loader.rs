@@ -1709,7 +1709,7 @@ mod tests {
         loader.load_all().unwrap();
         assert_eq!(loader.cache_size(), 2);
 
-        let _removed = loader.invalidate_by_name("a");
+        loader.invalidate_by_name("a");
         // invalidate_by_name doesn't return, but the effect should be visible
         assert!(loader.get("a").is_none());
         assert!(loader.get("b").is_some());

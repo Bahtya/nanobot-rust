@@ -363,7 +363,7 @@ mod tests {
 
     #[test]
     fn test_grep_tool_default() {
-        let tool = GrepTool::default();
+        let tool = GrepTool;
         assert_eq!(tool.name(), "grep");
     }
 
@@ -421,7 +421,7 @@ mod tests {
 
     #[test]
     fn test_glob_tool_default() {
-        let tool = GlobTool::default();
+        let tool = GlobTool;
         assert_eq!(tool.name(), "glob");
     }
 }

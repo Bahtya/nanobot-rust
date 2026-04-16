@@ -1414,6 +1414,7 @@ dependencies = [
  "nanobot-session",
  "nanobot-skill",
  "nanobot-tools",
+ "parking_lot",
  "serde",
  "serde_json",
  "serde_yaml",

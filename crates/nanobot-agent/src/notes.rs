@@ -1489,8 +1489,10 @@ mod tests {
 
     #[test]
     fn test_needs_compaction_disabled() {
-        let mut config = NoteCompactionConfig::default();
-        config.enabled = false;
+        let config = NoteCompactionConfig {
+            enabled: false,
+            ..NoteCompactionConfig::default()
+        };
         assert!(!config.needs_compaction(100));
     }
 
@@ -1882,8 +1884,10 @@ mod tests {
             session.save_note(format!("n{}", i), format!("note {}", i), vec![]);
         }
 
-        let mut config = NoteCompactionConfig::default();
-        config.enabled = false;
+        let config = NoteCompactionConfig {
+            enabled: false,
+            ..NoteCompactionConfig::default()
+        };
 
         let removed = NotesManager::compact_with_config(&mut session, &config);
         assert_eq!(removed, 0);

@@ -815,7 +815,7 @@ mod tests {
 
         let result = prune_messages(&messages, 50, 3);
         assert!(result.tokens_after <= 50);
-        assert!(result.removed.len() > 0);
+        assert!(!result.removed.is_empty());
 
         // Last 3 messages should be in kept
         for i in 7..10 {

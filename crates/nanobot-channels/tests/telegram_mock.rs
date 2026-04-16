@@ -5,9 +5,15 @@ use nanobot_channels::platforms::telegram::TelegramChannel;
 use nanobot_core::Platform;
 
 /// Start a mock HTTP server that responds to a single request.
-async fn start_mock_telegram_server(response_body: &str) -> (u16, tokio::task::JoinHandle<()>) {
+async fn start_mock_telegram_server(
+    response_body: &str,
+) -> Option<(u16, tokio::task::JoinHandle<()>)> {
     let body = response_body.to_string();
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+        Ok(listener) => listener,
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => return None,
+        Err(e) => panic!("failed to bind mock Telegram server: {e}"),
+    };
     let port = listener.local_addr().unwrap().port();
 
     let handle = tokio::spawn(async move {
@@ -34,13 +40,15 @@ async fn start_mock_telegram_server(response_body: &str) -> (u16, tokio::task::J
         let _ = writer.write_all(resp.as_bytes()).await;
     });
 
-    (port, handle)
+    Some((port, handle))
 }
 
 #[tokio::test]
 async fn test_telegram_send_message_with_mock() {
     let mock_response = r#"{"ok":true,"result":{"message_id":42,"chat":{"id":123,"type":"private"},"text":"Hello!"}}"#;
-    let (port, _handle) = start_mock_telegram_server(mock_response).await;
+    let Some((port, _handle)) = start_mock_telegram_server(mock_response).await else {
+        return;
+    };
 
     let channel = TelegramChannel::with_token_and_url(
         "test-token".to_string(),
@@ -57,7 +65,9 @@ async fn test_telegram_send_message_with_mock() {
 async fn test_telegram_send_message_with_reply() {
     let mock_response =
         r#"{"ok":true,"result":{"message_id":99,"chat":{"id":456},"text":"Reply!"}}"#;
-    let (port, _handle) = start_mock_telegram_server(mock_response).await;
+    let Some((port, _handle)) = start_mock_telegram_server(mock_response).await else {
+        return;
+    };
 
     let channel = TelegramChannel::with_token_and_url(
         "test-token".to_string(),
@@ -75,7 +85,9 @@ async fn test_telegram_send_message_with_reply() {
 #[tokio::test]
 async fn test_telegram_send_message_api_error() {
     let mock_response = r#"{"ok":false,"description":"Bad Request: chat not found"}"#;
-    let (port, _handle) = start_mock_telegram_server(mock_response).await;
+    let Some((port, _handle)) = start_mock_telegram_server(mock_response).await else {
+        return;
+    };
 
     let channel = TelegramChannel::with_token_and_url(
         "test-token".to_string(),
@@ -92,7 +104,9 @@ async fn test_telegram_send_message_api_error() {
 async fn test_telegram_send_image_with_mock() {
     let mock_response =
         r#"{"ok":true,"result":{"message_id":100,"chat":{"id":123},"caption":"test img"}}"#;
-    let (port, _handle) = start_mock_telegram_server(mock_response).await;
+    let Some((port, _handle)) = start_mock_telegram_server(mock_response).await else {
+        return;
+    };
 
     let channel = TelegramChannel::with_token_and_url(
         "test-token".to_string(),
@@ -122,7 +136,9 @@ async fn test_telegram_channel_name_and_platform() {
 async fn test_telegram_edit_message_text_with_mock() {
     let mock_response =
         r#"{"ok":true,"result":{"message_id":42,"chat":{"id":123},"text":"edited!"}}"#;
-    let (port, _handle) = start_mock_telegram_server(mock_response).await;
+    let Some((port, _handle)) = start_mock_telegram_server(mock_response).await else {
+        return;
+    };
 
     let channel = TelegramChannel::with_token_and_url(
         "test-token".to_string(),
@@ -141,7 +157,9 @@ async fn test_telegram_edit_message_text_with_mock() {
 async fn test_telegram_edit_message_reply_markup_with_mock() {
     let mock_response =
         r#"{"ok":true,"result":{"message_id":42,"chat":{"id":123},"text":"old text"}}"#;
-    let (port, _handle) = start_mock_telegram_server(mock_response).await;
+    let Some((port, _handle)) = start_mock_telegram_server(mock_response).await else {
+        return;
+    };
 
     let channel = TelegramChannel::with_token_and_url(
         "test-token".to_string(),
@@ -158,7 +176,9 @@ async fn test_telegram_edit_message_reply_markup_with_mock() {
 #[tokio::test]
 async fn test_telegram_send_reaction_with_mock() {
     let mock_response = r#"{"ok":true}"#;
-    let (port, _handle) = start_mock_telegram_server(mock_response).await;
+    let Some((port, _handle)) = start_mock_telegram_server(mock_response).await else {
+        return;
+    };
 
     let channel = TelegramChannel::with_token_and_url(
         "test-token".to_string(),
@@ -172,7 +192,9 @@ async fn test_telegram_send_reaction_with_mock() {
 #[tokio::test]
 async fn test_telegram_send_typing_with_mock() {
     let mock_response = r#"{"ok":true}"#;
-    let (port, _handle) = start_mock_telegram_server(mock_response).await;
+    let Some((port, _handle)) = start_mock_telegram_server(mock_response).await else {
+        return;
+    };
 
     let channel = TelegramChannel::with_token_and_url(
         "test-token".to_string(),

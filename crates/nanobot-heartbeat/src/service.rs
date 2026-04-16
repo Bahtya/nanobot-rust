@@ -11,6 +11,9 @@ use anyhow::{Context, Result};
 use chrono::Local;
 use nanobot_bus::events::AgentEvent;
 use nanobot_bus::MessageBus;
+use nanobot_providers::ProviderRegistry;
+use nanobot_session::SessionManager;
+use nanobot_tools::ToolRegistry;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -34,9 +37,13 @@ pub struct HeartbeatService {
     interval: Duration,
     running: Arc<RwLock<bool>>,
     bus: Option<Arc<MessageBus>>,
+    providers: Option<Arc<ProviderRegistry>>,
+    tools: Option<Arc<ToolRegistry>>,
+    sessions: Option<Arc<SessionManager>>,
     state_path: PathBuf,
     state: parking_lot::Mutex<HeartbeatState>,
     registry: parking_lot::RwLock<HealthCheckRegistry>,
+    snapshot_sinks: parking_lot::RwLock<Vec<Arc<parking_lot::RwLock<Option<HealthSnapshot>>>>>,
     failures_before_restart: usize,
 }
 
@@ -53,9 +60,13 @@ impl HeartbeatService {
             interval: Duration::from_secs(interval_secs),
             running: Arc::new(RwLock::new(false)),
             bus: None,
+            providers: None,
+            tools: None,
+            sessions: None,
             state_path,
             state: parking_lot::Mutex::new(state),
             registry: parking_lot::RwLock::new(HealthCheckRegistry::new()),
+            snapshot_sinks: parking_lot::RwLock::new(Vec::new()),
             failures_before_restart: FAILURES_BEFORE_RESTART,
         }
     }
@@ -70,30 +81,58 @@ impl HeartbeatService {
             interval: Duration::from_secs(interval_secs),
             running: Arc::new(RwLock::new(false)),
             bus: None,
+            providers: None,
+            tools: None,
+            sessions: None,
             state_path,
             state: parking_lot::Mutex::new(state),
             registry: parking_lot::RwLock::new(HealthCheckRegistry::new()),
+            snapshot_sinks: parking_lot::RwLock::new(Vec::new()),
             failures_before_restart: FAILURES_BEFORE_RESTART,
         }
     }
 
     /// Create with external registries (for gateway/heartbeat commands).
-    ///
-    /// The registries are currently not used by the heartbeat service itself,
-    /// but the constructor accepts them for API compatibility with the gateway wiring.
     #[allow(clippy::too_many_arguments)]
     pub fn with_registries(
         config: nanobot_config::Config,
-        _providers: nanobot_providers::ProviderRegistry,
-        _tools: nanobot_tools::ToolRegistry,
-        _sessions: nanobot_session::SessionManager,
+        providers: ProviderRegistry,
+        tools: ToolRegistry,
+        sessions: SessionManager,
     ) -> Self {
-        Self::new(config)
+        let mut service = Self::new(config);
+        service.providers = Some(Arc::new(providers));
+        service.tools = Some(Arc::new(tools));
+        service.sessions = Some(Arc::new(sessions));
+        service
     }
 
     /// Wire a MessageBus for event emission during health checks.
     pub fn set_bus(&mut self, bus: MessageBus) {
         self.bus = Some(Arc::new(bus));
+    }
+
+    /// Get the attached provider registry, if one was supplied.
+    pub fn provider_registry(&self) -> Option<Arc<ProviderRegistry>> {
+        self.providers.clone()
+    }
+
+    /// Get the attached tool registry, if one was supplied.
+    pub fn tool_registry(&self) -> Option<Arc<ToolRegistry>> {
+        self.tools.clone()
+    }
+
+    /// Get the attached session manager, if one was supplied.
+    pub fn session_manager(&self) -> Option<Arc<SessionManager>> {
+        self.sessions.clone()
+    }
+
+    /// Register an external sink that should receive every health snapshot.
+    pub fn add_snapshot_sink(&self, sink: Arc<parking_lot::RwLock<Option<HealthSnapshot>>>) {
+        if let Some(snapshot) = self.last_snapshot() {
+            *sink.write() = Some(snapshot);
+        }
+        self.snapshot_sinks.write().push(sink);
     }
 
     /// Register a health check component.
@@ -203,6 +242,7 @@ impl HeartbeatService {
             state.total_failures += snapshot.failed_count();
             state.last_snapshot = Some(snapshot.clone());
         }
+        self.publish_snapshot(snapshot.clone());
 
         // Emit state change notification if status transitioned
         if let Some(ref prev) = previous_status {
@@ -459,6 +499,14 @@ impl HeartbeatService {
         std::fs::write(&self.state_path, json)
             .with_context(|| format!("Failed to write {}", self.state_path.display()))?;
         Ok(())
+    }
+
+    /// Publish the latest snapshot to all registered sinks.
+    fn publish_snapshot(&self, snapshot: HealthSnapshot) {
+        let sinks = self.snapshot_sinks.read().clone();
+        for sink in sinks {
+            *sink.write() = Some(snapshot.clone());
+        }
     }
 }
 
@@ -1382,5 +1430,74 @@ mod tests {
 
         let report = svc.generate_full_report().await.unwrap();
         assert_eq!(report.total_checks_run, 3); // 2 from run_checks + 1 from generate_full_report
+    }
+
+    #[test]
+    fn test_with_registries_stores_dependencies() {
+        let config = nanobot_config::Config::default();
+        let tmp = tempfile::tempdir().unwrap();
+        let sessions = SessionManager::new(tmp.path().to_path_buf()).unwrap();
+        sessions.get_or_create("session-1", None);
+
+        let mut providers = ProviderRegistry::new();
+        providers.register("mock", MockProvider);
+        providers.set_default("mock");
+
+        let tools = nanobot_tools::ToolRegistry::new();
+        nanobot_tools::builtins::register_all(&tools);
+
+        let service = HeartbeatService::with_registries(config, providers, tools, sessions.clone());
+
+        let attached_providers = service.provider_registry().unwrap();
+        let attached_tools = service.tool_registry().unwrap();
+        let attached_sessions = service.session_manager().unwrap();
+
+        assert_eq!(
+            attached_providers.provider_names(),
+            vec!["mock".to_string()]
+        );
+        assert!(!attached_tools.tool_names().is_empty());
+        assert_eq!(attached_sessions.session_count(), 1);
+    }
+
+    struct MockProvider;
+
+    #[async_trait::async_trait]
+    impl nanobot_providers::LlmProvider for MockProvider {
+        fn name(&self) -> &str {
+            "mock"
+        }
+
+        async fn complete(
+            &self,
+            _request: nanobot_providers::CompletionRequest,
+        ) -> anyhow::Result<nanobot_providers::CompletionResponse> {
+            Ok(nanobot_providers::CompletionResponse {
+                content: Some("ok".to_string()),
+                tool_calls: None,
+                usage: None,
+                finish_reason: Some("stop".to_string()),
+            })
+        }
+
+        async fn complete_stream(
+            &self,
+            request: nanobot_providers::CompletionRequest,
+        ) -> anyhow::Result<nanobot_providers::base::BoxStream> {
+            use nanobot_providers::base::CompletionChunk;
+
+            let response = self.complete(request).await?;
+            let chunk = CompletionChunk {
+                delta: response.content,
+                tool_call_deltas: None,
+                usage: response.usage,
+                done: true,
+            };
+            Ok(Box::pin(futures::stream::once(async move { Ok(chunk) })))
+        }
+
+        fn supports_model(&self, _model: &str) -> bool {
+            true
+        }
     }
 }

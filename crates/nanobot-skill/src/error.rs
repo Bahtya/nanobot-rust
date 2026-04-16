@@ -139,7 +139,7 @@ mod tests {
     #[test]
     fn test_result_alias() {
         let ok: SkillResult<i32> = Ok(42);
-        assert_eq!(ok.unwrap(), 42);
+        assert!(matches!(ok, Ok(42)));
 
         let err: SkillResult<String> = Err(SkillError::NotFound("x".to_string()));
         assert!(err.is_err());
@@ -154,7 +154,7 @@ mod tests {
     #[test]
     fn test_serialize_failed_display() {
         // Create a type that fails to serialize to TOML
-        let err = toml::to_string(&std::f64::NAN).unwrap_err();
+        let err = toml::to_string(&f64::NAN).unwrap_err();
         let skill_err: SkillError = err.into();
         assert!(matches!(skill_err, SkillError::SerializeFailed(_)));
         assert!(format!("{skill_err}").contains("serialize"));

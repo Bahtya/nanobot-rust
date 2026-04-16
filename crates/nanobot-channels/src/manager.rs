@@ -11,11 +11,13 @@ use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
+type SharedChannel = Arc<tokio::sync::Mutex<Box<dyn BaseChannel>>>;
+
 /// Manages multiple channel adapters and routes messages.
 pub struct ChannelManager {
     registry: Arc<ChannelRegistry>,
     bus: Arc<MessageBus>,
-    running_channels: DashMap<String, Arc<tokio::sync::Mutex<Box<dyn BaseChannel>>>>,
+    running_channels: DashMap<String, SharedChannel>,
     /// Active periodic typing tasks, keyed by session_key.
     typing_tasks: DashMap<String, JoinHandle<()>>,
     /// Shared client map for WebSocket streaming.
@@ -336,6 +338,22 @@ impl ChannelManager {
             .iter()
             .map(|r| r.key().clone())
             .collect()
+    }
+
+    /// Snapshot the current connection status for each running channel.
+    pub async fn channel_statuses(&self) -> Vec<(String, bool)> {
+        let channels: Vec<(String, SharedChannel)> = self
+            .running_channels
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect();
+
+        let mut statuses = Vec::with_capacity(channels.len());
+        for (name, channel) in channels {
+            let connected = channel.lock().await.is_connected();
+            statuses.push((name, connected));
+        }
+        statuses
     }
 }
 

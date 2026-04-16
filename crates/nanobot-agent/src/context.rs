@@ -359,8 +359,10 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_custom_name() {
-        let mut config = Config::default();
-        config.name = Some("CustomBot".to_string());
+        let config = Config {
+            name: Some("CustomBot".to_string()),
+            ..Config::default()
+        };
         let builder = ContextBuilder::new(&config);
         let msg = make_inbound();
         let session = Session::new("test:key".to_string());
@@ -374,8 +376,10 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_custom_instructions() {
-        let mut config = Config::default();
-        config.custom_instructions = Some("Always respond in French.".to_string());
+        let config = Config {
+            custom_instructions: Some("Always respond in French.".to_string()),
+            ..Config::default()
+        };
         let builder = ContextBuilder::new(&config);
         let msg = make_inbound();
         let session = Session::new("test:key".to_string());
@@ -399,8 +403,10 @@ mod tests {
 
     #[test]
     fn test_build_identity_custom_name() {
-        let mut config = Config::default();
-        config.name = Some("RoboAssistant".to_string());
+        let config = Config {
+            name: Some("RoboAssistant".to_string()),
+            ..Config::default()
+        };
         let builder = ContextBuilder::new(&config);
         let identity = builder.build_identity_content();
         assert!(identity.contains("RoboAssistant"));
@@ -419,9 +425,11 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_all_sections() {
-        let mut config = Config::default();
-        config.name = Some("TestBot".to_string());
-        config.custom_instructions = Some("Be helpful.".to_string());
+        let config = Config {
+            name: Some("TestBot".to_string()),
+            custom_instructions: Some("Be helpful.".to_string()),
+            ..Config::default()
+        };
 
         let builder = ContextBuilder::new(&config);
         let msg = make_inbound();
@@ -582,8 +590,10 @@ mod tests {
 
     #[test]
     fn test_context_builder_prompt_section_order() {
-        let mut config = Config::default();
-        config.custom_instructions = Some("Be helpful.".to_string());
+        let config = Config {
+            custom_instructions: Some("Be helpful.".to_string()),
+            ..Config::default()
+        };
         let builder = ContextBuilder::new(&config);
         let msg = make_inbound();
         let session = Session::new("test:key".to_string());
@@ -745,8 +755,10 @@ mod tests {
 
     #[test]
     fn test_enriched_context_section_order() {
-        let mut config = Config::default();
-        config.custom_instructions = Some("Be helpful.".to_string());
+        let config = Config {
+            custom_instructions: Some("Be helpful.".to_string()),
+            ..Config::default()
+        };
 
         use async_trait::async_trait;
         use nanobot_tools::Tool;

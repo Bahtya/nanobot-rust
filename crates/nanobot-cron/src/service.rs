@@ -635,7 +635,6 @@ mod tests {
     ///   "0 0 * * * * *" — every hour
     ///   "0 */5 * * * * *" — every 5 minutes
     ///   "0 0 0 * * * *" — daily at midnight
-
     fn make_payload() -> CronPayload {
         CronPayload {
             message: "test".to_string(),

@@ -166,6 +166,7 @@ impl NoteStore {
 }
 
 #[cfg(test)]
+#[allow(clippy::useless_vec)]
 mod tests {
     use super::*;
 

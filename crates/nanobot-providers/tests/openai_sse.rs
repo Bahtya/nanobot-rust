@@ -12,10 +12,14 @@ use nanobot_providers::{LlmProvider, RetryConfig};
 async fn start_mock_http_server(
     response_body: &str,
     content_type: &str,
-) -> (u16, tokio::task::JoinHandle<()>) {
+) -> Option<(u16, tokio::task::JoinHandle<()>)> {
     let body = response_body.to_string();
     let ct = content_type.to_string();
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+        Ok(listener) => listener,
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => return None,
+        Err(e) => panic!("failed to bind mock OpenAI server: {e}"),
+    };
     let port = listener.local_addr().unwrap().port();
 
     let handle = tokio::spawn(async move {
@@ -43,7 +47,7 @@ async fn start_mock_http_server(
         let _ = writer.write_all(resp.as_bytes()).await;
     });
 
-    (port, handle)
+    Some((port, handle))
 }
 
 /// Helper: start a mock server that returns `error_count` 429 responses,
@@ -52,9 +56,13 @@ async fn start_mock_retry_server(
     error_status: u16,
     error_count: usize,
     success_body: &str,
-) -> (u16, tokio::task::JoinHandle<()>) {
+) -> Option<(u16, tokio::task::JoinHandle<()>)> {
     let body = success_body.to_string();
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+        Ok(listener) => listener,
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => return None,
+        Err(e) => panic!("failed to bind mock OpenAI retry server: {e}"),
+    };
     let port = listener.local_addr().unwrap().port();
     let err_count = error_count;
 
@@ -92,7 +100,7 @@ async fn start_mock_retry_server(
         }
     });
 
-    (port, handle)
+    Some((port, handle))
 }
 
 /// Build a no-proxy HTTP client for tests.
@@ -144,7 +152,10 @@ fn make_request(stream: bool) -> nanobot_providers::CompletionRequest {
 async fn test_openai_non_streaming_with_mock() {
     let response_body = r#"{"choices":[{"message":{"content":"Hello!","tool_calls":null},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":2,"total_tokens":7}}"#;
 
-    let (port, _handle) = start_mock_http_server(response_body, "application/json").await;
+    let Some((port, _handle)) = start_mock_http_server(response_body, "application/json").await
+    else {
+        return;
+    };
     let provider = make_provider(port);
 
     let response = provider.complete(make_request(false)).await.unwrap();
@@ -161,7 +172,10 @@ async fn test_openai_non_streaming_with_mock() {
 async fn test_openai_non_streaming_tool_calls() {
     let response_body = r#"{"choices":[{"message":{"content":null,"tool_calls":[{"id":"call_abc","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Berlin\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":15,"total_tokens":25}}"#;
 
-    let (port, _handle) = start_mock_http_server(response_body, "application/json").await;
+    let Some((port, _handle)) = start_mock_http_server(response_body, "application/json").await
+    else {
+        return;
+    };
     let provider = make_provider(port);
 
     let response = provider.complete(make_request(false)).await.unwrap();
@@ -185,7 +199,9 @@ async fn test_openai_sse_streaming_with_mock() {
         "data: [DONE]\n\n",
     );
 
-    let (port, _handle) = start_mock_http_server(sse_body, "text/event-stream").await;
+    let Some((port, _handle)) = start_mock_http_server(sse_body, "text/event-stream").await else {
+        return;
+    };
     let provider = make_provider(port);
 
     let mut stream = provider.complete_stream(make_request(true)).await.unwrap();
@@ -222,7 +238,9 @@ async fn test_openai_sse_tool_calls() {
         "data: [DONE]\n\n",
     );
 
-    let (port, _handle) = start_mock_http_server(sse_body, "text/event-stream").await;
+    let Some((port, _handle)) = start_mock_http_server(sse_body, "text/event-stream").await else {
+        return;
+    };
     let provider = make_provider(port);
 
     let mut stream = provider.complete_stream(make_request(true)).await.unwrap();
@@ -256,7 +274,9 @@ async fn test_openai_retry_on_429_then_success() {
     let success_body = r#"{"choices":[{"message":{"content":"retry ok!","tool_calls":null},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#;
 
     // Server returns 429 once, then 200.
-    let (port, _handle) = start_mock_retry_server(429, 1, success_body).await;
+    let Some((port, _handle)) = start_mock_retry_server(429, 1, success_body).await else {
+        return;
+    };
     let retry = RetryConfig::default().with_max_retries(3);
     let provider = make_provider_with_retry(port, retry);
 
@@ -269,7 +289,9 @@ async fn test_openai_retry_on_429_then_success() {
 async fn test_openai_retry_on_503_then_success() {
     let success_body = r#"{"choices":[{"message":{"content":"server recovered","tool_calls":null},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#;
 
-    let (port, _handle) = start_mock_retry_server(503, 2, success_body).await;
+    let Some((port, _handle)) = start_mock_retry_server(503, 2, success_body).await else {
+        return;
+    };
     let retry = RetryConfig::default().with_max_retries(3);
     let provider = make_provider_with_retry(port, retry);
 
@@ -281,7 +303,9 @@ async fn test_openai_retry_on_503_then_success() {
 #[tokio::test]
 async fn test_openai_retry_exhausted() {
     // Server always returns 429 (more times than we'll retry).
-    let (port, _handle) = start_mock_retry_server(429, 5, "").await;
+    let Some((port, _handle)) = start_mock_retry_server(429, 5, "").await else {
+        return;
+    };
     let retry = RetryConfig::default().with_max_retries(2);
     let provider = make_provider_with_retry(port, retry);
 

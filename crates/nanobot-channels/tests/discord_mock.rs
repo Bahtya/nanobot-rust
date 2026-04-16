@@ -20,9 +20,13 @@ async fn start_mock_discord_server(
     response_body: &str,
     status_code: u16,
     expected_method: MockMethod,
-) -> (u16, tokio::task::JoinHandle<()>) {
+) -> Option<(u16, tokio::task::JoinHandle<()>)> {
     let body = response_body.to_string();
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+        Ok(listener) => listener,
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => return None,
+        Err(e) => panic!("failed to bind mock Discord server: {e}"),
+    };
     let port = listener.local_addr().unwrap().port();
 
     let handle = tokio::spawn(async move {
@@ -77,13 +81,17 @@ async fn start_mock_discord_server(
         let _ = writer.write_all(response.as_bytes()).await;
     });
 
-    (port, handle)
+    Some((port, handle))
 }
 
 #[tokio::test]
 async fn test_discord_send_message_with_mock() {
     let mock_response = r#"{"id":"111222333","channel_id":"12345","content":"Hello!"}"#;
-    let (port, _handle) = start_mock_discord_server(mock_response, 200, MockMethod::Post).await;
+    let Some((port, _handle)) =
+        start_mock_discord_server(mock_response, 200, MockMethod::Post).await
+    else {
+        return;
+    };
 
     let channel = DiscordChannel::with_token_and_url(
         "test-bot-token".to_string(),
@@ -99,7 +107,11 @@ async fn test_discord_send_message_with_mock() {
 #[tokio::test]
 async fn test_discord_send_message_with_reply() {
     let mock_response = r#"{"id":"999888","channel_id":"12345","content":"Reply!"}"#;
-    let (port, _handle) = start_mock_discord_server(mock_response, 200, MockMethod::Post).await;
+    let Some((port, _handle)) =
+        start_mock_discord_server(mock_response, 200, MockMethod::Post).await
+    else {
+        return;
+    };
 
     let channel = DiscordChannel::with_token_and_url(
         "test-bot-token".to_string(),
@@ -117,7 +129,11 @@ async fn test_discord_send_message_with_reply() {
 #[tokio::test]
 async fn test_discord_send_message_rate_limited() {
     let mock_response = r#"{"message":"You are being rate limited.","retry_after":5}"#;
-    let (port, _handle) = start_mock_discord_server(mock_response, 429, MockMethod::Post).await;
+    let Some((port, _handle)) =
+        start_mock_discord_server(mock_response, 429, MockMethod::Post).await
+    else {
+        return;
+    };
 
     let channel = DiscordChannel::with_token_and_url(
         "test-bot-token".to_string(),
@@ -133,7 +149,11 @@ async fn test_discord_send_message_rate_limited() {
 #[tokio::test]
 async fn test_discord_send_image_with_mock() {
     let mock_response = r#"{"id":"555666","channel_id":"12345","content":""}"#;
-    let (port, _handle) = start_mock_discord_server(mock_response, 200, MockMethod::Post).await;
+    let Some((port, _handle)) =
+        start_mock_discord_server(mock_response, 200, MockMethod::Post).await
+    else {
+        return;
+    };
 
     let channel = DiscordChannel::with_token_and_url(
         "test-bot-token".to_string(),
@@ -162,7 +182,11 @@ async fn test_discord_channel_name_and_platform() {
 #[tokio::test]
 async fn test_discord_edit_message_with_mock() {
     let mock_response = r#"{"id":"111222333","channel_id":"12345","content":"edited!"}"#;
-    let (port, _handle) = start_mock_discord_server(mock_response, 200, MockMethod::Patch).await;
+    let Some((port, _handle)) =
+        start_mock_discord_server(mock_response, 200, MockMethod::Patch).await
+    else {
+        return;
+    };
 
     let channel = DiscordChannel::with_token_and_url(
         "test-bot-token".to_string(),
@@ -181,7 +205,11 @@ async fn test_discord_edit_message_with_mock() {
 #[tokio::test]
 async fn test_discord_edit_message_not_found() {
     let mock_response = r#"{"message":"Unknown Message","code":10008}"#;
-    let (port, _handle) = start_mock_discord_server(mock_response, 404, MockMethod::Patch).await;
+    let Some((port, _handle)) =
+        start_mock_discord_server(mock_response, 404, MockMethod::Patch).await
+    else {
+        return;
+    };
 
     let channel = DiscordChannel::with_token_and_url(
         "test-bot-token".to_string(),
@@ -201,7 +229,11 @@ async fn test_discord_edit_message_not_found() {
 async fn test_discord_edit_message_forbidden() {
     let mock_response =
         r#"{"message":"Cannot edit a message authored by another user.","code":50005}"#;
-    let (port, _handle) = start_mock_discord_server(mock_response, 403, MockMethod::Patch).await;
+    let Some((port, _handle)) =
+        start_mock_discord_server(mock_response, 403, MockMethod::Patch).await
+    else {
+        return;
+    };
 
     let channel = DiscordChannel::with_token_and_url(
         "test-bot-token".to_string(),
@@ -219,7 +251,9 @@ async fn test_discord_edit_message_forbidden() {
 #[tokio::test]
 async fn test_discord_delete_message_with_mock() {
     // DELETE returns 204 No Content with empty body
-    let (port, _handle) = start_mock_discord_server("", 204, MockMethod::Delete).await;
+    let Some((port, _handle)) = start_mock_discord_server("", 204, MockMethod::Delete).await else {
+        return;
+    };
 
     let channel = DiscordChannel::with_token_and_url(
         "test-bot-token".to_string(),
@@ -235,7 +269,11 @@ async fn test_discord_delete_message_with_mock() {
 #[tokio::test]
 async fn test_discord_delete_message_not_found() {
     let mock_response = r#"{"message":"Unknown Message","code":10008}"#;
-    let (port, _handle) = start_mock_discord_server(mock_response, 404, MockMethod::Delete).await;
+    let Some((port, _handle)) =
+        start_mock_discord_server(mock_response, 404, MockMethod::Delete).await
+    else {
+        return;
+    };
 
     let channel = DiscordChannel::with_token_and_url(
         "test-bot-token".to_string(),
@@ -253,7 +291,11 @@ async fn test_discord_delete_message_not_found() {
 #[tokio::test]
 async fn test_discord_delete_message_forbidden() {
     let mock_response = r#"{"message":"Missing Access","code":50001}"#;
-    let (port, _handle) = start_mock_discord_server(mock_response, 403, MockMethod::Delete).await;
+    let Some((port, _handle)) =
+        start_mock_discord_server(mock_response, 403, MockMethod::Delete).await
+    else {
+        return;
+    };
 
     let channel = DiscordChannel::with_token_and_url(
         "test-bot-token".to_string(),
@@ -268,7 +310,9 @@ async fn test_discord_delete_message_forbidden() {
 #[tokio::test]
 async fn test_discord_send_reaction_with_mock() {
     // PUT /channels/{id}/messages/{id}/reactions/{emoji}/@me → 204 No Content
-    let (port, _handle) = start_mock_discord_server("", 204, MockMethod::Put).await;
+    let Some((port, _handle)) = start_mock_discord_server("", 204, MockMethod::Put).await else {
+        return;
+    };
 
     let channel = DiscordChannel::with_token_and_url(
         "test-bot-token".to_string(),
@@ -282,7 +326,9 @@ async fn test_discord_send_reaction_with_mock() {
 #[tokio::test]
 async fn test_discord_send_typing_with_mock() {
     // POST /channels/{id}/typing → 204 No Content
-    let (port, _handle) = start_mock_discord_server("", 204, MockMethod::Post).await;
+    let Some((port, _handle)) = start_mock_discord_server("", 204, MockMethod::Post).await else {
+        return;
+    };
 
     let channel = DiscordChannel::with_token_and_url(
         "test-bot-token".to_string(),

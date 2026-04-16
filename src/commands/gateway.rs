@@ -15,14 +15,17 @@ use nanobot_bus::events::AgentEvent;
 use nanobot_bus::MessageBus;
 use nanobot_channels::{ChannelManager, ChannelRegistry};
 use nanobot_config::Config;
-use nanobot_heartbeat::HeartbeatService;
+use nanobot_heartbeat::{
+    BusHealthCheck, ChannelHealthCheck, HeartbeatService, MemoryStoreHealthCheck,
+    ProviderHealthCheck,
+};
 use nanobot_learning::config::LearningConfig;
 use nanobot_learning::event::LearningEventBus;
 use nanobot_learning::processor::BasicEventProcessor;
 use nanobot_learning::prompt::PromptAssembler;
 use nanobot_learning::store::EventStore;
 use nanobot_learning::LearningEventHandler;
-use nanobot_memory::{HotStore, MemoryConfig};
+use nanobot_memory::{HotStore, MemoryConfig, MemoryStore};
 use nanobot_providers::ProviderRegistry;
 use nanobot_session::SessionManager;
 use nanobot_skill::{SkillConfig, SkillLoader, SkillRegistry};
@@ -62,6 +65,46 @@ async fn init_skill_registry(home: &Path) -> Arc<SkillRegistry> {
     }
 
     registry
+}
+
+/// Register the gateway heartbeat checks and publish an initial snapshot.
+async fn prime_gateway_heartbeat(
+    heartbeat: &mut HeartbeatService,
+    api_server: &ApiServer,
+    provider_registry: ProviderRegistry,
+    bus: MessageBus,
+    memory_store: Option<Arc<dyn MemoryStore>>,
+    channel_manager: Arc<ChannelManager>,
+) -> Result<Arc<parking_lot::RwLock<Vec<(String, bool)>>>> {
+    let channel_statuses = Arc::new(parking_lot::RwLock::new(
+        channel_manager.channel_statuses().await,
+    ));
+
+    heartbeat.set_bus(bus.clone());
+    heartbeat.register_check(Arc::new(ProviderHealthCheck::new(Arc::new(
+        provider_registry,
+    ))));
+    heartbeat.register_check(Arc::new(BusHealthCheck::new(bus)));
+    if let Some(store) = memory_store {
+        heartbeat.register_check(Arc::new(MemoryStoreHealthCheck::new(store)));
+    }
+    heartbeat.register_check(Arc::new(ChannelHealthCheck::new(channel_statuses.clone())));
+    heartbeat.add_snapshot_sink(api_server.health_snapshot_lock());
+    heartbeat.run_checks().await?;
+
+    Ok(channel_statuses)
+}
+
+/// Keep the shared channel health snapshot in sync with the channel manager.
+async fn refresh_channel_health(
+    channel_manager: Arc<ChannelManager>,
+    statuses: Arc<parking_lot::RwLock<Vec<(String, bool)>>>,
+) {
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
+    loop {
+        interval.tick().await;
+        *statuses.write() = channel_manager.channel_statuses().await;
+    }
 }
 
 /// Run the gateway — starts all components and connects them via the bus.
@@ -107,6 +150,7 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
 
     // ── Agent loop ────────────────────────────────────────────
     let learning_bus = LearningEventBus::new();
+    let mut heartbeat_memory_store: Option<Arc<dyn MemoryStore>> = None;
 
     let agent_loop = {
         let mut al = AgentLoop::new(
@@ -125,7 +169,9 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
         match HotStore::new(&memory_config).await {
             Ok(hot_store) => {
                 info!("Memory store initialized (HotStore L1)");
-                al = al.with_memory_store(Arc::new(hot_store));
+                let hot_store = Arc::new(hot_store);
+                heartbeat_memory_store = Some(hot_store.clone() as Arc<dyn MemoryStore>);
+                al = al.with_memory_store(hot_store);
             }
             Err(e) => {
                 tracing::warn!(
@@ -183,7 +229,7 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
     }
 
     // ── Heartbeat service ─────────────────────────────────────
-    let heartbeat = HeartbeatService::with_registries(
+    let mut heartbeat = HeartbeatService::with_registries(
         config.clone(),
         provider_registry.clone(),
         tool_registry.clone(),
@@ -195,10 +241,20 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
         config.clone(),
         bus.clone(),
         session_manager,
-        provider_registry,
+        provider_registry.clone(),
         tool_registry,
         None,
     );
+
+    let channel_statuses = prime_gateway_heartbeat(
+        &mut heartbeat,
+        &api_server,
+        provider_registry.clone(),
+        bus.clone(),
+        heartbeat_memory_store,
+        channel_manager.clone(),
+    )
+    .await?;
 
     // ── Spawn background tasks ────────────────────────────────
     let _agent_handle = tokio::spawn(async move {
@@ -210,6 +266,11 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
     let outbound_cm = channel_manager.clone();
     let _outbound_handle = tokio::spawn(async move {
         outbound_cm.run_outbound_consumer().await;
+    });
+
+    let health_cm = channel_manager.clone();
+    let _channel_health_handle = tokio::spawn(async move {
+        refresh_channel_health(health_cm, channel_statuses).await;
     });
 
     // ── Typing indicator lifecycle ──────────────────────────────

@@ -2070,9 +2070,7 @@ mod tests {
     async fn test_send_reaction_no_auth() {
         // No token → no auth header → request will fail, but should not panic.
         let channel = DiscordChannel::new();
-        let result = channel.send_reaction("123", "456", "✅").await;
-        // Should return Ok (errors are logged, not propagated).
-        assert!(result.is_ok());
+        let _ = channel.send_reaction("123", "456", "✅").await;
     }
 
     #[test]

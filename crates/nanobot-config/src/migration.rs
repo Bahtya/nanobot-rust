@@ -29,16 +29,20 @@ mod tests {
 
     #[test]
     fn test_migrate_config_from_v0() {
-        let mut config = Config::default();
-        config._config_version = None;
+        let mut config = Config {
+            _config_version: None,
+            ..Config::default()
+        };
         migrate_config(&mut config).expect("migration should succeed");
         assert_eq!(config._config_version, Some(4));
     }
 
     #[test]
     fn test_migrate_config_already_current() {
-        let mut config = Config::default();
-        config._config_version = Some(4);
+        let mut config = Config {
+            _config_version: Some(4),
+            ..Config::default()
+        };
         let agent_model_before = config.agent.model.clone();
         migrate_config(&mut config).expect("migration should succeed");
         assert_eq!(config._config_version, Some(4));

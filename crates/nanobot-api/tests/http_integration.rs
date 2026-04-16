@@ -10,6 +10,7 @@ use nanobot_api::ApiServer;
 use nanobot_bus::MessageBus;
 use nanobot_config::Config;
 use nanobot_core::Usage;
+use nanobot_heartbeat::{BusHealthCheck, HeartbeatService, ProviderHealthCheck};
 use nanobot_providers::base::{
     BoxStream, CompletionChunk, CompletionRequest, CompletionResponse, LlmProvider,
 };
@@ -97,6 +98,53 @@ async fn test_health_check() {
     let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(v["status"], "starting"); // No health snapshot set yet
     assert_eq!(v["version"], nanobot_core::VERSION);
+}
+
+#[tokio::test]
+async fn test_health_check_with_heartbeat_wiring() {
+    let mut config = Config::default();
+    config.agent.model = "mock-model".to_string();
+
+    let bus = MessageBus::new();
+    let tmp = tempfile::tempdir().unwrap();
+    let session_manager = SessionManager::new(tmp.path().to_path_buf()).unwrap();
+
+    let mut providers = ProviderRegistry::new();
+    providers.register("mock", MockProvider);
+    providers.set_default("mock");
+
+    let tools = ToolRegistry::new();
+    let server = ApiServer::with_registries(
+        config.clone(),
+        bus.clone(),
+        session_manager.clone(),
+        providers.clone(),
+        tools.clone(),
+        Some(8080),
+    );
+
+    let mut heartbeat =
+        HeartbeatService::with_registries(config, providers.clone(), tools, session_manager);
+    heartbeat.set_bus(bus.clone());
+    heartbeat.register_check(std::sync::Arc::new(ProviderHealthCheck::new(
+        std::sync::Arc::new(providers),
+    )));
+    heartbeat.register_check(std::sync::Arc::new(BusHealthCheck::new(bus)));
+    heartbeat.add_snapshot_sink(server.health_snapshot_lock());
+    heartbeat.run_checks().await.unwrap();
+
+    let req = Request::builder()
+        .uri("/health")
+        .body(Body::empty())
+        .unwrap();
+    let resp = server.router().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_ne!(v["status"], "starting");
+    assert_eq!(v["status"], "healthy");
+    assert!(v["checks"].as_array().unwrap().len() >= 2);
 }
 
 // ─── Models ──────────────────────────────────────────────

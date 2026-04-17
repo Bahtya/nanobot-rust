@@ -5,7 +5,9 @@
 //! KNN (K-Nearest Neighbors) semantic search via cosine similarity on
 //! embedding vectors.
 
-use arrow_array::{FixedSizeListArray, Float32Array, Float64Array, RecordBatch, StringArray, UInt32Array};
+use arrow_array::{
+    FixedSizeListArray, Float32Array, Float64Array, RecordBatch, StringArray, UInt32Array,
+};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use async_trait::async_trait;
 use futures::TryStreamExt;
@@ -303,7 +305,8 @@ fn entry_to_batch(
 
     let values = Float32Array::from(vector);
     let list_field = Arc::new(Field::new("item", DataType::Float32, true));
-    let vector_array = FixedSizeListArray::new(list_field, embedding_dim as i32, Arc::new(values), None);
+    let vector_array =
+        FixedSizeListArray::new(list_field, embedding_dim as i32, Arc::new(values), None);
 
     RecordBatch::try_new(
         schema.clone(),
@@ -483,14 +486,8 @@ mod tests {
         let id = entry.id.clone();
 
         store.store(entry).await.unwrap();
-        assert_eq!(
-            store.recall(&id).await.unwrap().unwrap().access_count,
-            1
-        );
-        assert_eq!(
-            store.recall(&id).await.unwrap().unwrap().access_count,
-            2
-        );
+        assert_eq!(store.recall(&id).await.unwrap().unwrap().access_count, 1);
+        assert_eq!(store.recall(&id).await.unwrap().unwrap().access_count, 2);
     }
 
     #[tokio::test]

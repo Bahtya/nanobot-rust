@@ -8,6 +8,7 @@ kestrel-core = { path = "../kestrel-core" }
 kestrel-config = { path = "../kestrel-config" }
 kestrel-bus = { path = "../kestrel-bus" }
 kestrel-security = { path = "../kestrel-security" }
+kestrel-skill = { path = "../kestrel-skill" }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }
@@ -24,6 +25,7 @@ reqwest = { workspace = true }
 url = { workspace = true }
 dashmap = { workspace = true }
 parking_lot = { workspace = true }
+toml = { workspace = true }
 
 notify = { version = "6", default-features = false, features = ["macos_fsevent"] }
 

@@ -721,8 +721,9 @@ mod tests {
             .build_system_prompt(&msg, &session, &tools, None)
             .unwrap();
         assert!(prompt.contains("## Skill Index"));
-        assert!(prompt.contains("**deploy-k8s** [devops]: Deploy to Kubernetes"));
-        assert!(prompt.contains("**run-tests** [testing]: Run the test suite"));
+        assert!(prompt.contains("skill_view(name)"));
+        assert!(prompt.contains("- deploy-k8s: Deploy to Kubernetes [category: devops]"));
+        assert!(prompt.contains("- run-tests: Run the test suite [category: testing]"));
     }
 
     #[test]

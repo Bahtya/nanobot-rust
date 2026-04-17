@@ -64,7 +64,7 @@ impl CommandResponse {
     }
 }
 
-/// Outcome of command dispatch before a message enters the agent loop.
+/// Outcome of channel-level slash command dispatch.
 #[derive(Debug, Clone)]
 pub enum CommandDispatch {
     /// Reply directly and do not forward to the agent loop.
@@ -2053,7 +2053,6 @@ providers:
         assert!(resp.text.contains("page 1/"));
         assert!(resp.keyboard.is_some());
         let kb = resp.keyboard.unwrap();
-        // First page has Next button.
         let row = &kb.inline_keyboard[0];
         assert!(row.iter().any(|b| b.text.contains("Next")));
     }
@@ -2063,7 +2062,6 @@ providers:
         let keys: Vec<String> = (0..12).map(|i| format!("session:{}", i)).collect();
         let resp = handle_history(&keys, 1);
         assert!(resp.text.contains("page 2/"));
-        // Page 2 should show items 6-11 (0-indexed 5-11, but 1-indexed 6-12).
         assert!(resp.text.contains("session:5"));
         assert!(!resp.text.contains("session:4"));
     }
@@ -2072,7 +2070,6 @@ providers:
     fn test_handle_history_page_clamped() {
         let keys: Vec<String> = vec!["a".to_string(), "b".to_string()];
         let resp = handle_history(&keys, 999);
-        // Should clamp to page 0 and not panic.
         assert!(resp.text.contains("a"));
     }
 
@@ -2092,8 +2089,6 @@ providers:
         assert!(resp.text.contains("2. beta"));
         assert!(resp.text.contains("3. gamma"));
     }
-
-    // -- utility tests -------------------------------------------------------
 
     #[test]
     fn test_short_key() {
@@ -2117,18 +2112,14 @@ providers:
     fn test_truncate_str_long() {
         let result = truncate_str("hello world this is long", 11);
         assert_eq!(result, "hello world...");
-        assert!(result.len() <= 14); // 11 + "..."
+        assert!(result.len() <= 14);
     }
 
     #[test]
     fn test_truncate_str_multibyte() {
-        // Don't panic on multi-byte UTF-8.
         let result = truncate_str("日本語テストです", 6);
-        // Should not panic, result is some valid string.
         assert!(!result.is_empty());
     }
-
-    // -- /reset tests ---------------------------------------------------------
 
     #[test]
     fn test_handle_reset_success() {
@@ -2142,10 +2133,8 @@ providers:
         session.add_assistant_message("hi".to_string());
         mgr.save_session(&session).unwrap();
 
-        // Verify session has messages.
         assert!(!mgr.get_or_create("telegram:123", None).messages.is_empty());
 
-        // Need to set KESTREL_HOME so handle_reset finds the data dir.
         let _env = EnvVarGuard::set("KESTREL_HOME", dir.path());
         let result = handle_reset("telegram:123");
         assert!(result.contains("cleared") || result.contains("reset"));
@@ -2155,12 +2144,9 @@ providers:
     fn test_handle_reset_no_session() {
         let dir = tempfile::tempdir().unwrap();
         let _env = EnvVarGuard::set("KESTREL_HOME", dir.path());
-        // Resetting a nonexistent session should succeed (idempotent).
         let result = handle_reset("telegram:99999");
         assert!(result.contains("cleared") || result.contains("reset") || result.contains("ok"));
     }
-
-    // -- handle_callback tests ------------------------------------------------
 
     #[test]
     fn test_handle_callback_unknown() {
@@ -2200,7 +2186,6 @@ agent:
         let resp = handle_callback("settings:model:switch").unwrap();
         assert!(resp.text.contains("Model:"));
         assert!(resp.keyboard.is_some());
-        // Model should have cycled from gpt-4o to next in list.
         assert!(!resp.text.contains("gpt-4o") || MODEL_CYCLE.len() == 1);
     }
 
@@ -2220,7 +2205,6 @@ agent:
         assert!(resp.text.contains("Streaming: off"));
         assert!(resp.keyboard.is_some());
 
-        // Toggle back.
         let resp2 = handle_callback("settings:streaming:toggle").unwrap();
         assert!(resp2.text.contains("Streaming: on"));
     }
@@ -2233,14 +2217,11 @@ agent:
     #[test]
     fn test_model_cycle_constants() {
         assert!(!MODEL_CYCLE.is_empty());
-        // All entries should be unique.
         let mut seen = std::collections::HashSet::new();
         for m in MODEL_CYCLE {
             assert!(seen.insert(*m), "duplicate model in MODEL_CYCLE: {m}");
         }
     }
-
-    // -- rebuild_callback_data (via telegram tests) ---------------------------
 
     #[test]
     fn test_rebuild_callback_data_with_payload() {

@@ -2994,6 +2994,7 @@ dependencies = [
  "kestrel-config",
  "kestrel-core",
  "kestrel-security",
+ "kestrel-skill",
  "notify",
  "parking_lot",
  "regex",
@@ -3004,6 +3005,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "toml",
  "tracing",
  "url",
 ]

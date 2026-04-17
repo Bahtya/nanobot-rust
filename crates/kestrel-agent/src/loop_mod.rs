@@ -28,7 +28,6 @@ use kestrel_memory::types::{MemoryCategory, MemoryEntry, MemoryQuery};
 use kestrel_memory::MemoryStore as AsyncMemoryStore;
 use kestrel_providers::{CompletionRequest, ProviderRegistry};
 use kestrel_session::SessionManager;
-use kestrel_skill::registry::SkillMatch;
 use kestrel_skill::SkillRegistry;
 use kestrel_tools::ToolRegistry;
 use std::collections::HashSet;
@@ -225,7 +224,7 @@ impl AgentLoop {
                 context_builder = context_builder.with_prompt_assembler(assembler.clone());
             }
 
-            // Match skills against user message and inject into prompt
+            // Match skills against the user message for event emission only.
             if let Some(ref registry) = self.skill_registry {
                 let skill_index_entries = self.build_skill_index_entries(registry).await;
                 if !skill_index_entries.is_empty() {
@@ -244,13 +243,6 @@ impl AgentLoop {
                             timestamp: chrono::Utc::now(),
                         });
                     }
-                }
-
-                let skill_sections = self
-                    .build_skill_sections_from_matches(registry, &matches)
-                    .await;
-                if !skill_sections.is_empty() {
-                    context_builder = context_builder.with_skills(skill_sections);
                 }
             }
 
@@ -535,63 +527,6 @@ impl AgentLoop {
         *self.agent_activity.write() = Some(chrono::Local::now());
     }
 
-    /// Match skills against a query and build the prompt section for injection.
-    ///
-    /// Queries the [`SkillRegistry`] for matching skills, then retrieves each
-    /// matched skill's steps and pitfalls to build a prompt section. Returns
-    /// an empty string if no skills match.
-    #[cfg(test)]
-    async fn build_skill_sections(&self, registry: &SkillRegistry, query: &str) -> String {
-        let matches = registry.match_skills(query).await;
-        self.build_skill_sections_from_matches(registry, &matches)
-            .await
-    }
-
-    /// Build the prompt section from pre-matched skills.
-    ///
-    /// Takes a slice of [`SkillMatch`]es and retrieves each matched skill's
-    /// steps and pitfalls to build a prompt section. Returns an empty string
-    /// if the slice is empty.
-    async fn build_skill_sections_from_matches(
-        &self,
-        registry: &SkillRegistry,
-        matches: &[SkillMatch],
-    ) -> String {
-        if matches.is_empty() {
-            return String::new();
-        }
-
-        let mut parts = Vec::new();
-
-        for skill_match in matches {
-            if let Some(skill_guard) = registry.get(&skill_match.name).await {
-                let skill = skill_guard.read();
-                let manifest = skill.manifest();
-
-                parts.push(format!(
-                    "\n### {} ({})\n",
-                    manifest.name, manifest.description
-                ));
-
-                if !manifest.steps.is_empty() {
-                    parts.push("**Steps:**".to_string());
-                    for (i, step) in manifest.steps.iter().enumerate() {
-                        parts.push(format!("{}. {step}", i + 1));
-                    }
-                }
-
-                if !manifest.pitfalls.is_empty() {
-                    parts.push("**Pitfalls:**".to_string());
-                    for pit in &manifest.pitfalls {
-                        parts.push(format!("- {pit}"));
-                    }
-                }
-            }
-        }
-
-        parts.join("\n")
-    }
-
     /// Build skill index entries from all registered, non-deprecated skills.
     async fn build_skill_index_entries(&self, registry: &SkillRegistry) -> Vec<SkillIndexEntry> {
         let mut names = registry.skill_names().await;
@@ -723,10 +658,10 @@ impl AgentLoop {
         self
     }
 
-    /// Attach a [`SkillRegistry`] for skill matching before LLM calls.
+    /// Attach a [`SkillRegistry`] for skill discovery before LLM calls.
     ///
-    /// When set, the agent loop will match skills against each user message
-    /// and inject matched skill steps/pitfalls into the system prompt.
+    /// When set, the agent loop will publish a skill index into the system
+    /// prompt and use match results for learning events.
     pub fn with_skill_registry(mut self, registry: Arc<SkillRegistry>) -> Self {
         self.skill_registry = Some(registry);
         self
@@ -1531,100 +1466,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_build_skill_sections_no_registry() {
-        let al = make_agent_loop();
-        let registry = SkillRegistry::new();
-        let result = al.build_skill_sections(&registry, "deploy to k8s").await;
-        // No skills registered → empty string
-        assert!(result.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_build_skill_sections_with_match() {
-        use kestrel_skill::manifest::SkillManifestBuilder;
-        use kestrel_skill::skill::CompiledSkill;
-
-        let registry = SkillRegistry::new();
-        let skill = CompiledSkill::new(
-            SkillManifestBuilder::new("deploy-k8s", "1.0.0", "Deploy to Kubernetes")
-                .triggers(vec!["deploy".to_string(), "k8s".to_string()])
-                .steps(vec![
-                    "Apply manifests".to_string(),
-                    "Verify rollout".to_string(),
-                ])
-                .pitfalls(vec!["Do not deploy on Fridays".to_string()])
-                .build(),
-        );
-        registry.register(skill).await.unwrap();
-
-        let al = make_agent_loop();
-        let sections = al
-            .build_skill_sections(&registry, "please deploy to k8s")
-            .await;
-
-        assert!(sections.contains("deploy-k8s"));
-        assert!(sections.contains("Apply manifests"));
-        assert!(sections.contains("Verify rollout"));
-        assert!(sections.contains("Do not deploy on Fridays"));
-    }
-
-    #[tokio::test]
-    async fn test_build_skill_sections_no_match() {
-        use kestrel_skill::manifest::SkillManifestBuilder;
-        use kestrel_skill::skill::CompiledSkill;
-
-        let registry = SkillRegistry::new();
-        let skill = CompiledSkill::new(
-            SkillManifestBuilder::new("deploy-k8s", "1.0.0", "Deploy to Kubernetes")
-                .triggers(vec!["deploy".to_string(), "k8s".to_string()])
-                .build(),
-        );
-        registry.register(skill).await.unwrap();
-
-        let al = make_agent_loop();
-        let sections = al
-            .build_skill_sections(&registry, "what is the weather today")
-            .await;
-
-        assert!(sections.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_build_skill_sections_multiple_matches() {
-        use kestrel_skill::manifest::SkillManifestBuilder;
-        use kestrel_skill::skill::CompiledSkill;
-
-        let registry = SkillRegistry::new();
-        registry
-            .register(CompiledSkill::new(
-                SkillManifestBuilder::new("deploy-k8s", "1.0.0", "Deploy to Kubernetes")
-                    .triggers(vec!["deploy".to_string(), "k8s".to_string()])
-                    .steps(vec!["Apply k8s manifests".to_string()])
-                    .build(),
-            ))
-            .await
-            .unwrap();
-        registry
-            .register(CompiledSkill::new(
-                SkillManifestBuilder::new("deploy-docker", "1.0.0", "Deploy with Docker")
-                    .triggers(vec!["deploy".to_string(), "docker".to_string()])
-                    .steps(vec!["Build image".to_string()])
-                    .build(),
-            ))
-            .await
-            .unwrap();
-
-        let al = make_agent_loop();
-        let sections = al
-            .build_skill_sections(&registry, "deploy with docker")
-            .await;
-
-        assert!(sections.contains("deploy-docker"));
-        assert!(sections.contains("deploy-k8s"));
-        assert!(sections.contains("Build image"));
-    }
-
-    #[tokio::test]
     async fn test_runtime_context_includes_skill_index_entries_when_skills_registered() {
         use crate::context::ContextBuilder;
         use kestrel_bus::events::InboundMessage;
@@ -1668,7 +1509,9 @@ mod tests {
             .unwrap();
 
         assert!(prompt.contains("## Skill Index"));
-        assert!(prompt.contains("**deploy-k8s** [uncategorized]: Deploy to Kubernetes"));
+        assert!(prompt.contains("skill_view(name)"));
+        assert!(prompt.contains("- deploy-k8s: Deploy to Kubernetes [category: uncategorized]"));
+        assert!(!prompt.contains("Apply manifests"));
     }
 
     // ── Learning event bus wiring tests ────────────────────────

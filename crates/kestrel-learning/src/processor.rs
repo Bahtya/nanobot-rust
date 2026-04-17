@@ -16,7 +16,10 @@ use tracing;
 
 use crate::event::{LearningAction, LearningEvent};
 
-const PROCESSOR_STATS_VERSION: u32 = 1;
+const PROCESSOR_STATS_VERSION: u32 = 2;
+const SKILL_PATCH_SCORE_THRESHOLD: f64 = 0.85;
+const SKILL_PROPOSE_SCORE_THRESHOLD: f64 = 0.25;
+const SKILL_DEPRECATION_STREAK_THRESHOLD: u32 = 3;
 
 /// Trait for processing learning events.
 #[async_trait]
@@ -73,6 +76,19 @@ pub struct CorrectionStats {
     pub last_seen: DateTime<Utc>,
 }
 
+/// Statistics tracked per skill by [`BasicEventProcessor`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SkillStats {
+    /// Number of helpful outcomes observed for this skill.
+    pub helpful_count: u64,
+    /// Number of irrelevant outcomes observed for this skill.
+    pub irrelevant_count: u64,
+    /// Number of harmful outcomes observed for this skill.
+    pub harmful_count: u64,
+    /// Consecutive non-helpful outcomes (irrelevant or harmful).
+    pub low_outcome_streak: u32,
+}
+
 /// Aggregate statistics from the [`BasicEventProcessor`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessorStats {
@@ -83,6 +99,9 @@ pub struct ProcessorStats {
     pub tools: HashMap<String, ToolStats>,
     /// Per-topic correction statistics.
     pub corrections: HashMap<String, CorrectionStats>,
+    /// Per-skill learning statistics.
+    #[serde(default)]
+    pub skills: HashMap<String, SkillStats>,
     /// Total events processed.
     pub events_processed: u64,
 }
@@ -93,6 +112,7 @@ impl Default for ProcessorStats {
             version: PROCESSOR_STATS_VERSION,
             tools: HashMap::new(),
             corrections: HashMap::new(),
+            skills: HashMap::new(),
             events_processed: 0,
         }
     }
@@ -303,27 +323,62 @@ impl LearningEventHandler for BasicEventProcessor {
                 outcome,
                 ..
             } => {
-                // Simple confidence adjustment based on outcome.
+                let skill_stats = stats.skills.entry(skill_name.clone()).or_default();
+
                 match outcome {
                     crate::event::SkillOutcome::Helpful => {
+                        skill_stats.helpful_count += 1;
+                        skill_stats.low_outcome_streak = 0;
                         let delta = 0.05 * (1.0 - *match_score);
                         actions.push(LearningAction::AdjustConfidence {
                             skill: skill_name.clone(),
                             delta,
                         });
+
+                        if *match_score >= SKILL_PATCH_SCORE_THRESHOLD {
+                            actions.push(LearningAction::PatchSkill {
+                                skill: skill_name.clone(),
+                                description: format!(
+                                    "Observed repeated helpful usage at match score {:.2}. Refine the instructions with the successful pattern that helped in this context.",
+                                    match_score
+                                ),
+                            });
+                        } else if *match_score <= SKILL_PROPOSE_SCORE_THRESHOLD {
+                            actions.push(LearningAction::ProposeSkill {
+                                name: format!("{skill_name}-variant"),
+                                reason: format!(
+                                    "Skill '{skill_name}' was still helpful despite a low match score of {:.2}. Consider creating a narrower companion skill or additional trigger coverage for this workflow.",
+                                    match_score
+                                ),
+                            });
+                        }
                     }
                     crate::event::SkillOutcome::Irrelevant => {
+                        skill_stats.irrelevant_count += 1;
+                        skill_stats.low_outcome_streak += 1;
                         actions.push(LearningAction::AdjustConfidence {
                             skill: skill_name.clone(),
                             delta: -0.1,
                         });
                     }
                     crate::event::SkillOutcome::Harmful => {
+                        skill_stats.harmful_count += 1;
+                        skill_stats.low_outcome_streak += 1;
                         actions.push(LearningAction::AdjustConfidence {
                             skill: skill_name.clone(),
                             delta: -0.3,
                         });
                     }
+                }
+
+                if skill_stats.low_outcome_streak >= SKILL_DEPRECATION_STREAK_THRESHOLD {
+                    actions.push(LearningAction::DeprecateSkill {
+                        skill: skill_name.clone(),
+                        reason: format!(
+                            "Skill produced {} consecutive non-helpful outcomes and should be reviewed or deprecated.",
+                            skill_stats.low_outcome_streak
+                        ),
+                    });
                 }
             }
 
@@ -601,6 +656,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn helpful_high_score_emits_patch_skill() {
+        let proc = BasicEventProcessor::new();
+        let actions = proc
+            .handle(&skill_used("deploy", 0.9, SkillOutcome::Helpful))
+            .await;
+
+        assert!(actions.iter().any(|a| matches!(
+            a,
+            LearningAction::PatchSkill { skill, .. } if skill == "deploy"
+        )));
+    }
+
+    #[tokio::test]
+    async fn helpful_low_score_emits_propose_skill() {
+        let proc = BasicEventProcessor::new();
+        let actions = proc
+            .handle(&skill_used("deploy", 0.2, SkillOutcome::Helpful))
+            .await;
+
+        assert!(actions.iter().any(|a| matches!(
+            a,
+            LearningAction::ProposeSkill { name, .. } if name == "deploy-variant"
+        )));
+    }
+
+    #[tokio::test]
+    async fn repeated_non_helpful_skill_emits_deprecate_skill() {
+        let proc = BasicEventProcessor::new();
+
+        for _ in 0..2 {
+            let actions = proc
+                .handle(&skill_used("deploy", 0.6, SkillOutcome::Irrelevant))
+                .await;
+            assert!(!actions
+                .iter()
+                .any(|a| matches!(a, LearningAction::DeprecateSkill { .. })));
+        }
+
+        let actions = proc
+            .handle(&skill_used("deploy", 0.6, SkillOutcome::Harmful))
+            .await;
+        assert!(actions.iter().any(|a| matches!(
+            a,
+            LearningAction::DeprecateSkill { skill, .. } if skill == "deploy"
+        )));
+    }
+
+    #[tokio::test]
     async fn events_processed_counter() {
         let proc = BasicEventProcessor::new();
         proc.handle(&tool_ok("a", 1)).await;
@@ -714,6 +817,8 @@ mod tests {
         let corr_expected = expected.corrections.get("style").unwrap();
         assert_eq!(corr_loaded.count, corr_expected.count);
         assert_eq!(corr_loaded.last_hint, corr_expected.last_hint);
+
+        assert_eq!(loaded.skills.len(), expected.skills.len());
     }
 
     #[tokio::test]

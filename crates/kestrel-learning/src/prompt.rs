@@ -235,8 +235,9 @@ impl PromptAssembler {
 
     /// Build skill index content from skill metadata entries.
     ///
-    /// Produces a formatted list of all available skills with their descriptions,
-    /// categories, and trigger keywords, so the agent knows what skills it can invoke.
+    /// Produces a formatted list of all available skills with their descriptions
+    /// and categories, plus explicit guidance to call `skill_view` before
+    /// relying on any skill-specific instructions.
     pub fn build_skill_index(skills: &[SkillIndexEntry], max_entries: usize) -> String {
         if skills.is_empty() {
             return String::new();
@@ -248,13 +249,17 @@ impl PromptAssembler {
         };
 
         let mut parts = Vec::new();
-        parts.push("Available skills:\n".to_string());
+        parts.push(
+            "Available skills. Do not assume details from the index alone.\n\
+If a skill is relevant or even partially relevant, call `skill_view(name)` to load the full manifest and instructions before replying.\n\
+You may call `skill_view(name, file_path)` when you need a specific companion instructions file.\n"
+                .to_string(),
+        );
 
         for skill in skills.iter().take(max_entries) {
-            let triggers = skill.triggers.join(", ");
             parts.push(format!(
-                "- **{}** [{}]: {} (triggers: {})",
-                skill.name, skill.category, skill.description, triggers
+                "- {}: {} [category: {}]",
+                skill.name, skill.description, skill.category
             ));
         }
 
@@ -606,9 +611,9 @@ mod tests {
         ];
         let result = PromptAssembler::build_skill_index(&skills, DEFAULT_SKILL_INDEX_MAX_ENTRIES);
         assert!(result.contains("Available skills"));
-        assert!(result
-            .contains("**deploy-k8s** [devops]: Deploy to Kubernetes (triggers: deploy, k8s)"));
-        assert!(result.contains("**run-tests** [testing]: Run test suite (triggers: test)"));
+        assert!(result.contains("skill_view(name)"));
+        assert!(result.contains("- deploy-k8s: Deploy to Kubernetes [category: devops]"));
+        assert!(result.contains("- run-tests: Run test suite [category: testing]"));
     }
 
     #[test]
@@ -635,8 +640,8 @@ mod tests {
         ];
 
         let result = PromptAssembler::build_skill_index(&skills, 1);
-        assert!(result.contains("**one**"));
-        assert!(!result.contains("**two**"));
+        assert!(result.contains("- one: First [category: test]"));
+        assert!(!result.contains("- two: Second [category: test]"));
     }
 
     #[test]

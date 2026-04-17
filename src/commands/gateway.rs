@@ -30,7 +30,7 @@ use kestrel_memory::{HotStore, MemoryCategory, MemoryConfig, MemoryEntry, Memory
 use kestrel_providers::ProviderRegistry;
 use kestrel_session::SessionManager;
 use kestrel_skill::{SkillConfig, SkillLoader, SkillRegistry};
-use kestrel_tools::builtins;
+use kestrel_tools::{builtins, SkillViewTool};
 use tokio::sync::{broadcast, watch};
 use tracing::info;
 
@@ -306,6 +306,7 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
 
     // ── Skill registry ───────────────────────────────────────
     let skill_registry = init_skill_registry(&home).await;
+    tool_registry.register(SkillViewTool::new(skill_registry.clone()));
     kestrel_channels::set_skill_registry(Some(skill_registry.clone()));
 
     // ── Agent loop ────────────────────────────────────────────
@@ -843,6 +844,79 @@ mod tests {
         let manifest: kestrel_skill::SkillManifest = toml::from_str(&manifest_text).unwrap();
 
         assert_eq!(manifest.confidence, Some(0.7));
+    }
+
+    #[tokio::test]
+    async fn test_execute_learning_action_propose_skill_writes_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = SkillRegistry::new().with_skills_dir(dir.path());
+
+        execute_learning_action(
+            &LearningAction::ProposeSkill {
+                name: "deploy-review".into(),
+                reason: "Review deployment rollout and smoke checks".into(),
+            },
+            None,
+            &registry,
+        )
+        .await
+        .unwrap();
+
+        let manifest_text = std::fs::read_to_string(dir.path().join("deploy-review.toml")).unwrap();
+        let instructions = std::fs::read_to_string(dir.path().join("deploy-review.md")).unwrap();
+        let manifest: kestrel_skill::SkillManifest = toml::from_str(&manifest_text).unwrap();
+
+        assert_eq!(manifest.name, "deploy-review");
+        assert_eq!(
+            manifest.description,
+            "Review deployment rollout and smoke checks"
+        );
+        assert!(instructions.contains("Review deployment rollout"));
+        assert!(registry.get("deploy-review").await.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_execute_learning_action_patch_and_deprecate_persist() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = SkillRegistry::new().with_skills_dir(dir.path());
+        registry
+            .create_skill("deploy", "Deploy service", "Original instructions")
+            .await
+            .unwrap();
+
+        execute_learning_action(
+            &LearningAction::PatchSkill {
+                skill: "deploy".into(),
+                description: "Updated rollout checks".into(),
+            },
+            None,
+            &registry,
+        )
+        .await
+        .unwrap();
+        execute_learning_action(
+            &LearningAction::DeprecateSkill {
+                skill: "deploy".into(),
+                reason: "Replaced by deploy-review".into(),
+            },
+            None,
+            &registry,
+        )
+        .await
+        .unwrap();
+
+        let instructions = std::fs::read_to_string(dir.path().join("deploy.md")).unwrap();
+        let manifest_text = std::fs::read_to_string(dir.path().join("deploy.toml")).unwrap();
+        let manifest: kestrel_skill::SkillManifest = toml::from_str(&manifest_text).unwrap();
+        let skill = registry.get("deploy").await.unwrap();
+
+        assert_eq!(instructions, "Updated rollout checks");
+        assert_eq!(manifest.deprecated, Some(true));
+        assert_eq!(
+            manifest.deprecation_reason.as_deref(),
+            Some("Replaced by deploy-review")
+        );
+        assert!(skill.read().is_deprecated());
     }
 
     #[tokio::test]

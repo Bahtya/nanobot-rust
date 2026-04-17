@@ -11,18 +11,63 @@ pub struct ChannelRegistry {
 }
 
 impl ChannelRegistry {
-    pub fn new() -> Self {
-        let mut registry = Self {
+    fn empty() -> Self {
+        Self {
             factories: HashMap::new(),
-        };
+        }
+    }
 
-        // Register built-in channels
-        registry.register("telegram", || {
+    fn register_builtin_channels(&mut self) {
+        self.register("telegram", || {
             Box::new(platforms::telegram::TelegramChannel::new())
         });
-        registry.register("discord", || {
+        self.register("discord", || {
             Box::new(platforms::discord::DiscordChannel::new())
         });
+        self.register("websocket", || {
+            Box::new(platforms::websocket::WebSocketChannel::new())
+        });
+    }
+
+    /// Create a registry with built-in channel factories using process environment.
+    pub fn new() -> Self {
+        let mut registry = Self::empty();
+        registry.register_builtin_channels();
+        registry
+    }
+
+    /// Create a registry with built-in channel factories using the supplied config.
+    pub fn new_with_config(config: &kestrel_config::Config) -> Self {
+        let mut registry = Self::empty();
+
+        if let Some(telegram) = config.channels.telegram.clone() {
+            let notifications = config.notifications.clone();
+            registry.register("telegram", move || {
+                Box::new(
+                    platforms::telegram::TelegramChannel::new_with_notifications_config(
+                        &telegram,
+                        &notifications,
+                    ),
+                )
+            });
+        } else {
+            registry.register("telegram", || {
+                Box::new(platforms::telegram::TelegramChannel::new())
+            });
+        }
+
+        if let Some(discord) = config.channels.discord.clone() {
+            registry.register("discord", move || {
+                Box::new(platforms::discord::DiscordChannel::new_with_config(
+                    &discord,
+                ))
+            });
+        } else {
+            registry.register("discord", || {
+                Box::new(platforms::discord::DiscordChannel::new())
+            });
+        }
+
         registry.register("websocket", || {
             Box::new(platforms::websocket::WebSocketChannel::new())
         });

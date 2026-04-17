@@ -40,7 +40,7 @@ use tracing::info;
 /// does not exist, returns an empty registry. Invalid manifests are logged and skipped.
 async fn init_skill_registry(home: &Path) -> Arc<SkillRegistry> {
     let skills_dir = home.join("skills");
-    let registry = Arc::new(SkillRegistry::new());
+    let registry = Arc::new(SkillRegistry::new().with_skills_dir(&skills_dir));
 
     if !skills_dir.exists() {
         info!(
@@ -819,6 +819,29 @@ mod tests {
 
         assert_eq!(m.steps, vec!["Apply manifests", "Verify rollout"]);
         assert_eq!(m.pitfalls, vec!["Do not deploy on Fridays"]);
+    }
+
+    #[tokio::test]
+    async fn test_init_skill_registry_confidence_updates_persist_to_skills_dir() {
+        let home = tempfile::tempdir().unwrap();
+        let skills_dir = home.path().join("skills");
+        std::fs::create_dir_all(&skills_dir).unwrap();
+
+        write_skill(&skills_dir, "persisted-skill", &["persist"]);
+
+        let registry = init_skill_registry(home.path()).await;
+        assert_eq!(registry.skills_dir(), Some(skills_dir.as_path()));
+
+        registry
+            .adjust_confidence("persisted-skill", 0.2)
+            .await
+            .unwrap();
+
+        let manifest_text =
+            std::fs::read_to_string(skills_dir.join("persisted-skill.toml")).unwrap();
+        let manifest: kestrel_skill::SkillManifest = toml::from_str(&manifest_text).unwrap();
+
+        assert_eq!(manifest.confidence, Some(0.7));
     }
 
     #[tokio::test]

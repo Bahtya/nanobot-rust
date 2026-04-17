@@ -843,6 +843,7 @@ impl DiscordChannel {
                                                     crate::commands::try_handle_command(
                                                         &msg_data.content,
                                                     )
+                                                    .await
                                                 {
                                                     Self::send_direct_reply(
                                                         &rest.client,

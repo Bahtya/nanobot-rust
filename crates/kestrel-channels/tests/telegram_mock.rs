@@ -269,6 +269,7 @@ async fn test_telegram_connect_sends_online_notification_once() {
     let captured_requests = Arc::new(Mutex::new(Vec::new()));
     let responses = vec![
         r#"{"ok":true,"result":{"id":1,"is_bot":true,"first_name":"Kestrel","username":"kestrel_bot"}}"#.to_string(),
+        r#"{"ok":true,"result":true}"#.to_string(),
         r#"{"ok":true,"result":{"message_id":42,"chat":{"id":123,"type":"private"},"text":"online"}}"#.to_string(),
     ];
     let Some((port, _handle)) =
@@ -302,11 +303,13 @@ async fn test_telegram_connect_sends_online_notification_once() {
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     let requests = captured_requests.lock().await;
-    assert_eq!(requests.len(), 2);
+    assert_eq!(requests.len(), 3);
     assert!(requests[0].contains("GET /getMe HTTP/1.1"));
-    assert!(requests[1].contains("POST /sendMessage HTTP/1.1"));
-    assert!(requests[1].contains("\"chat_id\":123"));
-    assert!(requests[1].contains(&format!(
+    assert!(requests[1].contains("POST /setMyCommands HTTP/1.1"));
+    assert!(requests[1].contains("\"command\":\"skill\""));
+    assert!(requests[2].contains("POST /sendMessage HTTP/1.1"));
+    assert!(requests[2].contains("\"chat_id\":123"));
+    assert!(requests[2].contains(&format!(
         "\"text\":\"Kestrel v{} online - Telegram connected\"",
         env!("CARGO_PKG_VERSION")
     )));

@@ -306,6 +306,7 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
 
     // ── Skill registry ───────────────────────────────────────
     let skill_registry = init_skill_registry(&home).await;
+    kestrel_channels::set_skill_registry(Some(skill_registry.clone()));
 
     // ── Agent loop ────────────────────────────────────────────
     let learning_bus = LearningEventBus::new();

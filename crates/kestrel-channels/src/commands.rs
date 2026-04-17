@@ -7,12 +7,28 @@
 use kestrel_config::validate::ValidationFinding;
 use kestrel_config::{load_config, validate, Config};
 use kestrel_session::SessionManager;
+use kestrel_skill::{Skill, SkillRegistry};
 use std::fmt::Write;
+use std::sync::{Arc, LazyLock};
+
+use parking_lot::RwLock;
 
 use crate::platforms::telegram::{InlineKeyboardBuilder, InlineKeyboardMarkup};
 
 /// Model names available for cycling via /settings.
 const MODEL_CYCLE: &[&str] = &["gpt-4o", "claude-sonnet-4-6", "deepseek-chat"];
+
+static SKILL_REGISTRY: LazyLock<RwLock<Option<Arc<SkillRegistry>>>> =
+    LazyLock::new(|| RwLock::new(None));
+
+/// Configure the shared skill registry used by built-in `/skill` commands.
+pub fn set_skill_registry(registry: Option<Arc<SkillRegistry>>) {
+    *SKILL_REGISTRY.write() = registry;
+}
+
+fn configured_skill_registry() -> Option<Arc<SkillRegistry>> {
+    SKILL_REGISTRY.read().clone()
+}
 
 // ---------------------------------------------------------------------------
 // Command response type
@@ -77,7 +93,7 @@ pub fn matches_command(text: &str, command: &str) -> bool {
 /// If `text` matches a known built-in command, returns `Some(response)`.
 /// Otherwise returns `None`, signalling the caller to forward the message
 /// through the normal bus path.
-pub fn try_handle_command(text: &str) -> Option<CommandResponse> {
+pub async fn try_handle_command(text: &str) -> Option<CommandResponse> {
     if matches_command(text, "help") {
         Some(CommandResponse::text(handle_help()))
     } else if matches_command(text, "status") {
@@ -90,9 +106,137 @@ pub fn try_handle_command(text: &str) -> Option<CommandResponse> {
         Some(handle_settings())
     } else if matches_command(text, "history") {
         Some(handle_history_page(0))
+    } else if matches_command(text, "skill") {
+        Some(handle_skill_command(text).await)
     } else {
         None
     }
+}
+
+fn command_arguments(text: &str) -> &str {
+    let text = text.trim();
+    if !text.starts_with('/') {
+        return "";
+    }
+
+    let rest = &text[1..];
+    match rest.find(char::is_whitespace) {
+        Some(index) => rest[index..].trim(),
+        None => "",
+    }
+}
+
+async fn handle_skill_command(text: &str) -> CommandResponse {
+    let Some(registry) = configured_skill_registry() else {
+        return CommandResponse::text("Skill registry is not available.");
+    };
+
+    let args = command_arguments(text);
+    if args.is_empty() || args.eq_ignore_ascii_case("list") {
+        return CommandResponse::text(handle_skill_list(&registry).await);
+    }
+
+    let mut parts = args.splitn(2, char::is_whitespace);
+    let subcommand = parts.next().unwrap_or_default();
+    let remainder = parts.next().unwrap_or("").trim();
+
+    match subcommand.to_ascii_lowercase().as_str() {
+        "list" if remainder.is_empty() => CommandResponse::text(handle_skill_list(&registry).await),
+        "view" if !remainder.is_empty() => {
+            CommandResponse::text(handle_skill_view(&registry, remainder).await)
+        }
+        "search" if !remainder.is_empty() => {
+            CommandResponse::text(handle_skill_search(&registry, remainder).await)
+        }
+        _ => CommandResponse::text(
+            "Usage:\n/skill\n/skill list\n/skill view <name>\n/skill search <query>",
+        ),
+    }
+}
+
+async fn handle_skill_list(registry: &SkillRegistry) -> String {
+    let mut names = registry.skill_names().await;
+    names.sort();
+
+    if names.is_empty() {
+        return "No skills are registered.".to_string();
+    }
+
+    let mut out = String::new();
+    let _ = writeln!(out, "Registered skills:\n");
+
+    for name in names {
+        let Some(skill) = registry.get(&name).await else {
+            continue;
+        };
+        let guard = skill.read();
+        let deprecated = if guard.is_deprecated() {
+            " [deprecated]"
+        } else {
+            ""
+        };
+        let _ = writeln!(
+            out,
+            "- {}{} — {} (confidence {:.2})",
+            guard.name(),
+            deprecated,
+            guard.description(),
+            guard.confidence()
+        );
+    }
+
+    out.trim_end().to_string()
+}
+
+async fn handle_skill_view(registry: &SkillRegistry, name: &str) -> String {
+    let Some(skill) = registry.get(name).await else {
+        return format!("Skill '{name}' not found.");
+    };
+
+    let guard = skill.read();
+    let manifest = match toml::to_string_pretty(guard.manifest()) {
+        Ok(manifest) => manifest,
+        Err(error) => format!("failed to render manifest: {error}"),
+    };
+    let instructions = if guard.instructions().trim().is_empty() {
+        "(none)"
+    } else {
+        guard.instructions()
+    };
+
+    format!(
+        "Skill: {}\n\nManifest:\n{}\nInstructions:\n{}",
+        guard.name(),
+        manifest.trim_end(),
+        instructions
+    )
+}
+
+async fn handle_skill_search(registry: &SkillRegistry, query: &str) -> String {
+    let matches = registry.match_skills(query).await;
+    if matches.is_empty() {
+        return format!("No skills matched '{query}'.");
+    }
+
+    let mut out = String::new();
+    let _ = writeln!(out, "Skill matches for '{query}':\n");
+
+    for matched in matches {
+        let Some(skill) = registry.get(&matched.name).await else {
+            continue;
+        };
+        let guard = skill.read();
+        let _ = writeln!(
+            out,
+            "- {} — {} (score {:.2}, confidence {:.2})",
+            guard.name(),
+            guard.description(),
+            matched.score,
+            guard.confidence()
+        );
+    }
+
+    out.trim_end().to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -108,6 +252,7 @@ fn handle_help() -> String {
         out,
         "/status   - Show bot status, channels, and config summary"
     );
+    let _ = writeln!(out, "/skill    - List, view, and search registered skills");
     let _ = writeln!(out, "/validate - Validate config.yaml and show results");
     let _ = writeln!(out, "/settings - Toggle preferences (notifications, model)");
     let _ = writeln!(out, "/history  - Browse recent conversation history");
@@ -167,6 +312,7 @@ pub fn handle_menu_callback(action: &str) -> (String, Option<InlineKeyboardMarku
             "Available commands:\n\
              /menu — Show this menu\n\
              /help — Show help\n\
+             /skill — Browse loaded skills\n\
              /validate — Check configuration\n\
              /start — Start a conversation"
                 .to_string(),
@@ -954,7 +1100,39 @@ pub fn handle_callback(data: &str) -> Option<CommandResponse> {
 mod tests {
     use super::*;
     use crate::test_support::EnvVarGuard;
+    use kestrel_skill::{manifest::SkillManifestBuilder, skill::CompiledSkill};
+    use parking_lot::{Mutex, MutexGuard};
     use std::io::Write as IoWrite;
+    use std::sync::{Arc, LazyLock};
+
+    static SKILL_REGISTRY_TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    struct SkillRegistryGuard {
+        _lock: MutexGuard<'static, ()>,
+    }
+
+    impl SkillRegistryGuard {
+        fn install(registry: Arc<SkillRegistry>) -> Self {
+            let lock = SKILL_REGISTRY_TEST_LOCK.lock();
+            set_skill_registry(Some(registry));
+            Self { _lock: lock }
+        }
+    }
+
+    impl Drop for SkillRegistryGuard {
+        fn drop(&mut self) {
+            set_skill_registry(None);
+        }
+    }
+
+    fn make_skill(name: &str, description: &str, triggers: &[&str]) -> CompiledSkill {
+        let manifest = SkillManifestBuilder::new(name, "1.0.0", description)
+            .triggers(triggers.iter().copied())
+            .build();
+        let mut skill = CompiledSkill::new(manifest);
+        skill.set_instructions(format!("Instructions for {name}"));
+        skill
+    }
 
     // -- matches_command tests ------------------------------------------------
 
@@ -993,16 +1171,16 @@ mod tests {
 
     // -- try_handle_command tests --------------------------------------------
 
-    #[test]
-    fn test_try_handle_command_validate() {
-        let result = try_handle_command("/validate").unwrap();
+    #[tokio::test]
+    async fn test_try_handle_command_validate() {
+        let result = try_handle_command("/validate").await.unwrap();
         assert!(result.text.contains("Configuration"));
         assert!(result.keyboard.is_none());
     }
 
-    #[test]
-    fn test_try_handle_command_menu() {
-        let result = try_handle_command("/menu");
+    #[tokio::test]
+    async fn test_try_handle_command_menu() {
+        let result = try_handle_command("/menu").await;
         assert!(result.is_some());
         let resp = result.unwrap();
         assert_eq!(resp.text, "What would you like to do?");
@@ -1015,12 +1193,12 @@ mod tests {
         assert_eq!(kb.inline_keyboard[1][1].text, "Cancel");
     }
 
-    #[test]
-    fn test_try_handle_command_other() {
-        assert!(try_handle_command("/unknown_cmd").is_none());
-        assert!(try_handle_command("/help").is_some()); // help IS handled by try_handle_command
-        assert!(try_handle_command("hello").is_none());
-        assert!(try_handle_command("").is_none());
+    #[tokio::test]
+    async fn test_try_handle_command_other() {
+        assert!(try_handle_command("/unknown_cmd").await.is_none());
+        assert!(try_handle_command("/help").await.is_some());
+        assert!(try_handle_command("hello").await.is_none());
+        assert!(try_handle_command("").await.is_none());
     }
 
     // -- CommandResponse tests -----------------------------------------------
@@ -1216,14 +1394,15 @@ providers:
         let result = handle_help();
         assert!(result.contains("/help"));
         assert!(result.contains("/status"));
+        assert!(result.contains("/skill"));
         assert!(result.contains("/validate"));
         assert!(result.contains("/settings"));
         assert!(result.contains("/history"));
     }
 
-    #[test]
-    fn test_try_handle_command_help() {
-        let r = try_handle_command("/help").unwrap();
+    #[tokio::test]
+    async fn test_try_handle_command_help() {
+        let r = try_handle_command("/help").await.unwrap();
         assert!(r.text.contains("/help"));
     }
 
@@ -1365,15 +1544,15 @@ providers:
         assert!(r.keyboard.is_some());
     }
 
-    #[test]
-    fn test_try_handle_command_settings() {
+    #[tokio::test]
+    async fn test_try_handle_command_settings() {
         let yaml = r#"
 providers:
   openai:
     api_key: "sk-test"
 "#;
         let _dir = with_temp_config(yaml);
-        let r = try_handle_command("/settings").unwrap();
+        let r = try_handle_command("/settings").await.unwrap();
         assert!(r.text.contains("Settings"));
         assert!(r.keyboard.is_some());
     }
@@ -1515,13 +1694,77 @@ providers:
 
     // -- /history tests (from agent-a — session-key-based) --------------------
 
-    #[test]
-    fn test_try_handle_command_history() {
-        let result = try_handle_command("/history");
+    #[tokio::test]
+    async fn test_try_handle_command_history() {
+        let result = try_handle_command("/history").await;
         assert!(result.is_some());
         let resp = result.unwrap();
         assert_eq!(resp.text, "No conversation history found.");
         assert!(resp.keyboard.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_try_handle_command_skill_list() {
+        let registry = Arc::new(SkillRegistry::new());
+        registry
+            .register(make_skill(
+                "deploy-k8s",
+                "Deploy to Kubernetes",
+                &["deploy", "k8s"],
+            ))
+            .await
+            .unwrap();
+        let _guard = SkillRegistryGuard::install(registry);
+
+        let response = try_handle_command("/skill").await.unwrap();
+
+        assert!(response.text.contains("Registered skills"));
+        assert!(response.text.contains("deploy-k8s"));
+        assert!(response.text.contains("confidence 0.50"));
+    }
+
+    #[tokio::test]
+    async fn test_try_handle_command_skill_view() {
+        let registry = Arc::new(SkillRegistry::new());
+        registry
+            .register(make_skill(
+                "plan-release",
+                "Plan a release",
+                &["plan", "release"],
+            ))
+            .await
+            .unwrap();
+        let _guard = SkillRegistryGuard::install(registry);
+
+        let response = try_handle_command("/skill view plan-release")
+            .await
+            .unwrap();
+
+        assert!(response.text.contains("Skill: plan-release"));
+        assert!(response.text.contains("description = \"Plan a release\""));
+        assert!(response.text.contains("Instructions for plan-release"));
+    }
+
+    #[tokio::test]
+    async fn test_try_handle_command_skill_search() {
+        let registry = Arc::new(SkillRegistry::new());
+        registry
+            .register(make_skill(
+                "incident-response",
+                "Handle incidents",
+                &["incident", "pager"],
+            ))
+            .await
+            .unwrap();
+        let _guard = SkillRegistryGuard::install(registry);
+
+        let response = try_handle_command("/skill search pager alert")
+            .await
+            .unwrap();
+
+        assert!(response.text.contains("Skill matches"));
+        assert!(response.text.contains("incident-response"));
+        assert!(response.text.contains("score"));
     }
 
     #[test]

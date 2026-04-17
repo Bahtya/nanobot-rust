@@ -170,6 +170,17 @@ struct SendChatActionBody {
 }
 
 #[derive(Debug, Serialize)]
+struct BotCommand {
+    command: String,
+    description: String,
+}
+
+#[derive(Debug, Serialize)]
+struct SetMyCommandsBody {
+    commands: Vec<BotCommand>,
+}
+
+#[derive(Debug, Serialize)]
 struct EditMessageTextBody {
     chat_id: i64,
     message_id: i64,
@@ -785,6 +796,70 @@ impl TelegramChannel {
         Ok(())
     }
 
+    fn bot_commands() -> Vec<BotCommand> {
+        vec![
+            BotCommand {
+                command: "help".to_string(),
+                description: "Show available commands".to_string(),
+            },
+            BotCommand {
+                command: "status".to_string(),
+                description: "Show bot status".to_string(),
+            },
+            BotCommand {
+                command: "validate".to_string(),
+                description: "Validate config".to_string(),
+            },
+            BotCommand {
+                command: "skill".to_string(),
+                description: "List, view, and search skills".to_string(),
+            },
+            BotCommand {
+                command: "settings".to_string(),
+                description: "Show settings".to_string(),
+            },
+            BotCommand {
+                command: "history".to_string(),
+                description: "Browse recent history".to_string(),
+            },
+            BotCommand {
+                command: "reset".to_string(),
+                description: "Reset current session".to_string(),
+            },
+            BotCommand {
+                command: "menu".to_string(),
+                description: "Open the menu".to_string(),
+            },
+        ]
+    }
+
+    async fn register_bot_commands(&self) -> Result<()> {
+        let url = self.api_url("setMyCommands");
+        let resp = self
+            .client
+            .post(&url)
+            .json(&SetMyCommandsBody {
+                commands: Self::bot_commands(),
+            })
+            .send()
+            .await
+            .context("failed to call setMyCommands")?;
+
+        let body: TgResponse<serde_json::Value> = resp
+            .json()
+            .await
+            .context("failed to parse setMyCommands response")?;
+
+        if !body.ok {
+            anyhow::bail!(
+                "Telegram setMyCommands failed: {}",
+                body.description.as_deref().unwrap_or("unknown error")
+            );
+        }
+
+        Ok(())
+    }
+
     /// Send a 👀 read-receipt reaction to a Telegram message.
     ///
     /// Non-critical: failures are logged but not propagated.
@@ -969,7 +1044,7 @@ impl TelegramChannel {
                             .await;
                         Self::send_read_receipt(&client, &base_url, msg.chat.id, msg.message_id)
                             .await;
-                    } else if let Some(response) = crate::commands::try_handle_command(text) {
+                    } else if let Some(response) = crate::commands::try_handle_command(text).await {
                         // Built-in command matched — reply directly, skip bus.
                         Self::send_direct_reply(
                             &client,
@@ -1506,6 +1581,10 @@ impl BaseChannel for TelegramChannel {
         if let Err(e) = self.validate_token().await {
             error!("Telegram token validation failed: {e}");
             return Ok(false);
+        }
+
+        if let Err(e) = self.register_bot_commands().await {
+            warn!("Failed to register Telegram bot commands: {e}");
         }
 
         self.running.store(true, Ordering::Relaxed);
@@ -2133,6 +2212,12 @@ mod tests {
         channel.token = Some("123456:ABC-DEF".to_string());
         let url = channel.api_url("getMe");
         assert_eq!(url, "https://api.telegram.org/bot123456:ABC-DEF/getMe");
+    }
+
+    #[test]
+    fn test_bot_commands_include_skill() {
+        let commands = TelegramChannel::bot_commands();
+        assert!(commands.iter().any(|command| command.command == "skill"));
     }
 
     #[tokio::test]

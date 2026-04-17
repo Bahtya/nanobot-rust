@@ -101,6 +101,10 @@ impl LlmProvider for MockProvider {
         "mock"
     }
 
+    fn default_model(&self) -> &str {
+        "mock-model"
+    }
+
     async fn complete(&self, request: CompletionRequest) -> anyhow::Result<CompletionResponse> {
         // Capture system prompt for later verification
         if let Some(sys) = request.messages.first() {
@@ -778,6 +782,9 @@ async fn test_self_evolution_provider_error() {
     impl LlmProvider for FailingProvider {
         fn name(&self) -> &str {
             "failing"
+        }
+        fn default_model(&self) -> &str {
+            "mock-model"
         }
         async fn complete(
             &self,

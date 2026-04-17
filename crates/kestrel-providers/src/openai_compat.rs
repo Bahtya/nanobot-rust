@@ -358,6 +358,10 @@ impl LlmProvider for OpenAiCompatProvider {
         "openai_compat"
     }
 
+    fn default_model(&self) -> &str {
+        &self.config.model
+    }
+
     async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse> {
         let url = format!("{}/chat/completions", self.config.base_url);
         let body = self.build_request_body(&request);

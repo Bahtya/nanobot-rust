@@ -163,7 +163,7 @@ impl ProviderRegistry {
             let provider = OpenAiCompatProvider::new(OpenAiCompatConfig {
                 api_key: custom.api_key.clone().unwrap_or_default(),
                 base_url: custom.base_url.clone(),
-                model: String::new(),
+                model: custom.model_patterns.first().cloned().unwrap_or_default(),
                 organization: None,
                 no_proxy: custom.no_proxy.unwrap_or(false),
             })?;
@@ -262,6 +262,9 @@ mod tests {
     impl LlmProvider for MockProvider {
         fn name(&self) -> &str {
             &self.provider_name
+        }
+        fn default_model(&self) -> &str {
+            &self.supported_model
         }
         async fn complete(
             &self,

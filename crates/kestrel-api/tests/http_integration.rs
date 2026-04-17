@@ -27,6 +27,9 @@ impl LlmProvider for MockProvider {
     fn name(&self) -> &str {
         "mock"
     }
+    fn default_model(&self) -> &str {
+        "mock-model"
+    }
     async fn complete(&self, _req: CompletionRequest) -> anyhow::Result<CompletionResponse> {
         Ok(CompletionResponse {
             content: Some("Mock integration response".to_string()),

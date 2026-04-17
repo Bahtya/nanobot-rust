@@ -18,6 +18,9 @@ pub trait LlmProvider: Send + Sync {
     /// The provider name (e.g., "openai", "anthropic").
     fn name(&self) -> &str;
 
+    /// Returns the provider's configured default model name.
+    fn default_model(&self) -> &str;
+
     /// Perform a non-streaming completion.
     async fn complete(&self, request: CompletionRequest) -> anyhow::Result<CompletionResponse>;
 

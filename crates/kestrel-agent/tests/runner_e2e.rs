@@ -40,6 +40,10 @@ impl LlmProvider for MockProvider {
         "mock"
     }
 
+    fn default_model(&self) -> &str {
+        "mock-model"
+    }
+
     async fn complete(&self, _request: CompletionRequest) -> anyhow::Result<CompletionResponse> {
         let idx = self.call_count.fetch_add(1, Ordering::SeqCst);
         let resp = self
@@ -315,6 +319,10 @@ async fn test_agent_tool_arg_error_includes_details() {
     impl LlmProvider for CaptureProvider {
         fn name(&self) -> &str {
             "capture"
+        }
+
+        fn default_model(&self) -> &str {
+            "mock-model"
         }
 
         async fn complete(&self, request: CompletionRequest) -> anyhow::Result<CompletionResponse> {

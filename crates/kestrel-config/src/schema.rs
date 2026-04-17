@@ -69,6 +69,10 @@ pub struct Config {
     /// Daemon mode configuration.
     #[serde(default)]
     pub daemon: DaemonConfig,
+
+    /// Startup notification settings.
+    #[serde(default)]
+    pub notifications: NotificationsConfig,
 }
 
 impl Default for Config {
@@ -89,6 +93,36 @@ impl Default for Config {
             mcp_servers: HashMap::new(),
             api: ApiConfig::default(),
             daemon: DaemonConfig::default(),
+            notifications: NotificationsConfig::default(),
+        }
+    }
+}
+
+/// Startup notification configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct NotificationsConfig {
+    /// Whether to send an online notification when a channel connects.
+    #[serde(default = "default_true")]
+    pub online_notify: bool,
+    /// Chat ID that receives the online notification.
+    #[serde(default)]
+    pub notify_chat_id: Option<String>,
+    /// Plain-text message template used for online notifications.
+    ///
+    /// Supported placeholders:
+    /// - `{version}` → the running Kestrel version
+    /// - `{channel}` → the connected channel name
+    #[serde(default = "default_online_message")]
+    pub online_message: String,
+}
+
+impl Default for NotificationsConfig {
+    fn default() -> Self {
+        Self {
+            online_notify: true,
+            notify_chat_id: None,
+            online_message: default_online_message(),
         }
     }
 }
@@ -827,6 +861,10 @@ fn default_cron_tick_secs() -> u64 {
     60
 }
 
+fn default_online_message() -> String {
+    "🟢 Kestrel v{version} online — {channel} connected".to_string()
+}
+
 fn default_mcp_transport() -> String {
     "stdio".to_string()
 }
@@ -844,6 +882,12 @@ mod tests {
         assert!(config.workspace.is_none());
         assert!(config.custom_providers.is_empty());
         assert!(config.mcp_servers.is_empty());
+        assert!(config.notifications.online_notify);
+        assert!(config.notifications.notify_chat_id.is_none());
+        assert_eq!(
+            config.notifications.online_message,
+            "🟢 Kestrel v{version} online — {channel} connected"
+        );
     }
 
     #[test]
@@ -967,6 +1011,10 @@ mcp_servers:
     args:
       - "--root"
       - "/data"
+notifications:
+  online_notify: false
+  notify_chat_id: "-1001234567890"
+  online_message: "Kestrel {version} online on {channel}"
 "#;
         let config: Config = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config._config_version, Some(4));
@@ -1012,6 +1060,26 @@ mcp_servers:
         assert_eq!(
             mcp.args,
             Some(vec!["--root".to_string(), "/data".to_string()])
+        );
+        assert!(!config.notifications.online_notify);
+        assert_eq!(
+            config.notifications.notify_chat_id.as_deref(),
+            Some("-1001234567890")
+        );
+        assert_eq!(
+            config.notifications.online_message,
+            "Kestrel {version} online on {channel}"
+        );
+    }
+
+    #[test]
+    fn test_notifications_config_parse_defaults_when_missing() {
+        let config: Config = serde_yaml::from_str("{}").unwrap();
+        assert!(config.notifications.online_notify);
+        assert!(config.notifications.notify_chat_id.is_none());
+        assert_eq!(
+            config.notifications.online_message,
+            "🟢 Kestrel v{version} online — {channel} connected"
         );
     }
 

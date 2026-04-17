@@ -301,7 +301,7 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
     }
 
     // ── Channel manager (wrapped in Arc for shared access) ────
-    let channel_registry = ChannelRegistry::new();
+    let channel_registry = ChannelRegistry::new_with_config(&config);
     let channel_manager = Arc::new(ChannelManager::new(channel_registry, bus.clone()));
 
     // ── Skill registry ───────────────────────────────────────

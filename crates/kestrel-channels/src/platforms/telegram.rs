@@ -528,6 +528,7 @@ impl Default for CallbackRouter {
 pub struct TelegramChannel {
     token: Option<String>,
     connected: bool,
+    online_notified: Arc<AtomicBool>,
     message_handler: Option<tokio::sync::mpsc::Sender<InboundMessage>>,
     running: Arc<AtomicBool>,
     client: reqwest::Client,
@@ -539,6 +540,9 @@ pub struct TelegramChannel {
     session_keys: Arc<ParkMutex<Vec<String>>>,
     /// Proxy URL for client rebuild on persistent failures.
     proxy_config: Option<String>,
+    online_notify: bool,
+    notify_chat_id: Option<String>,
+    online_message_template: String,
 }
 
 impl TelegramChannel {
@@ -627,6 +631,7 @@ impl TelegramChannel {
         Self {
             token: std::env::var("TELEGRAM_BOT_TOKEN").ok(),
             connected: false,
+            online_notified: Arc::new(AtomicBool::new(false)),
             message_handler: None,
             running: Arc::new(AtomicBool::new(false)),
             client: Self::build_client(None),
@@ -634,6 +639,9 @@ impl TelegramChannel {
             router: Arc::new(tokio::sync::Mutex::new(CallbackRouter::new())),
             session_keys: Arc::new(ParkMutex::new(Vec::new())),
             proxy_config: None,
+            online_notify: false,
+            notify_chat_id: None,
+            online_message_template: String::new(),
         }
     }
 
@@ -643,6 +651,17 @@ impl TelegramChannel {
     /// `TELEGRAM_BOT_TOKEN` env var) and configures the HTTP client proxy
     /// accordingly.
     pub fn new_with_config(config: &kestrel_config::schema::TelegramConfig) -> Self {
+        Self::new_with_notifications_config(
+            config,
+            &kestrel_config::schema::NotificationsConfig::default(),
+        )
+    }
+
+    /// Create a new TelegramChannel using Telegram and notification config.
+    pub fn new_with_notifications_config(
+        config: &kestrel_config::schema::TelegramConfig,
+        notifications: &kestrel_config::schema::NotificationsConfig,
+    ) -> Self {
         let token = if config.token.is_empty() {
             std::env::var("TELEGRAM_BOT_TOKEN").ok()
         } else {
@@ -652,6 +671,7 @@ impl TelegramChannel {
         Self {
             token,
             connected: false,
+            online_notified: Arc::new(AtomicBool::new(false)),
             message_handler: None,
             running: Arc::new(AtomicBool::new(false)),
             client: Self::build_client(proxy),
@@ -659,6 +679,9 @@ impl TelegramChannel {
             router: Arc::new(tokio::sync::Mutex::new(CallbackRouter::new())),
             session_keys: Arc::new(ParkMutex::new(Vec::new())),
             proxy_config: proxy.map(|s| s.to_string()),
+            online_notify: notifications.online_notify,
+            notify_chat_id: notifications.notify_chat_id.clone(),
+            online_message_template: notifications.online_message.clone(),
         }
     }
 
@@ -668,6 +691,7 @@ impl TelegramChannel {
         Self {
             token: Some(token),
             connected: false,
+            online_notified: Arc::new(AtomicBool::new(false)),
             message_handler: None,
             running: Arc::new(AtomicBool::new(false)),
             client: reqwest::Client::builder()
@@ -678,7 +702,46 @@ impl TelegramChannel {
             router: Arc::new(tokio::sync::Mutex::new(CallbackRouter::new())),
             session_keys: Arc::new(ParkMutex::new(Vec::new())),
             proxy_config: None,
+            online_notify: false,
+            notify_chat_id: None,
+            online_message_template: String::new(),
         }
+    }
+
+    /// Create with config-driven notification settings and a custom base URL.
+    ///
+    /// This is intended for tests that need to exercise connect-time behavior
+    /// against a local mock Telegram API.
+    pub fn with_config_and_url(
+        config: &kestrel_config::schema::TelegramConfig,
+        notifications: &kestrel_config::schema::NotificationsConfig,
+        base_url: String,
+    ) -> Self {
+        let mut channel = Self::new_with_notifications_config(config, notifications);
+        channel.base_url_override = Some(base_url);
+        channel.client = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+        channel
+    }
+
+    fn format_online_message(template: &str, channel: &str) -> String {
+        template
+            .replace("{version}", env!("CARGO_PKG_VERSION"))
+            .replace("{channel}", channel)
+    }
+
+    fn online_notification_payload(&self) -> Option<(String, String)> {
+        if !self.online_notify || self.online_notified.load(Ordering::Relaxed) {
+            return None;
+        }
+
+        let chat_id = self.notify_chat_id.clone()?;
+        Some((
+            chat_id,
+            Self::format_online_message(&self.online_message_template, "Telegram"),
+        ))
     }
 
     /// Build the API URL for a given method.
@@ -1448,6 +1511,44 @@ impl BaseChannel for TelegramChannel {
         self.running.store(true, Ordering::Relaxed);
         self.connected = true;
 
+        if let Some((chat_id, message)) = self.online_notification_payload() {
+            let client = self.client.clone();
+            let url = self.api_url("sendMessage");
+            let notified = self.online_notified.clone();
+            tokio::spawn(async move {
+                let chat_id_num = match chat_id.parse::<i64>() {
+                    Ok(chat_id_num) => chat_id_num,
+                    Err(_) => {
+                        warn!("Invalid Telegram online notification chat_id: {chat_id}");
+                        return;
+                    }
+                };
+
+                let body = SendMessageBody {
+                    chat_id: chat_id_num,
+                    text: message,
+                    parse_mode: None,
+                    reply_to_message_id: None,
+                    reply_markup: None,
+                };
+
+                match client.post(&url).json(&body).send().await {
+                    Ok(resp) if resp.status().is_success() => {
+                        notified.store(true, Ordering::Relaxed);
+                    }
+                    Ok(resp) => {
+                        warn!(
+                            "Telegram online notification failed with status: {}",
+                            resp.status()
+                        );
+                    }
+                    Err(e) => {
+                        warn!("Failed to send Telegram online notification: {e}");
+                    }
+                }
+            });
+        }
+
         // Register built-in callback handlers (e.g. /menu, settings, history).
         {
             let mut r = self.router.lock().await;
@@ -1483,6 +1584,7 @@ impl BaseChannel for TelegramChannel {
     async fn disconnect(&mut self) -> Result<()> {
         self.running.store(false, Ordering::Relaxed);
         self.connected = false;
+        self.online_notified.store(false, Ordering::Relaxed);
         info!("Telegram channel disconnected");
         Ok(())
     }
@@ -2093,6 +2195,46 @@ mod tests {
     fn test_running_flag_default() {
         let channel = TelegramChannel::new();
         assert!(!channel.running.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn test_format_online_message() {
+        let message = TelegramChannel::format_online_message(
+            "Kestrel v{version} online: {channel}",
+            "Telegram",
+        );
+        assert_eq!(
+            message,
+            format!("Kestrel v{} online: Telegram", env!("CARGO_PKG_VERSION"))
+        );
+    }
+
+    #[test]
+    fn test_online_notification_payload_requires_chat_id_and_flag() {
+        let config = kestrel_config::schema::TelegramConfig {
+            token: "123456:ABC-DEF".to_string(),
+            enabled: true,
+            allowed_users: vec![],
+            admin_users: vec![],
+            streaming: false,
+            proxy: None,
+        };
+        let notifications = kestrel_config::schema::NotificationsConfig {
+            online_notify: true,
+            notify_chat_id: Some("123".to_string()),
+            online_message: "Kestrel {version} {channel}".to_string(),
+        };
+        let channel = TelegramChannel::new_with_notifications_config(&config, &notifications);
+
+        let payload = channel.online_notification_payload().unwrap();
+        assert_eq!(payload.0, "123");
+        assert_eq!(
+            payload.1,
+            format!("Kestrel {} Telegram", env!("CARGO_PKG_VERSION"))
+        );
+
+        channel.online_notified.store(true, Ordering::Relaxed);
+        assert!(channel.online_notification_payload().is_none());
     }
 
     #[test]
@@ -3540,6 +3682,8 @@ mod tests {
             channel.proxy_config.as_deref(),
             Some("http://proxy.example.com:8080")
         );
+        assert!(channel.online_notify);
+        assert!(channel.notify_chat_id.is_none());
     }
 
     #[test]
@@ -3569,5 +3713,174 @@ mod tests {
         let channel = TelegramChannel::new_with_config(&config);
         // Empty proxy should be treated as None
         assert!(channel.proxy_config.is_none());
+    }
+
+    #[test]
+    fn test_new_with_notifications_config_uses_notification_settings() {
+        let config = kestrel_config::schema::TelegramConfig {
+            token: "123456:ABC-DEF".to_string(),
+            enabled: true,
+            allowed_users: vec![],
+            admin_users: vec![],
+            streaming: false,
+            proxy: None,
+        };
+        let notifications = kestrel_config::schema::NotificationsConfig {
+            online_notify: true,
+            notify_chat_id: Some("-100123".to_string()),
+            online_message: "Online {channel} {version}".to_string(),
+        };
+        let channel = TelegramChannel::new_with_notifications_config(&config, &notifications);
+        assert!(channel.online_notify);
+        assert_eq!(channel.notify_chat_id.as_deref(), Some("-100123"));
+        assert_eq!(
+            channel.online_message_template,
+            "Online {channel} {version}"
+        );
+    }
+
+    /// Helper: spawn a minimal HTTP mock server on a random port.
+    /// Returns `(base_url, join_handle)`. Abort the handle to stop.
+    async fn spawn_mock_server(
+        getme_status: u16,
+        getme_body: &'static str,
+        send_status: u16,
+        send_body: &'static str,
+    ) -> (String, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let base_url = format!("http://127.0.0.1:{port}");
+
+        let handle = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    continue;
+                };
+                let getme_status = getme_status;
+                let getme_body = getme_body;
+                let send_status = send_status;
+                let send_body = send_body;
+                tokio::spawn(async move {
+                    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let request = String::from_utf8_lossy(&buf);
+                    let path = request.lines().next().unwrap_or("");
+
+                    let (status, body) = if path.contains("getMe") {
+                        (getme_status, getme_body)
+                    } else if path.contains("sendMessage") {
+                        (send_status, send_body)
+                    } else {
+                        (404, "not found")
+                    };
+
+                    let response = format!(
+                        "HTTP/1.1 {status} OK\r\ncontent-type: application/json\r\nconnection: close\r\ncontent-length: {}\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = stream.write_all(response.as_bytes()).await;
+                    let _ = stream.shutdown().await;
+                });
+            }
+        });
+
+        (base_url, handle)
+    }
+
+    /// Test: online_notified stays false when sendMessage returns non-success status.
+    #[tokio::test]
+    async fn test_online_notified_not_set_on_send_failure() {
+        let (base_url, _server) = spawn_mock_server(
+            200,
+            r#"{"ok":true,"result":{"id":1,"username":"bot"}}"#,
+            502,
+            r#"{"ok":false,"description":"Bad Gateway"}"#,
+        )
+        .await;
+
+        let config = kestrel_config::schema::TelegramConfig {
+            token: "123:ABC".to_string(),
+            enabled: true,
+            allowed_users: vec![],
+            admin_users: vec![],
+            streaming: false,
+            proxy: None,
+        };
+        let notifications = kestrel_config::schema::NotificationsConfig {
+            online_notify: true,
+            notify_chat_id: Some("999".to_string()),
+            online_message: "Online {channel}".to_string(),
+        };
+        let mut channel =
+            TelegramChannel::with_config_and_url(&config, &notifications, base_url.clone());
+        let (tx, _rx) = tokio::sync::mpsc::channel(10);
+        channel.set_message_handler(tx);
+
+        let notified = channel.online_notified.clone();
+        channel.connect().await.unwrap();
+
+        // Give the spawned task time to complete.
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+
+        assert!(
+            !notified.load(Ordering::Relaxed),
+            "online_notified should remain false after send failure"
+        );
+    }
+
+    /// Test: online_notified is set to true after successful sendMessage.
+    #[tokio::test]
+    async fn test_online_notified_set_on_success() {
+        let (base_url, _server) = spawn_mock_server(
+            200,
+            r#"{"ok":true,"result":{"id":1,"username":"bot"}}"#,
+            200,
+            r#"{"ok":true,"result":{"message_id":1}}"#,
+        )
+        .await;
+
+        let config = kestrel_config::schema::TelegramConfig {
+            token: "123:ABC".to_string(),
+            enabled: true,
+            allowed_users: vec![],
+            admin_users: vec![],
+            streaming: false,
+            proxy: None,
+        };
+        let notifications = kestrel_config::schema::NotificationsConfig {
+            online_notify: true,
+            notify_chat_id: Some("999".to_string()),
+            online_message: "Online {channel}".to_string(),
+        };
+        let mut channel =
+            TelegramChannel::with_config_and_url(&config, &notifications, base_url.clone());
+        let (tx, _rx) = tokio::sync::mpsc::channel(10);
+        channel.set_message_handler(tx);
+
+        let notified = channel.online_notified.clone();
+        channel.connect().await.unwrap();
+
+        // Give the spawned task time to complete.
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+
+        assert!(
+            notified.load(Ordering::Relaxed),
+            "online_notified should be true after successful send"
+        );
+    }
+
+    /// Test: disconnect resets online_notified, so a subsequent reconnect retries.
+    #[tokio::test]
+    async fn test_disconnect_resets_online_notified() {
+        let mut channel = TelegramChannel::new();
+        channel.online_notified.store(true, Ordering::Relaxed);
+        assert!(channel.online_notified.load(Ordering::Relaxed));
+
+        channel.disconnect().await.unwrap();
+        assert!(
+            !channel.online_notified.load(Ordering::Relaxed),
+            "disconnect should reset online_notified to false"
+        );
     }
 }

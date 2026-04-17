@@ -27,7 +27,6 @@ chrono = { workspace = true }
 parking_lot = { workspace = true }
 dashmap = { workspace = true }
 regex = { workspace = true }
-glob = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]

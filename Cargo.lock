@@ -1076,7 +1076,6 @@ dependencies = [
  "dashmap",
  "filetime",
  "futures",
- "glob",
  "kestrel-bus",
  "kestrel-config",
  "kestrel-core",

@@ -1282,6 +1282,9 @@ mod tests {
         fn name(&self) -> &str {
             "mock"
         }
+        fn default_model(&self) -> &str {
+            "mock-model"
+        }
         async fn complete(
             &self,
             _req: kestrel_providers::base::CompletionRequest,

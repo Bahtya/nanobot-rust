@@ -351,6 +351,10 @@ impl LlmProvider for AnthropicProvider {
         "anthropic"
     }
 
+    fn default_model(&self) -> &str {
+        &self.config.model
+    }
+
     async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse> {
         let url = format!("{}/v1/messages", self.base_url());
         let body = self.build_request_body(&request);

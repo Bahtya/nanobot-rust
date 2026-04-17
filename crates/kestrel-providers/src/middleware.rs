@@ -185,6 +185,10 @@ impl LlmProvider for ProviderMiddleware {
         self.inner.name()
     }
 
+    fn default_model(&self) -> &str {
+        self.inner.default_model()
+    }
+
     async fn complete(&self, request: CompletionRequest) -> anyhow::Result<CompletionResponse> {
         // 1. Circuit breaker check (fail-fast if open)
         if let Some(ref cb) = self.config.circuit_breaker {
@@ -309,6 +313,10 @@ mod tests {
             "mock_middleware"
         }
 
+        fn default_model(&self) -> &str {
+            "mock-model"
+        }
+
         async fn complete(&self, _req: CompletionRequest) -> anyhow::Result<CompletionResponse> {
             let n = self.call_count.fetch_add(1, Ordering::SeqCst);
             let fail_until = self.fail_until.load(Ordering::SeqCst);
@@ -366,6 +374,10 @@ mod tests {
     impl LlmProvider for MockProvider503 {
         fn name(&self) -> &str {
             "mock_503"
+        }
+
+        fn default_model(&self) -> &str {
+            "mock-model"
         }
 
         async fn complete(&self, _req: CompletionRequest) -> anyhow::Result<CompletionResponse> {

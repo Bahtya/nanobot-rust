@@ -1098,6 +1098,10 @@ mod tests {
             "mock"
         }
 
+        fn default_model(&self) -> &str {
+            "mock-model"
+        }
+
         async fn complete(&self, _req: CompletionRequest) -> Result<CompletionResponse> {
             let idx = self.call_count.fetch_add(1, Ordering::SeqCst) as usize;
             self.responses
@@ -1141,6 +1145,10 @@ mod tests {
     impl LlmProvider for DelayedProvider {
         fn name(&self) -> &str {
             "mock-delayed"
+        }
+
+        fn default_model(&self) -> &str {
+            "mock-model"
         }
 
         async fn complete(&self, _req: CompletionRequest) -> Result<CompletionResponse> {
@@ -1515,6 +1523,9 @@ mod tests {
         impl LlmProvider for FailOnSecond {
             fn name(&self) -> &str {
                 "fail-second"
+            }
+            fn default_model(&self) -> &str {
+                "mock-model"
             }
             async fn complete(&self, _req: CompletionRequest) -> Result<CompletionResponse> {
                 let n = self.call_count.fetch_add(1, Ordering::SeqCst);

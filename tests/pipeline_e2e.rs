@@ -82,6 +82,10 @@ impl LlmProvider for MockProvider {
         "mock"
     }
 
+    fn default_model(&self) -> &str {
+        "mock-model"
+    }
+
     async fn complete(&self, _request: CompletionRequest) -> anyhow::Result<CompletionResponse> {
         let idx = self.call_count.fetch_add(1, Ordering::SeqCst) as usize;
         self.responses.get(idx).cloned().ok_or_else(|| {
@@ -742,6 +746,9 @@ async fn test_pipeline_subagent_error_isolation() {
         fn name(&self) -> &str {
             "fail-mock"
         }
+        fn default_model(&self) -> &str {
+            "mock-model"
+        }
         async fn complete(&self, _req: CompletionRequest) -> anyhow::Result<CompletionResponse> {
             Err(anyhow::anyhow!("Simulated sub-agent failure"))
         }
@@ -769,6 +776,9 @@ async fn test_pipeline_subagent_error_isolation() {
     impl LlmProvider for AlternatingProvider {
         fn name(&self) -> &str {
             "alt-mock"
+        }
+        fn default_model(&self) -> &str {
+            "mock-model"
         }
         async fn complete(&self, _req: CompletionRequest) -> anyhow::Result<CompletionResponse> {
             let n = self.call_count.fetch_add(1, Ordering::SeqCst);

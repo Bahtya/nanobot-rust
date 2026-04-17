@@ -63,6 +63,10 @@ impl LlmProvider for MockProvider {
         "mock"
     }
 
+    fn default_model(&self) -> &str {
+        "mock-model"
+    }
+
     async fn complete(&self, _request: CompletionRequest) -> anyhow::Result<CompletionResponse> {
         let idx = self.call_count.fetch_add(1, Ordering::SeqCst) as usize;
         let resp = self.responses.get(idx).cloned().unwrap_or_else(|| {

@@ -72,7 +72,7 @@ impl HealthCheck for ProviderHealthCheck {
         for name in &names {
             if let Some(provider) = self.providers.get_provider_by_name(name) {
                 let request = kestrel_providers::CompletionRequest {
-                    model: name.clone(),
+                    model: provider.default_model().to_string(),
                     messages: vec![kestrel_core::Message {
                         role: kestrel_core::MessageRole::User,
                         content: "health check".to_string(),
@@ -411,6 +411,9 @@ mod tests {
         fn name(&self) -> &str {
             "mock_healthy"
         }
+        fn default_model(&self) -> &str {
+            "mock-model"
+        }
         async fn complete(
             &self,
             _request: kestrel_providers::CompletionRequest,
@@ -450,6 +453,9 @@ mod tests {
         fn name(&self) -> &str {
             "mock_failing"
         }
+        fn default_model(&self) -> &str {
+            "mock-model"
+        }
         async fn complete(
             &self,
             _request: kestrel_providers::CompletionRequest,
@@ -481,6 +487,9 @@ mod tests {
     impl kestrel_providers::LlmProvider for MockSlowProvider {
         fn name(&self) -> &str {
             "mock_slow"
+        }
+        fn default_model(&self) -> &str {
+            "mock-model"
         }
         async fn complete(
             &self,
@@ -529,6 +538,71 @@ mod tests {
         let result = check.report_health().await;
         assert_eq!(result.status, CheckStatus::Healthy);
         assert!(result.message.contains("1/1"));
+    }
+
+    #[tokio::test]
+    async fn test_provider_check_uses_default_model() {
+        struct CapturingProvider {
+            last_model: Arc<parking_lot::Mutex<Option<String>>>,
+        }
+
+        #[async_trait::async_trait]
+        impl kestrel_providers::LlmProvider for CapturingProvider {
+            fn name(&self) -> &str {
+                "capturing"
+            }
+
+            fn default_model(&self) -> &str {
+                "configured-model"
+            }
+
+            async fn complete(
+                &self,
+                request: kestrel_providers::CompletionRequest,
+            ) -> anyhow::Result<kestrel_providers::CompletionResponse> {
+                *self.last_model.lock() = Some(request.model);
+                Ok(kestrel_providers::CompletionResponse {
+                    content: Some("ok".to_string()),
+                    tool_calls: None,
+                    usage: None,
+                    finish_reason: None,
+                })
+            }
+
+            async fn complete_stream(
+                &self,
+                request: kestrel_providers::CompletionRequest,
+            ) -> anyhow::Result<kestrel_providers::base::BoxStream> {
+                let resp = self.complete(request).await?;
+                let chunk = kestrel_providers::base::CompletionChunk {
+                    delta: resp.content,
+                    tool_call_deltas: None,
+                    usage: None,
+                    done: true,
+                };
+                Ok(Box::pin(futures::stream::once(async move { Ok(chunk) })))
+            }
+
+            fn supports_model(&self, _model: &str) -> bool {
+                true
+            }
+        }
+
+        let last_model = Arc::new(parking_lot::Mutex::new(None));
+        let mut registry = ProviderRegistry::new();
+        registry.register(
+            "openai",
+            CapturingProvider {
+                last_model: last_model.clone(),
+            },
+        );
+
+        let result = ProviderHealthCheck::new(Arc::new(registry))
+            .report_health()
+            .await;
+
+        assert_eq!(result.status, CheckStatus::Healthy);
+        assert_eq!(last_model.lock().as_deref(), Some("configured-model"));
     }
 
     #[tokio::test]

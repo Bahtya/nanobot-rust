@@ -66,6 +66,10 @@ impl LlmProvider for MockProvider {
         "mock"
     }
 
+    fn default_model(&self) -> &str {
+        "mock-model"
+    }
+
     fn supports_model(&self, _model: &str) -> bool {
         true
     }

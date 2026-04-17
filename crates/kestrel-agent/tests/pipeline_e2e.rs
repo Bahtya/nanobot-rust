@@ -42,6 +42,10 @@ impl LlmProvider for MockProvider {
         "mock"
     }
 
+    fn default_model(&self) -> &str {
+        "mock-model"
+    }
+
     async fn complete(&self, _request: CompletionRequest) -> anyhow::Result<CompletionResponse> {
         let idx = self.call_count.fetch_add(1, Ordering::SeqCst);
         let resp = self
@@ -366,6 +370,9 @@ async fn test_pipeline_provider_error_handled() {
     impl LlmProvider for FailingProvider {
         fn name(&self) -> &str {
             "failing"
+        }
+        fn default_model(&self) -> &str {
+            "mock-model"
         }
         async fn complete(
             &self,

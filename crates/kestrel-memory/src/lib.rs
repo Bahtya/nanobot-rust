@@ -5,7 +5,7 @@
 //! This crate provides:
 //! - [`MemoryStore`] trait — unified async interface for memory backends
 //! - [`HotStore`] (L1) — in-memory LRU cache with JSON lines file persistence
-//! - [`WarmStore`] (L2) — semantic vector search (in-memory KNN)
+//! - [`WarmStore`] (L2) — persistent semantic vector search via LanceDB
 //! - [`MemoryEntry`] — typed memory entries with metadata and embeddings
 //! - [`MemoryConfig`] — TOML-based configuration
 

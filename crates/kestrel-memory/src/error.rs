@@ -38,6 +38,10 @@ pub enum MemoryError {
     /// A configuration error occurred.
     #[error("Configuration error: {0}")]
     Config(String),
+
+    /// A LanceDB error occurred.
+    #[error("LanceDB error: {0}")]
+    LanceDb(String),
 }
 
 /// Convenience type alias for Results using MemoryError.
@@ -67,6 +71,9 @@ mod tests {
 
         let err = MemoryError::Config("bad config".to_string());
         assert!(err.to_string().contains("bad config"));
+
+        let err = MemoryError::LanceDb("table not found".to_string());
+        assert!(err.to_string().contains("table not found"));
     }
 
     #[test]

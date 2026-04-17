@@ -1,28 +1,38 @@
-//! WarmStore (L2) — semantic vector search with in-memory KNN.
+//! WarmStore (L2) — semantic vector search backed by LanceDB.
 //!
-//! This module provides KNN (K-Nearest Neighbors) search over memory entries
-//! using cosine similarity on embedding vectors. The current implementation
-//! uses an in-memory store; a LanceDB backend can be swapped in by implementing
-//! the [`MemoryStore`] trait with the `lancedb` feature flag.
+//! This module provides persistent vector search over memory entries using
+//! LanceDB as the storage backend. Entries survive restarts and support
+//! KNN (K-Nearest Neighbors) semantic search via cosine similarity on
+//! embedding vectors.
 
+use arrow_array::{
+    FixedSizeListArray, Float32Array, Float64Array, RecordBatch, StringArray, UInt32Array,
+};
+use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use async_trait::async_trait;
-use std::collections::HashMap;
-use tokio::sync::RwLock;
+use futures::TryStreamExt;
+use lancedb::query::{ExecutableQuery, QueryBase};
+use std::sync::Arc;
 
 use crate::config::MemoryConfig;
 use crate::error::{MemoryError, Result};
 use crate::hot_store::cosine_similarity;
 use crate::store::MemoryStore;
-use crate::types::{EntryId, MemoryEntry, MemoryQuery, ScoredEntry};
+use crate::types::{MemoryCategory, MemoryEntry, MemoryQuery, ScoredEntry};
 
-/// L2 warm memory store — semantic vector search over embeddings.
+const TABLE_NAME: &str = "warm_memory";
+
+/// L2 warm memory store — persistent semantic vector search via LanceDB.
 ///
-/// Entries are stored in memory with their embedding vectors.
-/// Search uses cosine similarity for KNN retrieval, providing
-/// millisecond-level latency for semantic queries.
+/// Entries are stored in a LanceDB table with their embedding vectors.
+/// Search uses vector similarity (KNN) for semantic queries, with in-memory
+/// cosine similarity recomputation for accurate scoring. Data persists across
+/// restarts via LanceDB's on-disk format.
 pub struct WarmStore {
-    /// In-memory entry map (id → entry).
-    entries: RwLock<HashMap<EntryId, MemoryEntry>>,
+    /// LanceDB table handle.
+    table: lancedb::Table,
+    /// Arrow schema for the table.
+    schema: SchemaRef,
     /// Maximum number of entries.
     max_entries: usize,
     /// Expected embedding dimension.
@@ -30,13 +40,52 @@ pub struct WarmStore {
 }
 
 impl WarmStore {
-    /// Create a new WarmStore with the given configuration.
-    pub fn new(config: &MemoryConfig) -> Self {
-        Self {
-            entries: RwLock::new(HashMap::new()),
+    /// Create a new WarmStore, connecting to (or creating) the LanceDB database.
+    ///
+    /// If the database already exists, existing entries are loaded automatically.
+    pub async fn new(config: &MemoryConfig) -> Result<Self> {
+        let schema = make_schema(config.embedding_dim);
+
+        // Ensure the warm store directory exists
+        tokio::fs::create_dir_all(&config.warm_store_path)
+            .await
+            .map_err(|e| MemoryError::LanceDb(format!("failed to create warm store dir: {e}")))?;
+
+        let uri = config
+            .warm_store_path
+            .to_str()
+            .ok_or_else(|| MemoryError::LanceDb("invalid warm_store_path".into()))?;
+        let db = lancedb::connect(uri)
+            .execute()
+            .await
+            .map_err(|e| MemoryError::LanceDb(format!("failed to connect to LanceDB: {e}")))?;
+
+        let table = match db
+            .table_names()
+            .execute()
+            .await
+            .map_err(|e| MemoryError::LanceDb(e.to_string()))?
+        {
+            names if names.iter().any(|n| n == TABLE_NAME) => db
+                .open_table(TABLE_NAME)
+                .execute()
+                .await
+                .map_err(|e| MemoryError::LanceDb(format!("failed to open table: {e}")))?,
+            _ => {
+                let batch = RecordBatch::new_empty(schema.clone());
+                db.create_table(TABLE_NAME, batch)
+                    .execute()
+                    .await
+                    .map_err(|e| MemoryError::LanceDb(format!("failed to create table: {e}")))?
+            }
+        };
+
+        Ok(Self {
+            table,
+            schema,
             max_entries: config.max_entries,
             embedding_dim: config.embedding_dim,
-        }
+        })
     }
 
     /// Validate that an entry's embedding matches the expected dimension.
@@ -51,89 +100,332 @@ impl WarmStore {
         }
         Ok(())
     }
+
+    /// Query a single entry by id using a filter predicate.
+    async fn query_by_id(&self, id: &str) -> Result<Option<MemoryEntry>> {
+        let predicate = format!("id = '{id}'");
+        let batches = self
+            .table
+            .query()
+            .only_if(&predicate)
+            .execute()
+            .await
+            .map_err(|e| MemoryError::LanceDb(format!("query by id failed: {e}")))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|e| MemoryError::LanceDb(format!("query collect failed: {e}")))?;
+
+        for batch in batches {
+            if let Some(entry) = batch_to_entries(&batch)?.into_iter().next() {
+                return Ok(Some(entry));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Scan all rows from the table and convert to MemoryEntry vec.
+    async fn scan_all(&self) -> Result<Vec<MemoryEntry>> {
+        let batches = self
+            .table
+            .query()
+            .execute()
+            .await
+            .map_err(|e| MemoryError::LanceDb(format!("scan failed: {e}")))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|e| MemoryError::LanceDb(format!("scan collect failed: {e}")))?;
+
+        let mut entries = Vec::new();
+        for batch in batches {
+            entries.extend(batch_to_entries(&batch)?);
+        }
+        Ok(entries)
+    }
+
+    /// Delete a row by id and add the updated entry (upsert helper).
+    async fn upsert_entry(&self, entry: &MemoryEntry) -> Result<()> {
+        // Delete existing row with same id
+        let predicate = format!("id = '{}'", entry.id);
+        self.table
+            .delete(&predicate)
+            .await
+            .map_err(|e| MemoryError::LanceDb(format!("delete for upsert failed: {e}")))?;
+
+        // Add new row
+        let batch = entry_to_batch(entry, self.embedding_dim, &self.schema)?;
+        self.table
+            .add(batch)
+            .execute()
+            .await
+            .map_err(|e| MemoryError::LanceDb(format!("add entry failed: {e}")))?;
+        Ok(())
+    }
 }
 
 #[async_trait]
 impl MemoryStore for WarmStore {
     async fn store(&self, entry: MemoryEntry) -> Result<()> {
         self.validate_embedding(&entry)?;
-        let mut entries = self.entries.write().await;
-        if entries.len() >= self.max_entries && !entries.contains_key(&entry.id) {
+
+        // Delete existing row with same id (no-op if not found)
+        let predicate = format!("id = '{}'", entry.id);
+        self.table
+            .delete(&predicate)
+            .await
+            .map_err(|e| MemoryError::LanceDb(format!("delete for store failed: {e}")))?;
+
+        // Check capacity after deletion (overwrites don't grow the table)
+        let count = self
+            .table
+            .count_rows(None)
+            .await
+            .map_err(|e| MemoryError::LanceDb(format!("count_rows failed: {e}")))?;
+        if count >= self.max_entries {
             return Err(MemoryError::CapacityExceeded {
                 max: self.max_entries,
-                current: entries.len(),
+                current: count,
             });
         }
-        entries.insert(entry.id.clone(), entry);
+
+        // Add the new entry
+        let batch = entry_to_batch(&entry, self.embedding_dim, &self.schema)?;
+        self.table
+            .add(batch)
+            .execute()
+            .await
+            .map_err(|e| MemoryError::LanceDb(format!("add entry failed: {e}")))?;
         Ok(())
     }
 
     async fn recall(&self, id: &str) -> Result<Option<MemoryEntry>> {
-        let mut entries = self.entries.write().await;
-        if let Some(entry) = entries.get_mut(id) {
-            entry.touch();
-            Ok(Some(entry.clone()))
-        } else {
-            Ok(None)
-        }
+        let mut entry = match self.query_by_id(id).await? {
+            Some(e) => e,
+            None => return Ok(None),
+        };
+        entry.touch();
+        self.upsert_entry(&entry).await?;
+        Ok(Some(entry))
     }
 
     async fn search(&self, query: &MemoryQuery) -> Result<Vec<ScoredEntry>> {
-        let entries = self.entries.read().await;
-        let query_embedding = match &query.embedding {
-            Some(e) => e,
-            None => {
-                // Without an embedding, fall back to text/category filter
-                let mut results: Vec<ScoredEntry> = entries
-                    .values()
+        let all_entries = self.scan_all().await?;
+
+        match &query.embedding {
+            Some(query_embedding) => {
+                // KNN search: compute cosine similarity and sort
+                let mut scored: Vec<ScoredEntry> = all_entries
+                    .into_iter()
                     .filter(|entry| matches_filters(entry, query))
-                    .map(|entry| ScoredEntry {
-                        entry: entry.clone(),
-                        score: 1.0,
+                    .filter_map(|entry| {
+                        let embedding = entry.embedding.as_ref()?;
+                        let score = cosine_similarity(query_embedding, embedding);
+                        Some(ScoredEntry { entry, score })
                     })
                     .collect();
-                results.truncate(query.limit);
-                return Ok(results);
+
+                scored.sort_by(|a, b| {
+                    b.score
+                        .partial_cmp(&a.score)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+                scored.truncate(query.limit);
+                Ok(scored)
             }
-        };
-
-        // KNN search using cosine similarity
-        let mut scored: Vec<ScoredEntry> = entries
-            .values()
-            .filter(|entry| matches_filters(entry, query))
-            .filter_map(|entry| {
-                entry.embedding.as_ref().map(|emb| {
-                    let score = cosine_similarity(query_embedding, emb);
-                    ScoredEntry {
-                        entry: entry.clone(),
-                        score,
-                    }
-                })
-            })
-            .collect();
-
-        scored.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        scored.truncate(query.limit);
-        Ok(scored)
+            None => {
+                // Text/category filter without embedding
+                let mut results: Vec<ScoredEntry> = all_entries
+                    .into_iter()
+                    .filter(|entry| matches_filters(entry, query))
+                    .map(|entry| ScoredEntry { entry, score: 1.0 })
+                    .collect();
+                results.truncate(query.limit);
+                Ok(results)
+            }
+        }
     }
 
     async fn delete(&self, id: &str) -> Result<()> {
-        self.entries.write().await.remove(id);
+        let predicate = format!("id = '{id}'");
+        self.table
+            .delete(&predicate)
+            .await
+            .map_err(|e| MemoryError::LanceDb(format!("delete failed: {e}")))?;
         Ok(())
     }
 
     async fn len(&self) -> usize {
-        self.entries.read().await.len()
+        self.table.count_rows(None).await.unwrap_or(0)
     }
 
     async fn clear(&self) -> Result<()> {
-        self.entries.write().await.clear();
+        // Delete all rows — every id is a non-empty UUID
+        self.table
+            .delete("id != ''")
+            .await
+            .map_err(|e| MemoryError::LanceDb(format!("clear failed: {e}")))?;
         Ok(())
     }
+}
+
+// ---------------------------------------------------------------------------
+// Helper functions
+// ---------------------------------------------------------------------------
+
+/// Build the Arrow schema for the LanceDB table.
+fn make_schema(embedding_dim: usize) -> SchemaRef {
+    Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Utf8, false),
+        Field::new("content", DataType::Utf8, false),
+        Field::new("category", DataType::Utf8, false),
+        Field::new("confidence", DataType::Float64, false),
+        Field::new("created_at", DataType::Utf8, false),
+        Field::new("updated_at", DataType::Utf8, false),
+        Field::new("access_count", DataType::UInt32, false),
+        Field::new(
+            "vector",
+            DataType::FixedSizeList(
+                Arc::new(Field::new("item", DataType::Float32, true)),
+                embedding_dim as i32,
+            ),
+            true,
+        ),
+    ]))
+}
+
+/// Convert a [`MemoryEntry`] to a single-row [`RecordBatch`].
+fn entry_to_batch(
+    entry: &MemoryEntry,
+    embedding_dim: usize,
+    schema: &SchemaRef,
+) -> Result<RecordBatch> {
+    let vector = entry
+        .embedding
+        .clone()
+        .unwrap_or_else(|| vec![0.0_f32; embedding_dim]);
+
+    let values = Float32Array::from(vector);
+    let list_field = Arc::new(Field::new("item", DataType::Float32, true));
+    let vector_array =
+        FixedSizeListArray::new(list_field, embedding_dim as i32, Arc::new(values), None);
+
+    RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(StringArray::from(vec![entry.id.clone()])),
+            Arc::new(StringArray::from(vec![entry.content.clone()])),
+            Arc::new(StringArray::from(vec![entry.category.to_string()])),
+            Arc::new(Float64Array::from(vec![entry.confidence])),
+            Arc::new(StringArray::from(vec![entry.created_at.to_rfc3339()])),
+            Arc::new(StringArray::from(vec![entry.updated_at.to_rfc3339()])),
+            Arc::new(UInt32Array::from(vec![entry.access_count])),
+            Arc::new(vector_array),
+        ],
+    )
+    .map_err(|e| MemoryError::LanceDb(format!("entry batch creation failed: {e}")))
+}
+
+/// Convert a [`RecordBatch`] to a `Vec<MemoryEntry>`.
+fn batch_to_entries(batch: &RecordBatch) -> Result<Vec<MemoryEntry>> {
+    let num_rows = batch.num_rows();
+    if num_rows == 0 {
+        return Ok(Vec::new());
+    }
+
+    let ids = batch
+        .column_by_name("id")
+        .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+        .ok_or_else(|| MemoryError::LanceDb("missing id column".into()))?;
+    let contents = batch
+        .column_by_name("content")
+        .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+        .ok_or_else(|| MemoryError::LanceDb("missing content column".into()))?;
+    let categories = batch
+        .column_by_name("category")
+        .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+        .ok_or_else(|| MemoryError::LanceDb("missing category column".into()))?;
+    let confidences = batch
+        .column_by_name("confidence")
+        .and_then(|c| c.as_any().downcast_ref::<Float64Array>())
+        .ok_or_else(|| MemoryError::LanceDb("missing confidence column".into()))?;
+    let created_ats = batch
+        .column_by_name("created_at")
+        .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+        .ok_or_else(|| MemoryError::LanceDb("missing created_at column".into()))?;
+    let updated_ats = batch
+        .column_by_name("updated_at")
+        .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+        .ok_or_else(|| MemoryError::LanceDb("missing updated_at column".into()))?;
+    let access_counts = batch
+        .column_by_name("access_count")
+        .and_then(|c| c.as_any().downcast_ref::<UInt32Array>())
+        .ok_or_else(|| MemoryError::LanceDb("missing access_count column".into()))?;
+    let vectors: &FixedSizeListArray = batch
+        .column_by_name("vector")
+        .and_then(|c| c.as_any().downcast_ref::<FixedSizeListArray>())
+        .ok_or_else(|| MemoryError::LanceDb("missing vector column".into()))?;
+
+    let mut entries = Vec::with_capacity(num_rows);
+    for i in 0..num_rows {
+        let id = ids.value(i).to_string();
+        let content = contents.value(i).to_string();
+        let category = parse_category(categories.value(i))?;
+        let confidence = confidences.value(i);
+        let created_at = parse_datetime(created_ats.value(i))?;
+        let updated_at = parse_datetime(updated_ats.value(i))?;
+        let access_count = access_counts.value(i);
+
+        // Extract embedding vector — skip if all zeros (placeholder)
+        let embedding = {
+            let vec_arr = vectors.value(i);
+            let float_arr = vec_arr
+                .as_any()
+                .downcast_ref::<Float32Array>()
+                .ok_or_else(|| MemoryError::LanceDb("vector element not Float32".into()))?;
+            let vals: Vec<f32> = (0..float_arr.len()).map(|j| float_arr.value(j)).collect();
+            if vals.iter().all(|&v| v == 0.0_f32) {
+                None
+            } else {
+                Some(vals)
+            }
+        };
+
+        entries.push(MemoryEntry {
+            id,
+            content,
+            category,
+            confidence,
+            created_at,
+            updated_at,
+            access_count,
+            embedding,
+        });
+    }
+
+    Ok(entries)
+}
+
+/// Parse a [`MemoryCategory`] from its snake_case string representation.
+fn parse_category(s: &str) -> Result<MemoryCategory> {
+    match s {
+        "user_profile" => Ok(MemoryCategory::UserProfile),
+        "agent_note" => Ok(MemoryCategory::AgentNote),
+        "fact" => Ok(MemoryCategory::Fact),
+        "preference" => Ok(MemoryCategory::Preference),
+        "environment" => Ok(MemoryCategory::Environment),
+        "project_convention" => Ok(MemoryCategory::ProjectConvention),
+        "tool_discovery" => Ok(MemoryCategory::ToolDiscovery),
+        "error_lesson" => Ok(MemoryCategory::ErrorLesson),
+        "workflow_pattern" => Ok(MemoryCategory::WorkflowPattern),
+        "critical" => Ok(MemoryCategory::Critical),
+        _ => Err(MemoryError::LanceDb(format!("unknown category: {s}"))),
+    }
+}
+
+/// Parse a `DateTime<Utc>` from an RFC 3339 string.
+fn parse_datetime(s: &str) -> Result<chrono::DateTime<chrono::Utc>> {
+    chrono::DateTime::parse_from_rfc3339(s)
+        .map(|dt| dt.to_utc())
+        .map_err(|e| MemoryError::LanceDb(format!("invalid datetime '{s}': {e}")))
 }
 
 /// Check if an entry matches the filter criteria in a query.
@@ -161,15 +453,16 @@ mod tests {
     use super::*;
     use crate::types::MemoryCategory;
 
-    fn make_test_store() -> WarmStore {
+    async fn make_test_store() -> (WarmStore, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let config = MemoryConfig::for_test(dir.path());
-        WarmStore::new(&config)
+        let store = WarmStore::new(&config).await.unwrap();
+        (store, dir)
     }
 
     #[tokio::test]
     async fn test_store_and_recall() {
-        let store = make_test_store();
+        let (store, _dir) = make_test_store().await;
         let entry = MemoryEntry::new("warm entry", MemoryCategory::Fact);
         let id = entry.id.clone();
 
@@ -181,14 +474,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_recall_nonexistent() {
-        let store = make_test_store();
+        let (store, _dir) = make_test_store().await;
         let result = store.recall("no-id").await.unwrap();
         assert!(result.is_none());
     }
 
     #[tokio::test]
     async fn test_recall_increments_access_count() {
-        let store = make_test_store();
+        let (store, _dir) = make_test_store().await;
         let entry = MemoryEntry::new("count me", MemoryCategory::Fact);
         let id = entry.id.clone();
 
@@ -199,7 +492,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete() {
-        let store = make_test_store();
+        let (store, _dir) = make_test_store().await;
         let entry = MemoryEntry::new("delete me", MemoryCategory::Fact);
         let id = entry.id.clone();
 
@@ -212,7 +505,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_clear() {
-        let store = make_test_store();
+        let (store, _dir) = make_test_store().await;
         store
             .store(MemoryEntry::new("a", MemoryCategory::Fact))
             .await
@@ -228,9 +521,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_knn_search() {
-        let store = make_test_store();
+        let (store, _dir) = make_test_store().await;
 
-        // Store entries with known embeddings
         let mut e1 = MemoryEntry::new("cat document", MemoryCategory::Fact);
         e1.embedding = Some(vec![1.0_f32, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
         let mut e2 = MemoryEntry::new("dog document", MemoryCategory::Fact);
@@ -242,21 +534,19 @@ mod tests {
         store.store(e2).await.unwrap();
         store.store(e3).await.unwrap();
 
-        // Search with a "cat-like" embedding
         let query = MemoryQuery::new()
             .with_embedding(vec![1.0_f32, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
             .with_limit(2);
 
         let results = store.search(&query).await.unwrap();
         assert_eq!(results.len(), 2);
-        // First should be the exact match
         assert!(results[0].entry.content.contains("cat document"));
         assert!(results[0].score > results[1].score);
     }
 
     #[tokio::test]
     async fn test_search_without_embedding() {
-        let store = make_test_store();
+        let (store, _dir) = make_test_store().await;
         store
             .store(MemoryEntry::new("rust lang", MemoryCategory::Fact))
             .await
@@ -276,7 +566,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_by_category() {
-        let store = make_test_store();
+        let (store, _dir) = make_test_store().await;
         store
             .store(MemoryEntry::new("note 1", MemoryCategory::Fact))
             .await
@@ -296,7 +586,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_respects_limit() {
-        let store = make_test_store();
+        let (store, _dir) = make_test_store().await;
         for i in 0..20 {
             store
                 .store(MemoryEntry::new(format!("entry {i}"), MemoryCategory::Fact))
@@ -313,7 +603,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_invalid_embedding_dimension() {
-        let store = make_test_store(); // embedding_dim = 8
+        let (store, _dir) = make_test_store().await; // embedding_dim = 8
         let mut entry = MemoryEntry::new("bad embedding", MemoryCategory::Fact);
         entry.embedding = Some(vec![1.0_f32, 2.0]); // Wrong dimension
 
@@ -331,7 +621,7 @@ mod tests {
         let mut config = MemoryConfig::for_test(dir.path());
         config.max_entries = 2;
 
-        let store = WarmStore::new(&config);
+        let store = WarmStore::new(&config).await.unwrap();
         store
             .store(MemoryEntry::new("a", MemoryCategory::Fact))
             .await
@@ -349,14 +639,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_knn_entries_without_embeddings_skipped() {
-        let store = make_test_store();
+        let (store, _dir) = make_test_store().await;
 
         // Entry with embedding
         let mut e1 = MemoryEntry::new("with embedding", MemoryCategory::Fact);
         e1.embedding = Some(vec![1.0_f32; 8]);
         store.store(e1).await.unwrap();
 
-        // Entry without embedding
+        // Entry without embedding (stored with zero vector)
         store
             .store(MemoryEntry::new("no embedding", MemoryCategory::Fact))
             .await
@@ -376,7 +666,7 @@ mod tests {
         let mut config = MemoryConfig::for_test(dir.path());
         config.max_entries = 1;
 
-        let store = WarmStore::new(&config);
+        let store = WarmStore::new(&config).await.unwrap();
         let mut entry = MemoryEntry::new("original", MemoryCategory::Fact);
         let id = entry.id.clone();
         store.store(entry).await.unwrap();
@@ -389,5 +679,25 @@ mod tests {
         let recalled = store.recall(&id).await.unwrap().unwrap();
         assert_eq!(recalled.content, "updated");
         assert_eq!(store.len().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_persistence_across_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = MemoryConfig::for_test(dir.path());
+
+        let entry = MemoryEntry::new("persisted", MemoryCategory::Fact);
+        let id = entry.id.clone();
+
+        {
+            let store = WarmStore::new(&config).await.unwrap();
+            store.store(entry).await.unwrap();
+        }
+
+        // Create a new store from the same path — data should persist
+        let store2 = WarmStore::new(&config).await.unwrap();
+        let recalled = store2.recall(&id).await.unwrap();
+        assert!(recalled.is_some());
+        assert_eq!(recalled.unwrap().content, "persisted");
     }
 }

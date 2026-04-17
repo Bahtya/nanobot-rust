@@ -76,6 +76,11 @@ ipnet = "2"
 dirs = "5"
 lru = "0.12"
 
+# Vector database
+lancedb = "0.27"
+arrow-array = "57"
+arrow-schema = "57"
+
 # ─── Main binary package ────────────────────────────────────
 
 [package]

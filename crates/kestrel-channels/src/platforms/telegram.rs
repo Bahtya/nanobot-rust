@@ -1527,6 +1527,7 @@ impl BaseChannel for TelegramChannel {
                 let body = SendMessageBody {
                     chat_id: chat_id_num,
                     text: message,
+                    parse_mode: None,
                     reply_to_message_id: None,
                     reply_markup: None,
                 };

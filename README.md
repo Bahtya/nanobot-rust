@@ -20,7 +20,7 @@ to any LLM with built-in memory, skills, and self-evolution.
 
 ## Features
 
-- **Multi-platform channels** — Telegram, Discord, OpenAI-compatible HTTP API
+- **Multi-platform channels** — Telegram, Discord, WebSocket, OpenAI-compatible HTTP API
 - **Streaming responses** — SSE streaming for real-time token delivery
 - **Tool system** — shell, web, filesystem, cron, search, message, spawn
 - **Agent loop** — context management, memory, hooks, and context compaction
@@ -30,6 +30,7 @@ to any LLM with built-in memory, skills, and self-evolution.
 - **Skill system** — TOML manifests, hot-reload, `SkillCompiler`, runtime skill injection
 - **Tiered memory** — `MemoryStore` trait with HotStore (L1 in-memory) and WarmStore (L2 LanceDB vectors)
 - **Learning & evolution** — `LearningEvent` bus, event processors, prompt assembly from observations
+- **Unified TraceID** — cross-channel trace IDs (`kst_{channel}_{id}`) for end-to-end request tracking
 - **Provider resilience** — automatic retry with exponential backoff on 429s
 - **SSRF protection** — network allowlist/denylist, URL validation, sandboxed exec
 - **Native daemon mode** — double-fork daemonization, PID file with flock, signal handling (SIGTERM/SIGINT/SIGHUP), graceful shutdown with log flushing, log rotation (daily)
@@ -53,6 +54,10 @@ to any LLM with built-in memory, skills, and self-evolution.
          ┌───────┴──────┐              │                       │
          │   Discord    │              │                       │
          │ (WebSocket)  │              │                       │
+         └───────┬──────┘              │                       │
+         ┌───────┴──────┐              │                       │
+         │   WebSocket  │              │                       │
+         │   (server)   │              │                       │
          └───────┬──────┘              │                       │
                  │                     │                       │
                  └─────────┬───────────┘───────────────────────┘
@@ -145,7 +150,7 @@ kestrel setup
 # Interactive agent (one-shot)
 kestrel agent "Summarize the latest commits"
 
-# Start gateway (Telegram + Discord)
+# Start gateway (Telegram + Discord + WebSocket)
 kestrel gateway
 
 # Start API server
@@ -215,14 +220,14 @@ channels:
     token: ${DISCORD_BOT_TOKEN}
     allowed_guilds: ["111222333"]        # optional: restrict to guild IDs
     enabled: true
-  # websocket:
-  #   enabled: true
-  #   listen_addr: "127.0.0.1:8090"
-  #   auth:
-  #     required: true
-  #     token: "my-secret"
-  #   max_clients: 100
-  #   max_message_size: 1048576
+  websocket:
+    enabled: true
+    listen_addr: "127.0.0.1:8090"
+    auth:
+      required: true
+      token: "my-secret"
+    max_clients: 100
+    max_message_size: 1048576
 
 agent:
   model: gpt-4o
@@ -324,7 +329,7 @@ Environment variables in values (`${VAR}`) are expanded at load time.
 | [`kestrel-agent`](./crates/kestrel-agent) | Agent loop, context builder, memory, skills, hooks, sub-agents |
 | [`kestrel-cron`](./crates/kestrel-cron) | Tick-based cron scheduler with JSON state persistence |
 | [`kestrel-heartbeat`](./crates/kestrel-heartbeat) | Health check registry, periodic task monitoring, auto-restart |
-| [`kestrel-channels`](./crates/kestrel-channels) | Platform adapters — Telegram, Discord — via `ChannelManager` |
+| [`kestrel-channels`](./crates/kestrel-channels) | Platform adapters — Telegram, Discord, WebSocket — via `ChannelManager` |
 | [`kestrel-api`](./crates/kestrel-api) | OpenAI-compatible HTTP API server (Axum) |
 | [`kestrel-daemon`](./crates/kestrel-daemon) | Unix daemon: double-fork, PID file (flock), signal handling, file logging |
 | [`kestrel-memory`](./crates/kestrel-memory) | `MemoryStore` trait, HotStore (L1 in-memory), WarmStore/LanceDB (L2 vectors) |
@@ -335,10 +340,23 @@ Environment variables in values (`${VAR}`) are expanded at load time.
 
 | Metric | Value |
 |--------|-------|
-| Rust source files | 115 |
-| Lines of Rust code | ~67,800 |
+| Rust source files | 151 |
+| Lines of Rust code | ~105,200 |
 | Crates | 16 |
 | Minimum Rust version | 1.75 |
+
+## Build Performance
+
+Tested on v0.1.1 (AMD Ryzen 7 6800U, 8GB RAM, Fedora 45, rustc 1.94.1):
+
+| Metric | Value |
+|--------|-------|
+| Clean build (release) | 7m 52s |
+| Crates compiled | 487 |
+| Binary size (stripped) | 17M |
+| Linker | mold 2.41.0 via clang |
+| LTO | thin |
+| Parallel jobs | 4 (RAM-limited) |
 
 ## API
 

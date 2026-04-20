@@ -170,7 +170,7 @@ impl WsEnvelope {
         let mut env = Self::new("welcome");
         env.client_id = Some(client_id.to_string());
         env.server_version = Some(SERVER_VERSION.to_string());
-        env.trace_id = Some(format!("session_{}", &env.id[..8.min(env.id.len())]));
+        env.trace_id = Some(format!("kst_ws_{}", &env.id[..8.min(env.id.len())]));
         env
     }
 
@@ -645,7 +645,7 @@ impl WebSocketChannel {
             // Generate or adopt trace_id for full-chain tracing.
             let trace_id = envelope_trace_id.unwrap_or_else(|| {
                 format!(
-                    "ws_{}_{}",
+                    "kst_ws_{}_{}",
                     &client_id[..8.min(client_id.len())],
                     &uuid::Uuid::new_v4().to_string()[..8]
                 )
@@ -794,7 +794,7 @@ impl BaseChannel for WebSocketChannel {
         &self,
         chat_id: &str,
         content: &str,
-        _reply_to: Option<&str>,
+        reply_to: Option<&str>,
         trace_id: Option<&str>,
     ) -> Result<SendResult> {
         let client = match self.clients.get(chat_id) {
@@ -811,6 +811,7 @@ impl BaseChannel for WebSocketChannel {
 
         let mut envelope = WsEnvelope::message(content);
         envelope.trace_id = trace_id.map(|t| t.to_string());
+        envelope.reply_to = reply_to.map(|r| r.to_string());
         let json = match envelope.to_json() {
             Ok(j) => j,
             Err(e) => {
@@ -1018,7 +1019,7 @@ mod tests {
         assert_eq!(env.server_version.unwrap(), SERVER_VERSION);
         // Welcome envelope includes session_trace_id
         assert!(env.trace_id.is_some());
-        assert!(env.trace_id.unwrap().starts_with("session_"));
+        assert!(env.trace_id.unwrap().starts_with("kst_"));
     }
 
     #[test]

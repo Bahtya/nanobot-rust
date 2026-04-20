@@ -1240,7 +1240,7 @@ impl TelegramChannel {
             source: Some(source),
             message_type,
             message_id: Some(msg.message_id.to_string()),
-            trace_id: None,
+            trace_id: Some(format!("kst_tg_{}", &uuid::Uuid::new_v4().to_string()[..8])),
             reply_to: msg
                 .reply_to_message
                 .as_ref()
@@ -1382,7 +1382,7 @@ impl TelegramChannel {
             source: Some(source),
             message_type: MessageType::Command,
             message_id: Some(msg.message_id.to_string()),
-            trace_id: None,
+            trace_id: Some(format!("kst_tg_{}", &uuid::Uuid::new_v4().to_string()[..8])),
             reply_to: None,
             timestamp: Local::now(),
         };

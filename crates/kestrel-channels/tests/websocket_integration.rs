@@ -412,15 +412,15 @@ async fn test_trace_id_auto_generated_when_missing() {
         .unwrap()
         .unwrap();
 
-    // Verify auto-generated trace_id starts with "ws_".
+    // Verify auto-generated trace_id starts with "kst_ws_".
     assert!(
         inbound.trace_id.is_some(),
         "trace_id should be auto-generated when not provided"
     );
     let tid = inbound.trace_id.unwrap();
     assert!(
-        tid.starts_with("ws_"),
-        "auto-generated trace_id should start with 'ws_', got: {tid}"
+        tid.starts_with("kst_ws_"),
+        "auto-generated trace_id should start with 'kst_ws_', got: {tid}"
     );
 
     channel.disconnect().await.unwrap();
@@ -440,15 +440,15 @@ async fn test_welcome_contains_session_trace_id() {
 
     let welcome = drain_text(&mut ws).await;
     assert_eq!(welcome["type"], "welcome");
-    // Welcome should contain a session_trace_id (serialized as trace_id on the envelope).
+    // Welcome should contain a trace_id with kst_ws_ prefix.
     assert!(
         welcome["trace_id"].is_string(),
         "welcome should contain trace_id field"
     );
     let session_trace = welcome["trace_id"].as_str().unwrap();
     assert!(
-        session_trace.starts_with("session_"),
-        "session trace_id should start with 'session_', got: {session_trace}"
+        session_trace.starts_with("kst_ws_"),
+        "session trace_id should start with 'kst_ws_', got: {session_trace}"
     );
 
     channel.disconnect().await.unwrap();

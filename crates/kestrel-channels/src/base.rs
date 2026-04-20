@@ -4,6 +4,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use kestrel_bus::events::InboundMessage;
 use kestrel_core::Platform;
+use tracing::debug;
 
 /// Send result from a channel.
 #[derive(Debug, Clone)]
@@ -65,7 +66,9 @@ pub trait BaseChannel: Send + Sync {
         reply_to: Option<&str>,
         trace_id: Option<&str>,
     ) -> Result<SendResult> {
-        let _ = trace_id;
+        if let Some(tid) = trace_id {
+            debug!(trace_id = %tid, channel = %self.name(), "trace_id dropped — channel does not support tracing");
+        }
         self.send_message(chat_id, content, reply_to).await
     }
 

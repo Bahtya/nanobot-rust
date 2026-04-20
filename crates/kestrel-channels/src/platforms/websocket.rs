@@ -560,63 +560,65 @@ impl WebSocketChannel {
             }
 
             // Detect format: envelope has "type", legacy has "role" + "content".
-            let (content_text, envelope_trace_id) = if raw_value.get("type").is_some() {
-                // New envelope format.
-                let envelope: WsEnvelope = match serde_json::from_value(raw_value.clone()) {
-                    Ok(e) => e,
-                    Err(e) => {
-                        debug!(
-                            "WebSocket invalid envelope from {}: {} — raw: {}",
-                            client_id, e, msg
-                        );
-                        continue;
-                    }
-                };
-
-                match envelope.msg_type.as_str() {
-                    "ping" => {
-                        // Respond with pong.
-                        let pong = WsEnvelope::pong();
-                        if let Ok(json) = pong.to_json() {
-                            if let Some(client_tx) = clients.get(&client_id) {
-                                let _ = client_tx.send(json);
-                            }
+            let (content_text, envelope_trace_id, envelope_msg_id) =
+                if raw_value.get("type").is_some() {
+                    // New envelope format.
+                    let envelope: WsEnvelope = match serde_json::from_value(raw_value.clone()) {
+                        Ok(e) => e,
+                        Err(e) => {
+                            debug!(
+                                "WebSocket invalid envelope from {}: {} — raw: {}",
+                                client_id, e, msg
+                            );
+                            continue;
                         }
-                        continue;
+                    };
+
+                    match envelope.msg_type.as_str() {
+                        "ping" => {
+                            // Respond with pong.
+                            let pong = WsEnvelope::pong();
+                            if let Ok(json) = pong.to_json() {
+                                if let Some(client_tx) = clients.get(&client_id) {
+                                    let _ = client_tx.send(json);
+                                }
+                            }
+                            continue;
+                        }
+                        "message" => (
+                            envelope.content.clone().unwrap_or_default(),
+                            envelope.trace_id.clone(),
+                            Some(envelope.id.clone()),
+                        ),
+                        _ => {
+                            // Ignore unknown envelope types.
+                            debug!(
+                                "WebSocket unknown envelope type '{}' from {}",
+                                envelope.msg_type, client_id
+                            );
+                            continue;
+                        }
                     }
-                    "message" => (
-                        envelope.content.clone().unwrap_or_default(),
-                        envelope.trace_id.clone(),
-                    ),
-                    _ => {
-                        // Ignore unknown envelope types.
-                        debug!(
-                            "WebSocket unknown envelope type '{}' from {}",
-                            envelope.msg_type, client_id
-                        );
-                        continue;
-                    }
-                }
-            } else if raw_value.get("role").is_some() {
-                // Legacy {role, content} format — backward compat.
-                let legacy: WsInboundMessage = match serde_json::from_value(raw_value) {
-                    Ok(m) => m,
-                    Err(e) => {
-                        debug!(
-                            "WebSocket invalid legacy message from {}: {} — raw: {}",
-                            client_id, e, msg
-                        );
-                        continue;
-                    }
+                } else if raw_value.get("role").is_some() {
+                    // Legacy {role, content} format — backward compat.
+                    let legacy: WsInboundMessage = match serde_json::from_value(raw_value) {
+                        Ok(m) => m,
+                        Err(e) => {
+                            debug!(
+                                "WebSocket invalid legacy message from {}: {} — raw: {}",
+                                client_id, e, msg
+                            );
+                            continue;
+                        }
+                    };
+                    (legacy.content, None, None)
+                } else {
+                    debug!(
+                        "WebSocket unrecognized message format from {}: {}",
+                        client_id, msg
+                    );
+                    continue;
                 };
-                (legacy.content, None)
-            } else {
-                debug!(
-                    "WebSocket unrecognized message format from {}: {}",
-                    client_id, msg
-                );
-                continue;
-            };
 
             // Skip empty messages.
             if content_text.is_empty() {
@@ -640,7 +642,11 @@ impl WebSocketChannel {
                 chat_topic: None,
             };
 
-            let metadata = HashMap::new();
+            let mut metadata = HashMap::new();
+            if let Some(msg_id) = envelope_msg_id {
+                metadata.insert("ws_msg_id".to_string(), serde_json::json!(msg_id));
+            }
+            metadata.insert("ws_client_id".to_string(), serde_json::json!(client_id));
 
             // Generate or adopt trace_id for full-chain tracing.
             let trace_id = envelope_trace_id.unwrap_or_else(|| {

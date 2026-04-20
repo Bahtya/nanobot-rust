@@ -2297,7 +2297,14 @@ mod tests {
             tool_calls: None,
         }];
 
-        let resp = stream_completion(state, req, "test".to_string(), messages, "test-req-id".to_string()).await;
+        let resp = stream_completion(
+            state,
+            req,
+            "test".to_string(),
+            messages,
+            "test-req-id".to_string(),
+        )
+        .await;
 
         assert_eq!(resp.status(), StatusCode::OK);
         let ct = resp
@@ -2349,7 +2356,14 @@ mod tests {
             tool_calls: None,
         }];
 
-        let resp = stream_completion(state, req, "test".to_string(), messages, "test-req-id".to_string()).await;
+        let resp = stream_completion(
+            state,
+            req,
+            "test".to_string(),
+            messages,
+            "test-req-id".to_string(),
+        )
+        .await;
 
         assert_eq!(resp.status(), StatusCode::OK);
         let body = resp.into_body().collect().await.unwrap().to_bytes();

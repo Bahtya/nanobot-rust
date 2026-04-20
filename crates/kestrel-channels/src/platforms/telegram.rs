@@ -2519,11 +2519,44 @@ mod tests {
         assert_eq!(inbound.content, "hello world");
         assert_eq!(inbound.message_type, MessageType::Text);
         assert_eq!(inbound.message_id.as_deref(), Some("42"));
+        assert_eq!(inbound.trace_id.as_deref(), Some("tg_0_42"));
         assert!(inbound.media.is_empty());
         assert!(inbound.source.is_some());
         let src = inbound.source.unwrap();
         assert_eq!(src.chat_type, "dm");
         assert_eq!(src.user_name.as_deref(), Some("Alice"));
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_message_trace_id_uses_platform_native_ids() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<InboundMessage>(10);
+
+        let msg = TgMessage {
+            message_id: 44521,
+            from: Some(TgUser {
+                id: 123,
+                first_name: Some("Alice".to_string()),
+                last_name: None,
+                username: None,
+            }),
+            chat: TgChat {
+                id: 123,
+                chat_type: Some("private".to_string()),
+                title: None,
+                thread_id: None,
+            },
+            text: Some("hello".to_string()),
+            photo: None,
+            caption: None,
+            reply_to_message: None,
+        };
+
+        TelegramChannel::dispatch_message(&tx, &msg, None, 9823)
+            .await
+            .unwrap();
+
+        let inbound = rx.try_recv().unwrap();
+        assert_eq!(inbound.trace_id.as_deref(), Some("tg_9823_44521"));
     }
 
     #[tokio::test]
@@ -2830,6 +2863,7 @@ mod tests {
             assert_eq!(inbound.content, "callback:action:confirm");
             assert_eq!(inbound.message_type, MessageType::Command);
             assert_eq!(inbound.message_id.as_deref(), Some("50"));
+            assert_eq!(inbound.trace_id.as_deref(), Some("tg_0_50"));
             assert_eq!(
                 inbound.metadata.get("tg_callback_data").unwrap(),
                 &serde_json::json!("action:confirm")

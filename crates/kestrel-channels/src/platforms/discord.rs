@@ -1497,6 +1497,7 @@ mod tests {
         assert_eq!(inbound.content, "Hello bot!");
         assert_eq!(inbound.message_type, MessageType::Text);
         assert_eq!(inbound.message_id.as_deref(), Some("111"));
+        assert_eq!(inbound.trace_id.as_deref(), Some("dc_111"));
         let src = inbound.source.unwrap();
         assert_eq!(src.platform, Platform::Discord);
         assert_eq!(src.chat_type, "guild");
@@ -1522,6 +1523,7 @@ mod tests {
 
         let inbound = rx.try_recv().unwrap();
         assert_eq!(inbound.message_type, MessageType::Command);
+        assert_eq!(inbound.trace_id.as_deref(), Some("dc_555"));
         let src = inbound.source.unwrap();
         assert_eq!(src.chat_type, "dm");
     }

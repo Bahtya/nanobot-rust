@@ -1,0 +1,144 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: sudo apt-get install -y protobuf-compiler
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-test-
+
+      - run: cargo test --workspace
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact: kestrel-x86_64-linux
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact: kestrel-aarch64-linux
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            artifact: kestrel-x86_64-macos
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            artifact: kestrel-aarch64-macos
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install protobuf-compiler (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y protobuf-compiler
+
+      - name: Install protobuf (macOS)
+        if: runner.os == 'macOS'
+        run: brew install protobuf
+
+      - name: Install cross-compilation tools (aarch64-linux)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo '[target.aarch64-unknown-linux-gnu]' >> ~/.cargo/config.toml
+          echo 'linker = "aarch64-linux-gnu-gcc"' >> ~/.cargo/config.toml
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.target }}-
+
+      - run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package binary
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/kestrel dist/
+          cp README.md dist/
+          tar -czf ${{ matrix.artifact }}.tar.gz -C dist .
+        if: hashFiles('LICENSE') == ''
+
+      - name: Package binary with LICENSE
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/kestrel dist/
+          cp README.md LICENSE dist/
+          tar -czf ${{ matrix.artifact }}.tar.gz -C dist .
+        if: hashFiles('LICENSE') != ''
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.tar.gz
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Extract changelog
+        id: changelog
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          BODY=$(bash scripts/extract-changelog.sh "$VERSION" || echo "Release $TAG")
+          echo "body<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$BODY" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Determine prerelease
+        id: prerelease
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [[ "$TAG" =~ (alpha|beta|rc) ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          title: ${{ github.ref_name }}
+          body: ${{ steps.changelog.outputs.body }}
+          prerelease: ${{ steps.prerelease.outputs.prerelease }}
+          files: artifacts/**/*.tar.gz

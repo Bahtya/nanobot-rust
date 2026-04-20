@@ -314,6 +314,7 @@ impl ChannelManager {
                             session_key: session_key.clone(),
                             content: content.clone(),
                             done: false,
+                            trace_id: None,
                         });
                     }
                     AgentEvent::Completed { session_key, .. } => {
@@ -322,6 +323,7 @@ impl ChannelManager {
                             session_key: session_key.clone(),
                             content: String::new(),
                             done: true,
+                            trace_id: None,
                         });
                     }
                     _ => {}

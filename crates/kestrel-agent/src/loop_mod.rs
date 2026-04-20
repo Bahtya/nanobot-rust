@@ -266,6 +266,7 @@ impl AgentLoop {
             let result = {
                 // Build a runner with event callback for this session
                 let event_bus = bus_for_stream.clone();
+                let trace_id_for_stream = msg.trace_id.clone();
 
                 let runner_with_events = AgentRunner::new(
                     self.config.clone(),
@@ -284,6 +285,7 @@ impl AgentLoop {
                                 session_key: session_key.clone(),
                                 content: content.clone(),
                                 done: false,
+                                trace_id: trace_id_for_stream.clone(),
                             });
                         }
                         AgentEvent::ToolCall {

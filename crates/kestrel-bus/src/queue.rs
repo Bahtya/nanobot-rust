@@ -242,11 +242,13 @@ mod tests {
             session_key: "test".to_string(),
             content: "Hello ".to_string(),
             done: false,
+            trace_id: None,
         });
         bus.publish_stream_chunk(StreamChunk {
             session_key: "test".to_string(),
             content: "World".to_string(),
             done: true,
+            trace_id: None,
         });
 
         let chunk1 = tokio::time::timeout(std::time::Duration::from_secs(1), stream_rx.recv())
@@ -364,6 +366,7 @@ mod tests {
             session_key: "k".to_string(),
             content: "chunk".to_string(),
             done: false,
+            trace_id: None,
         })
         .unwrap();
 

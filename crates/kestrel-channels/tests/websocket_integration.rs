@@ -222,16 +222,19 @@ async fn test_streaming_end_to_end() {
         session_key: "websocket:ws-client-1".to_string(),
         content: "Hello ".to_string(),
         done: false,
+        trace_id: None,
     });
     bus.publish_stream_chunk(StreamChunk {
         session_key: "websocket:ws-client-1".to_string(),
         content: "world!".to_string(),
         done: false,
+        trace_id: None,
     });
     bus.publish_stream_chunk(StreamChunk {
         session_key: "websocket:ws-client-1".to_string(),
         content: String::new(),
         done: true,
+        trace_id: None,
     });
 
     // Receive and verify chunks.

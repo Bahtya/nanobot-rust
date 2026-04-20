@@ -938,7 +938,8 @@ pub async fn run_ws_stream_consumer(
         };
 
         if let Some(client_tx) = clients.get(&chat_id) {
-            let envelope = WsEnvelope::streaming_chunk(&chunk.content, chunk.done);
+            let mut envelope = WsEnvelope::streaming_chunk(&chunk.content, chunk.done);
+            envelope.trace_id = chunk.trace_id.clone();
             if let Ok(json) = envelope.to_json() {
                 if client_tx.send(json).is_err() {
                     debug!("Failed to send streaming chunk to client {}", chat_id);
@@ -1692,6 +1693,7 @@ mod tests {
             session_key: "websocket:client-abc".to_string(),
             content: "Hello ".to_string(),
             done: false,
+            trace_id: None,
         });
 
         // Client should receive it.
@@ -1709,6 +1711,7 @@ mod tests {
             session_key: "websocket:client-abc".to_string(),
             content: "world!".to_string(),
             done: true,
+            trace_id: None,
         });
 
         let json2 = tokio::time::timeout(std::time::Duration::from_secs(2), client_rx.recv())
@@ -1725,6 +1728,7 @@ mod tests {
             session_key: "websocket:client-abc".to_string(),
             content: "should not arrive".to_string(),
             done: false,
+            trace_id: None,
         });
         let _ = handle.await;
     }
@@ -1751,6 +1755,7 @@ mod tests {
             session_key: "telegram:12345".to_string(),
             content: "Hello".to_string(),
             done: false,
+            trace_id: None,
         });
 
         // Give it a moment to process.
@@ -1761,6 +1766,7 @@ mod tests {
             session_key: "telegram:12345".to_string(),
             content: "stop".to_string(),
             done: false,
+            trace_id: None,
         });
         let _ = handle.await;
     }

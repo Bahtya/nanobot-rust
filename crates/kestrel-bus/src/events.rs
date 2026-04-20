@@ -111,6 +111,9 @@ pub struct StreamChunk {
 
     /// Whether this is the final chunk.
     pub done: bool,
+
+    /// Full-chain trace ID propagated from the originating inbound message.
+    pub trace_id: Option<String>,
 }
 
 /// Agent lifecycle event for hooks and monitoring.

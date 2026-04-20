@@ -104,6 +104,7 @@ impl Tool for MessageTool {
                 chat_id,
                 content: content.to_string(),
                 reply_to: None,
+                trace_id: None,
                 media,
                 metadata: HashMap::new(),
             };

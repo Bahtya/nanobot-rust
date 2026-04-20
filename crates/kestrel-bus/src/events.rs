@@ -43,6 +43,11 @@ pub struct InboundMessage {
     #[serde(default)]
     pub message_id: Option<String>,
 
+    /// Full-chain trace ID, injected from the channel and propagated through
+    /// the entire processing pipeline.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
+
     /// ID of the message this is replying to.
     #[serde(default)]
     pub reply_to: Option<String>,
@@ -82,6 +87,10 @@ pub struct OutboundMessage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply_to: Option<String>,
 
+    /// Full-chain trace ID propagated from the originating inbound message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
+
     /// Media URLs to attach.
     #[serde(default)]
     pub media: Vec<String>,
@@ -102,6 +111,9 @@ pub struct StreamChunk {
 
     /// Whether this is the final chunk.
     pub done: bool,
+
+    /// Full-chain trace ID propagated from the originating inbound message.
+    pub trace_id: Option<String>,
 }
 
 /// Agent lifecycle event for hooks and monitoring.
@@ -229,6 +241,7 @@ mod tests {
             source: Some(source),
             message_type: MessageType::Text,
             message_id: None,
+            trace_id: None,
             reply_to: None,
             timestamp: default_timestamp(),
         };
@@ -247,6 +260,7 @@ mod tests {
             source: None,
             message_type: MessageType::Text,
             message_id: None,
+            trace_id: None,
             reply_to: None,
             timestamp: default_timestamp(),
         };
@@ -265,6 +279,7 @@ mod tests {
             source: None,
             message_type: MessageType::Text,
             message_id: Some("1234.5678".to_string()),
+            trace_id: None,
             reply_to: None,
             timestamp: default_timestamp(),
         };
@@ -284,6 +299,7 @@ mod tests {
             chat_id: "chat42".to_string(),
             content: "reply text".to_string(),
             reply_to: Some("msg99".to_string()),
+            trace_id: None,
             media: vec!["http://example.com/img.png".to_string()],
             metadata: {
                 let mut m = HashMap::new();

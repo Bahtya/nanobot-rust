@@ -134,6 +134,7 @@ fn make_inbound(content: &str) -> InboundMessage {
         }),
         message_type: MessageType::Text,
         message_id: Some("msg1".to_string()),
+        trace_id: None,
         reply_to: None,
         timestamp: chrono::Local::now(),
     }

@@ -249,6 +249,7 @@ fn make_inbound(content: &str, chat_id: &str) -> InboundMessage {
         source: None,
         message_type: MessageType::Text,
         message_id: Some("msg_1".to_string()),
+        trace_id: None,
         reply_to: None,
         timestamp: chrono::Local::now(),
     }
@@ -953,6 +954,7 @@ async fn test_multi_platform_routing() {
         source: None,
         message_type: MessageType::Text,
         message_id: Some("dc_msg_1".to_string()),
+        trace_id: None,
         reply_to: None,
         timestamp: chrono::Local::now(),
     };

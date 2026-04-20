@@ -91,7 +91,12 @@ impl ChannelManager {
             Some(channel) => {
                 let channel = channel.lock().await;
                 match channel
-                    .send_message(&msg.chat_id, &msg.content, msg.reply_to.as_deref())
+                    .send_message_with_trace(
+                        &msg.chat_id,
+                        &msg.content,
+                        msg.reply_to.as_deref(),
+                        msg.trace_id.as_deref(),
+                    )
                     .await
                 {
                     Ok(result) => {
@@ -309,6 +314,7 @@ impl ChannelManager {
                             session_key: session_key.clone(),
                             content: content.clone(),
                             done: false,
+                            trace_id: None,
                         });
                     }
                     AgentEvent::Completed { session_key, .. } => {
@@ -317,6 +323,7 @@ impl ChannelManager {
                             session_key: session_key.clone(),
                             content: String::new(),
                             done: true,
+                            trace_id: None,
                         });
                     }
                     _ => {}
@@ -568,6 +575,7 @@ mod tests {
             chat_id: "123".to_string(),
             content: "reply".to_string(),
             reply_to: None,
+            trace_id: None,
             media: vec![],
             metadata: Default::default(),
         };

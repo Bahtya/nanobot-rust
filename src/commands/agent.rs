@@ -46,6 +46,7 @@ pub async fn run(config: Config, initial_message: Option<String>, dangerous: boo
             source: None,
             message_type: MessageType::Text,
             message_id: None,
+            trace_id: None,
             reply_to: None,
             timestamp: chrono::Local::now(),
         };

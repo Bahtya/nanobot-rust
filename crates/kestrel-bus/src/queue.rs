@@ -154,6 +154,7 @@ mod tests {
             source: None,
             message_type: MessageType::Text,
             message_id: None,
+            trace_id: None,
             reply_to: None,
             timestamp: chrono::Local::now(),
         };
@@ -184,6 +185,7 @@ mod tests {
             chat_id: "chat1".to_string(),
             content: "Response".to_string(),
             reply_to: None,
+            trace_id: None,
             media: vec![],
             metadata: Default::default(),
         };
@@ -240,11 +242,13 @@ mod tests {
             session_key: "test".to_string(),
             content: "Hello ".to_string(),
             done: false,
+            trace_id: None,
         });
         bus.publish_stream_chunk(StreamChunk {
             session_key: "test".to_string(),
             content: "World".to_string(),
             done: true,
+            trace_id: None,
         });
 
         let chunk1 = tokio::time::timeout(std::time::Duration::from_secs(1), stream_rx.recv())
@@ -277,6 +281,7 @@ mod tests {
             source: None,
             message_type: MessageType::Text,
             message_id: None,
+            trace_id: None,
             reply_to: None,
             timestamp: chrono::Local::now(),
         };
@@ -307,6 +312,7 @@ mod tests {
             source: None,
             message_type: MessageType::Text,
             message_id: None,
+            trace_id: None,
             reply_to: None,
             timestamp: chrono::Local::now(),
         };
@@ -330,6 +336,7 @@ mod tests {
             chat_id: "c".to_string(),
             content: "outbound".to_string(),
             reply_to: None,
+            trace_id: None,
             media: vec![],
             metadata: Default::default(),
         };
@@ -359,6 +366,7 @@ mod tests {
             session_key: "k".to_string(),
             content: "chunk".to_string(),
             done: false,
+            trace_id: None,
         })
         .unwrap();
 

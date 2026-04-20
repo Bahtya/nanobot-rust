@@ -222,16 +222,19 @@ async fn test_streaming_end_to_end() {
         session_key: "websocket:ws-client-1".to_string(),
         content: "Hello ".to_string(),
         done: false,
+        trace_id: None,
     });
     bus.publish_stream_chunk(StreamChunk {
         session_key: "websocket:ws-client-1".to_string(),
         content: "world!".to_string(),
         done: false,
+        trace_id: None,
     });
     bus.publish_stream_chunk(StreamChunk {
         session_key: "websocket:ws-client-1".to_string(),
         content: String::new(),
         done: true,
+        trace_id: None,
     });
 
     // Receive and verify chunks.
@@ -337,4 +340,341 @@ async fn test_multiple_clients_individual_sessions() {
     assert_eq!(r2["content"], "reply to 2");
 
     channel.disconnect().await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// Test 5: trace_id propagation through the full chain
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_trace_id_from_envelope_to_inbound_message() {
+    let bus = Arc::new(MessageBus::new());
+    let addr = random_addr().await;
+
+    let mut channel = WebSocketChannel::with_addr(addr.clone());
+    channel.set_message_handler(bus.inbound_sender());
+    channel.connect().await.unwrap();
+
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{}", addr))
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    // Drain welcome.
+    let _welcome = drain_text(&mut ws).await;
+
+    // Send a message with a custom trace_id.
+    let mut env = WsEnvelope::message("trace me");
+    env.trace_id = Some("custom-trace-abc123".to_string());
+    ws.send(WsMessage::Text(env.to_json().unwrap().into()))
+        .await
+        .unwrap();
+
+    let mut inbound_rx = bus.consume_inbound().await.unwrap();
+    let inbound = tokio::time::timeout(std::time::Duration::from_secs(2), inbound_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Verify trace_id propagated from envelope to InboundMessage.
+    assert_eq!(inbound.content, "trace me");
+    assert_eq!(
+        inbound.trace_id.as_deref(),
+        Some("custom-trace-abc123"),
+        "trace_id should be propagated from WsEnvelope to InboundMessage"
+    );
+
+    channel.disconnect().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_trace_id_auto_generated_when_missing() {
+    let bus = Arc::new(MessageBus::new());
+    let addr = random_addr().await;
+
+    let mut channel = WebSocketChannel::with_addr(addr.clone());
+    channel.set_message_handler(bus.inbound_sender());
+    channel.connect().await.unwrap();
+
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{}", addr))
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let _welcome = drain_text(&mut ws).await;
+
+    // Send a message WITHOUT a trace_id — should be auto-generated.
+    let env = WsEnvelope::message("no trace");
+    ws.send(WsMessage::Text(env.to_json().unwrap().into()))
+        .await
+        .unwrap();
+
+    let mut inbound_rx = bus.consume_inbound().await.unwrap();
+    let inbound = tokio::time::timeout(std::time::Duration::from_secs(2), inbound_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Verify auto-generated trace_id starts with "kst_ws_".
+    assert!(
+        inbound.trace_id.is_some(),
+        "trace_id should be auto-generated when not provided"
+    );
+    let tid = inbound.trace_id.unwrap();
+    assert!(
+        tid.starts_with("kst_ws_"),
+        "auto-generated trace_id should start with 'kst_ws_', got: {tid}"
+    );
+
+    channel.disconnect().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_welcome_contains_session_trace_id() {
+    let addr = random_addr().await;
+    let mut channel = WebSocketChannel::with_addr(addr.clone());
+    let (tx, _rx) = tokio::sync::mpsc::channel(100);
+    channel.set_message_handler(tx);
+    channel.connect().await.unwrap();
+
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{}", addr))
+        .await
+        .unwrap();
+
+    let welcome = drain_text(&mut ws).await;
+    assert_eq!(welcome["type"], "welcome");
+    // Welcome should contain a trace_id with kst_ws_ prefix.
+    assert!(
+        welcome["trace_id"].is_string(),
+        "welcome should contain trace_id field"
+    );
+    let session_trace = welcome["trace_id"].as_str().unwrap();
+    assert!(
+        session_trace.starts_with("kst_ws_"),
+        "session trace_id should start with 'kst_ws_', got: {session_trace}"
+    );
+
+    channel.disconnect().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_outbound_message_carries_trace_id() {
+    let bus = Arc::new(MessageBus::new());
+    let addr = random_addr().await;
+
+    let mut channel = WebSocketChannel::with_addr(addr.clone());
+    channel.set_message_handler(bus.inbound_sender());
+    channel.connect().await.unwrap();
+
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{}", addr))
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let welcome = drain_text(&mut ws).await;
+    let client_id = welcome["client_id"].as_str().unwrap().to_string();
+
+    // Send a message with trace_id via send_message_with_trace.
+    let result = channel
+        .send_message_with_trace(
+            &client_id,
+            "traced response",
+            None,
+            Some("outbound-trace-xyz"),
+        )
+        .await
+        .unwrap();
+    assert!(result.success);
+
+    let response = drain_text(&mut ws).await;
+    assert_eq!(response["type"], "message");
+    assert_eq!(response["content"], "traced response");
+    assert_eq!(
+        response["trace_id"].as_str(),
+        Some("outbound-trace-xyz"),
+        "outbound envelope should carry the trace_id"
+    );
+
+    channel.disconnect().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_trace_id_round_trip_full_chain() {
+    let bus = Arc::new(MessageBus::new());
+    let addr = random_addr().await;
+
+    let mut channel = WebSocketChannel::with_addr(addr.clone());
+    channel.set_message_handler(bus.inbound_sender());
+    channel.connect().await.unwrap();
+
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{}", addr))
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let welcome = drain_text(&mut ws).await;
+    // The client_id from welcome equals the chat_id in InboundMessage.
+    let _client_id = welcome["client_id"].as_str().unwrap().to_string();
+
+    // Send with custom trace_id.
+    let custom_trace = "chain-trace-999";
+    let mut env = WsEnvelope::message("round trip test");
+    env.trace_id = Some(custom_trace.to_string());
+    ws.send(WsMessage::Text(env.to_json().unwrap().into()))
+        .await
+        .unwrap();
+
+    let mut inbound_rx = bus.consume_inbound().await.unwrap();
+    let inbound = tokio::time::timeout(std::time::Duration::from_secs(2), inbound_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Verify inbound has the custom trace_id.
+    assert_eq!(inbound.trace_id.as_deref(), Some(custom_trace));
+
+    // Simulate the agent sending back a response with the same trace_id
+    // (this is what AgentLoop does via OutboundMessage.trace_id).
+    let result = channel
+        .send_message_with_trace(
+            &inbound.chat_id,
+            "response to round trip",
+            None,
+            inbound.trace_id.as_deref(),
+        )
+        .await
+        .unwrap();
+    assert!(result.success);
+
+    let response = drain_text(&mut ws).await;
+    assert_eq!(response["content"], "response to round trip");
+    assert_eq!(
+        response["trace_id"].as_str(),
+        Some(custom_trace),
+        "round-trip: response trace_id should match request trace_id"
+    );
+
+    channel.disconnect().await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// Test 6: InboundMessage metadata contains ws_msg_id and ws_client_id
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_inbound_metadata_contains_ws_ids() {
+    let bus = Arc::new(MessageBus::new());
+    let addr = random_addr().await;
+
+    let mut channel = WebSocketChannel::with_addr(addr.clone());
+    channel.set_message_handler(bus.inbound_sender());
+    channel.connect().await.unwrap();
+
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{}", addr))
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let welcome = drain_text(&mut ws).await;
+    let client_id = welcome["client_id"].as_str().unwrap().to_string();
+
+    // Send envelope-format message.
+    let env = WsEnvelope::message("metadata check");
+    let sent_id = env.id.clone();
+    ws.send(WsMessage::Text(env.to_json().unwrap().into()))
+        .await
+        .unwrap();
+
+    let mut inbound_rx = bus.consume_inbound().await.unwrap();
+    let inbound = tokio::time::timeout(std::time::Duration::from_secs(2), inbound_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(inbound.content, "metadata check");
+    // Verify metadata has ws_msg_id and ws_client_id.
+    assert_eq!(
+        inbound.metadata.get("ws_msg_id").unwrap().as_str(),
+        Some(sent_id.as_str()),
+        "metadata should contain ws_msg_id matching envelope.id"
+    );
+    assert_eq!(
+        inbound.metadata.get("ws_client_id").unwrap().as_str(),
+        Some(client_id.as_str()),
+        "metadata should contain ws_client_id"
+    );
+
+    channel.disconnect().await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// Test 7: Streaming chunks carry trace_id through the pipeline
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_streaming_chunk_carries_trace_id() {
+    let bus = Arc::new(MessageBus::new());
+    let clients: Arc<dashmap::DashMap<String, tokio::sync::mpsc::UnboundedSender<String>>> =
+        Arc::new(dashmap::DashMap::new());
+    let (client_tx, mut client_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    clients.insert("ws-client-trace".to_string(), client_tx);
+
+    let running_flag = Arc::new(AtomicBool::new(true));
+    {
+        let bus_c = bus.clone();
+        let clients_c = clients.clone();
+        let running_c = running_flag.clone();
+        tokio::spawn(async move {
+            kestrel_channels::run_ws_stream_consumer(bus_c, clients_c, move || {
+                running_c.load(Ordering::Relaxed)
+            })
+            .await;
+        });
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    // Publish a streaming chunk WITH trace_id.
+    bus.publish_stream_chunk(StreamChunk {
+        session_key: "websocket:ws-client-trace".to_string(),
+        content: "traced chunk".to_string(),
+        done: false,
+        trace_id: Some("stream-trace-42".to_string()),
+    });
+
+    // Publish final chunk with trace_id.
+    bus.publish_stream_chunk(StreamChunk {
+        session_key: "websocket:ws-client-trace".to_string(),
+        content: String::new(),
+        done: true,
+        trace_id: Some("stream-trace-42".to_string()),
+    });
+
+    // Verify first chunk carries trace_id.
+    let json1 = tokio::time::timeout(std::time::Duration::from_secs(2), client_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    let chunk1: serde_json::Value = serde_json::from_str(&json1).unwrap();
+    assert_eq!(chunk1["type"], "streaming");
+    assert_eq!(chunk1["chunk"], "traced chunk");
+    assert_eq!(
+        chunk1["trace_id"].as_str(),
+        Some("stream-trace-42"),
+        "streaming envelope should carry trace_id from StreamChunk"
+    );
+
+    // Verify done chunk also carries trace_id.
+    let json2 = tokio::time::timeout(std::time::Duration::from_secs(2), client_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    let chunk2: serde_json::Value = serde_json::from_str(&json2).unwrap();
+    assert_eq!(chunk2["done"], true);
+    assert_eq!(
+        chunk2["trace_id"].as_str(),
+        Some("stream-trace-42"),
+        "streaming done envelope should carry trace_id"
+    );
+
+    running_flag.store(false, Ordering::Relaxed);
 }

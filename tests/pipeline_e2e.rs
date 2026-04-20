@@ -202,6 +202,7 @@ fn make_inbound(content: &str) -> kestrel_bus::events::InboundMessage {
         source: None,
         message_type: MessageType::Text,
         message_id: Some("msg_001".to_string()),
+        trace_id: None,
         reply_to: None,
         timestamp: chrono::Local::now(),
     }
@@ -1191,6 +1192,7 @@ async fn test_pipeline_cron_to_agent_full_flow() {
         source: None,
         message_type: MessageType::Text,
         message_id: Some("cron_msg_001".to_string()),
+        trace_id: None,
         reply_to: None,
         timestamp: chrono::Local::now(),
     };

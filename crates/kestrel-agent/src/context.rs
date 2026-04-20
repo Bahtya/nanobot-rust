@@ -273,6 +273,7 @@ mod tests {
             source: None,
             message_type: MessageType::Text,
             message_id: None,
+            trace_id: None,
             reply_to: None,
             timestamp: chrono::Local::now(),
         }

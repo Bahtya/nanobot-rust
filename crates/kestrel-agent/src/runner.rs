@@ -70,6 +70,7 @@ impl AgentRunner {
                 session_key: session_key.to_string(),
                 content,
                 done,
+                trace_id: None,
             });
         }
     }

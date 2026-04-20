@@ -33,7 +33,7 @@ use kestrel_tools::ToolRegistry;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{error, info, warn};
+use tracing::{error, info, warn, Instrument};
 
 const REFLECTION_SYSTEM_PROMPT: &str = "You are a brief task reflection engine. Respond in 1-2 concise sentences about what went well or what to improve.";
 const REFLECTION_USER_TEMPLATE: &str = "Briefly reflect (1-2 sentences) on this completed agent task:\n- User request: {user_request}\n- Tool calls made: {tool_calls}\n- Iterations: {iterations}\n- Success: {success}\n- Response preview: {response_preview}\n\nFocus on what went well or what could be improved next time.";
@@ -159,280 +159,290 @@ impl AgentLoop {
 
     /// Process a single inbound message.
     pub async fn process_message(&self, msg: InboundMessage) -> Result<()> {
-        let session_key = msg.session_key();
-        info!(
-            session_key = %session_key,
+        let span = tracing::info_span!(
+            "process_message",
+            session_key = %msg.session_key(),
+            trace_id = %msg.trace_id.as_deref().unwrap_or("no-trace"),
             channel = %msg.channel,
-            "Processing message"
         );
 
-        // Emit started event
-        let started_event = AgentEvent::Started {
-            session_key: session_key.clone(),
-        };
-        self.bus.emit_event(started_event.clone());
-        self.hooks
-            .read()
-            .await
-            .emit(&crate::hook::HookContext {
-                event: started_event,
-                data: Default::default(),
-            })
-            .await;
+        async move {
+            let session_key = msg.session_key();
+            info!("Processing message");
 
-        // Get or create session
-        let mut session = self
-            .session_manager
-            .get_or_create(&session_key, msg.source.clone());
+            // Emit started event
+            let started_event = AgentEvent::Started {
+                session_key: session_key.clone(),
+            };
+            self.bus.emit_event(started_event.clone());
+            self.hooks
+                .read()
+                .await
+                .emit(&crate::hook::HookContext {
+                    event: started_event,
+                    data: Default::default(),
+                })
+                .await;
 
-        // Add user message to session
-        session.add_user_message(msg.content.clone());
+            // Get or create session
+            let mut session = self
+                .session_manager
+                .get_or_create(&session_key, msg.source.clone());
 
-        // Compact context if approaching token limits
-        if self.compaction_config.needs_compaction(&session) {
-            match compact_session(&mut session, &self.compaction_config) {
-                Ok(result) => {
-                    if result.messages_after < result.messages_before {
-                        info!(
-                            session_key = %session_key,
-                            before = result.messages_before,
-                            after = result.messages_after,
-                            "Context compacted"
+            // Add user message to session
+            session.add_user_message(msg.content.clone());
+
+            // Compact context if approaching token limits
+            if self.compaction_config.needs_compaction(&session) {
+                match compact_session(&mut session, &self.compaction_config) {
+                    Ok(result) => {
+                        if result.messages_after < result.messages_before {
+                            info!(
+                                session_key = %session_key,
+                                before = result.messages_before,
+                                after = result.messages_after,
+                                "Context compacted"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Context compaction failed for session {}: {}",
+                            session_key, e
                         );
                     }
                 }
-                Err(e) => {
-                    warn!(
-                        "Context compaction failed for session {}: {}",
-                        session_key, e
-                    );
-                }
-            }
-        }
-
-        self.session_manager.save_session_async(&session);
-
-        // Recall relevant memories from the memory store (if configured).
-        let recalled_memory = self.recall_memories(&msg.content).await;
-
-        // Build context (with memory recall + skill matching if attached)
-        let system_prompt = {
-            let mut context_builder = ContextBuilder::new(&self.config);
-
-            // Attach prompt assembler if configured
-            if let Some(ref assembler) = self.prompt_assembler {
-                context_builder = context_builder.with_prompt_assembler(assembler.clone());
             }
 
-            // Match skills against the user message for event emission only.
-            if let Some(ref registry) = self.skill_registry {
-                let skill_index_entries = self.build_skill_index_entries(registry).await;
-                if !skill_index_entries.is_empty() {
-                    context_builder = context_builder.with_skill_index(skill_index_entries);
+            self.session_manager.save_session_async(&session);
+
+            // Recall relevant memories from the memory store (if configured).
+            let recalled_memory = self.recall_memories(&msg.content).await;
+
+            // Build context (with memory recall + skill matching if attached)
+            let system_prompt = {
+                let mut context_builder = ContextBuilder::new(&self.config);
+
+                // Attach prompt assembler if configured
+                if let Some(ref assembler) = self.prompt_assembler {
+                    context_builder = context_builder.with_prompt_assembler(assembler.clone());
                 }
 
-                let matches = registry.match_skills(&msg.content).await;
-
-                // Emit SkillUsed learning events for each matched skill
-                if let Some(ref bus) = self.learning_bus {
-                    for m in &matches {
-                        bus.publish(LearningEvent::SkillUsed {
-                            skill_name: m.name.clone(),
-                            match_score: m.score,
-                            outcome: SkillOutcome::Helpful,
-                            timestamp: chrono::Utc::now(),
-                        });
+                // Match skills against the user message for event emission only.
+                if let Some(ref registry) = self.skill_registry {
+                    let skill_index_entries = self.build_skill_index_entries(registry).await;
+                    if !skill_index_entries.is_empty() {
+                        context_builder = context_builder.with_skill_index(skill_index_entries);
                     }
-                }
-            }
 
-            context_builder.build_system_prompt(
-                &msg,
-                &session,
-                &self.tool_registry,
-                recalled_memory.as_deref(),
-            )?
-        };
+                    let matches = registry.match_skills(&msg.content).await;
 
-        // Set up event callback for this session
-        let bus_for_stream = self.bus.clone();
-
-        // Run agent with events wired through
-        let messages = session.to_messages();
-        let result = {
-            // Build a runner with event callback for this session
-            let event_bus = bus_for_stream.clone();
-
-            let runner_with_events = AgentRunner::new(
-                self.config.clone(),
-                self.provider_registry.clone(),
-                self.tool_registry.clone(),
-            )
-            .with_stream_tx(event_bus.subscribe_stream_tx())
-            .with_event_callback(Box::new(move |event: AgentEvent| {
-                // Re-emit through bus
-                match &event {
-                    AgentEvent::StreamingChunk {
-                        session_key,
-                        content,
-                    } => {
-                        event_bus.publish_stream_chunk(StreamChunk {
-                            session_key: session_key.clone(),
-                            content: content.clone(),
-                            done: false,
-                        });
-                    }
-                    AgentEvent::ToolCall {
-                        session_key,
-                        tool_name,
-                        iteration,
-                    } => {
-                        event_bus.emit_event(AgentEvent::ToolCall {
-                            session_key: session_key.clone(),
-                            tool_name: tool_name.clone(),
-                            iteration: *iteration,
-                        });
-                    }
-                    _ => {}
-                }
-            }));
-
-            runner_with_events.run(system_prompt, messages).await
-        };
-
-        match result {
-            Ok(result) => {
-                // Add assistant response to session
-                session.add_assistant_message(result.content.clone());
-
-                // Auto-extract structured notes from the response
-                let extracted =
-                    NotesManager::extract_notes_from_response(&mut session, &result.content);
-                if extracted > 0 {
-                    info!(
-                        "Auto-extracted {} notes from agent response in session {}",
-                        extracted, session_key
-                    );
-                }
-
-                // Compact notes if they exceed the limit
-                if NotesManager::compact_if_needed(&mut session) {
-                    info!("Notes compacted for session {}", session_key);
-                }
-
-                if let Err(e) = self.session_manager.save_session(&session) {
-                    warn!(
-                        session_key = %session_key,
-                        "Failed to persist completed session: {e}"
-                    );
-                }
-
-                // Store conversation memory (non-blocking — failures are logged, not propagated)
-                self.store_conversation_memory(&msg.content, &result.content)
-                    .await;
-
-                // Emit ToolSucceeded learning event if tools were used
-                if result.tool_calls_made > 0 {
+                    // Emit SkillUsed learning events for each matched skill
                     if let Some(ref bus) = self.learning_bus {
-                        bus.publish(LearningEvent::ToolSucceeded {
-                            tool: "agent_loop".to_string(),
-                            args_summary: format!(
-                                "session={}, tool_calls={}, iterations={}",
-                                session_key, result.tool_calls_made, result.iterations_used
-                            ),
-                            duration_ms: 0,
-                            context_hash: format!("sess:{}", session_key),
-                            timestamp: chrono::Utc::now(),
-                        });
+                        for m in &matches {
+                            bus.publish(LearningEvent::SkillUsed {
+                                skill_name: m.name.clone(),
+                                match_score: m.score,
+                                outcome: SkillOutcome::Helpful,
+                                timestamp: chrono::Utc::now(),
+                            });
+                        }
                     }
                 }
 
-                // Send outbound message
-                let user_msg = msg.content.clone();
-                let result_content = result.content.clone();
-                let tool_calls = result.tool_calls_made;
-                let iterations = result.iterations_used;
-                let outbound = OutboundMessage {
-                    channel: msg.channel.clone(),
-                    chat_id: msg.chat_id.clone(),
-                    content: result.content,
-                    reply_to: msg.message_id.clone(),
-                    media: vec![],
-                    metadata: Default::default(),
-                };
+                context_builder.build_system_prompt(
+                    &msg,
+                    &session,
+                    &self.tool_registry,
+                    recalled_memory.as_deref(),
+                )?
+            };
 
-                if let Err(e) = self.bus.publish_outbound(outbound).await {
-                    error!("Failed to publish outbound message: {}", e);
-                }
+            // Set up event callback for this session
+            let bus_for_stream = self.bus.clone();
 
-                // Post-task LLM reflection runs in the background after the
-                // outbound response path completes.
-                if let Some(bus) = self.learning_bus.clone() {
-                    let provider_registry = self.provider_registry.clone();
-                    let config = self.config.clone();
-                    tokio::spawn(async move {
-                        post_task_reflect(ReflectionTask {
-                            learning_bus: bus,
-                            provider_registry,
-                            config,
-                            user_message: user_msg,
-                            tool_calls_made: tool_calls,
-                            iterations_used: iterations,
-                            success: true,
-                            response_preview: result_content,
+            // Run agent with events wired through
+            let messages = session.to_messages();
+            let result = {
+                // Build a runner with event callback for this session
+                let event_bus = bus_for_stream.clone();
+                let trace_id_for_stream = msg.trace_id.clone();
+
+                let runner_with_events = AgentRunner::new(
+                    self.config.clone(),
+                    self.provider_registry.clone(),
+                    self.tool_registry.clone(),
+                )
+                .with_stream_tx(event_bus.subscribe_stream_tx())
+                .with_event_callback(Box::new(move |event: AgentEvent| {
+                    // Re-emit through bus
+                    match &event {
+                        AgentEvent::StreamingChunk {
+                            session_key,
+                            content,
+                        } => {
+                            event_bus.publish_stream_chunk(StreamChunk {
+                                session_key: session_key.clone(),
+                                content: content.clone(),
+                                done: false,
+                                trace_id: trace_id_for_stream.clone(),
+                            });
+                        }
+                        AgentEvent::ToolCall {
+                            session_key,
+                            tool_name,
+                            iteration,
+                        } => {
+                            event_bus.emit_event(AgentEvent::ToolCall {
+                                session_key: session_key.clone(),
+                                tool_name: tool_name.clone(),
+                                iteration: *iteration,
+                            });
+                        }
+                        _ => {}
+                    }
+                }));
+
+                runner_with_events.run(system_prompt, messages).await
+            };
+
+            match result {
+                Ok(result) => {
+                    // Add assistant response to session
+                    session.add_assistant_message(result.content.clone());
+
+                    // Auto-extract structured notes from the response
+                    let extracted =
+                        NotesManager::extract_notes_from_response(&mut session, &result.content);
+                    if extracted > 0 {
+                        info!(
+                            "Auto-extracted {} notes from agent response in session {}",
+                            extracted, session_key
+                        );
+                    }
+
+                    // Compact notes if they exceed the limit
+                    if NotesManager::compact_if_needed(&mut session) {
+                        info!("Notes compacted for session {}", session_key);
+                    }
+
+                    if let Err(e) = self.session_manager.save_session(&session) {
+                        warn!(
+                            session_key = %session_key,
+                            "Failed to persist completed session: {e}"
+                        );
+                    }
+
+                    // Store conversation memory (non-blocking — failures are logged, not propagated)
+                    self.store_conversation_memory(&msg.content, &result.content)
+                        .await;
+
+                    // Emit ToolSucceeded learning event if tools were used
+                    if result.tool_calls_made > 0 {
+                        if let Some(ref bus) = self.learning_bus {
+                            bus.publish(LearningEvent::ToolSucceeded {
+                                tool: "agent_loop".to_string(),
+                                args_summary: format!(
+                                    "session={}, tool_calls={}, iterations={}",
+                                    session_key, result.tool_calls_made, result.iterations_used
+                                ),
+                                duration_ms: 0,
+                                context_hash: format!("sess:{}", session_key),
+                                timestamp: chrono::Utc::now(),
+                            });
+                        }
+                    }
+
+                    // Send outbound message
+                    let user_msg = msg.content.clone();
+                    let result_content = result.content.clone();
+                    let tool_calls = result.tool_calls_made;
+                    let iterations = result.iterations_used;
+                    let outbound = OutboundMessage {
+                        channel: msg.channel.clone(),
+                        chat_id: msg.chat_id.clone(),
+                        content: result.content,
+                        reply_to: msg.message_id.clone(),
+                        trace_id: msg.trace_id.clone(),
+                        media: vec![],
+                        metadata: Default::default(),
+                    };
+
+                    if let Err(e) = self.bus.publish_outbound(outbound).await {
+                        error!("Failed to publish outbound message: {}", e);
+                    }
+
+                    // Post-task LLM reflection runs in the background after the
+                    // outbound response path completes.
+                    if let Some(bus) = self.learning_bus.clone() {
+                        let provider_registry = self.provider_registry.clone();
+                        let config = self.config.clone();
+                        tokio::spawn(async move {
+                            post_task_reflect(ReflectionTask {
+                                learning_bus: bus,
+                                provider_registry,
+                                config,
+                                user_message: user_msg,
+                                tool_calls_made: tool_calls,
+                                iterations_used: iterations,
+                                success: true,
+                                response_preview: result_content,
+                            })
+                            .await;
+                        });
+                    }
+
+                    // Emit completed event
+                    let completed_event = AgentEvent::Completed {
+                        session_key: session_key.clone(),
+                        iterations: result.iterations_used,
+                        tool_calls: result.tool_calls_made,
+                    };
+                    self.bus.emit_event(completed_event.clone());
+                    self.hooks
+                        .read()
+                        .await
+                        .emit(&crate::hook::HookContext {
+                            event: completed_event,
+                            data: Default::default(),
                         })
                         .await;
-                    });
                 }
+                Err(e) => {
+                    error!("Agent run error for session {}: {}", session_key, e);
 
-                // Emit completed event
-                let completed_event = AgentEvent::Completed {
-                    session_key: session_key.clone(),
-                    iterations: result.iterations_used,
-                    tool_calls: result.tool_calls_made,
-                };
-                self.bus.emit_event(completed_event.clone());
-                self.hooks
-                    .read()
-                    .await
-                    .emit(&crate::hook::HookContext {
-                        event: completed_event,
-                        data: Default::default(),
-                    })
-                    .await;
-            }
-            Err(e) => {
-                error!("Agent run error for session {}: {}", session_key, e);
+                    // Emit ToolFailed learning event
+                    if let Some(ref bus) = self.learning_bus {
+                        bus.publish(LearningEvent::ToolFailed {
+                            tool: "agent_loop".to_string(),
+                            args_summary: format!("session={}", session_key),
+                            error: ErrorClassification::Environment,
+                            error_message: e.to_string(),
+                            retry_count: 0,
+                            timestamp: chrono::Utc::now(),
+                        });
+                    }
 
-                // Emit ToolFailed learning event
-                if let Some(ref bus) = self.learning_bus {
-                    bus.publish(LearningEvent::ToolFailed {
-                        tool: "agent_loop".to_string(),
-                        args_summary: format!("session={}", session_key),
-                        error: ErrorClassification::Environment,
-                        error_message: e.to_string(),
-                        retry_count: 0,
-                        timestamp: chrono::Utc::now(),
-                    });
+                    let error_event = AgentEvent::Error {
+                        session_key: session_key.clone(),
+                        error: e.to_string(),
+                    };
+                    self.bus.emit_event(error_event.clone());
+                    self.hooks
+                        .read()
+                        .await
+                        .emit(&crate::hook::HookContext {
+                            event: error_event,
+                            data: Default::default(),
+                        })
+                        .await;
                 }
-
-                let error_event = AgentEvent::Error {
-                    session_key: session_key.clone(),
-                    error: e.to_string(),
-                };
-                self.bus.emit_event(error_event.clone());
-                self.hooks
-                    .read()
-                    .await
-                    .emit(&crate::hook::HookContext {
-                        event: error_event,
-                        data: Default::default(),
-                    })
-                    .await;
             }
+
+            Ok(())
         }
-
-        Ok(())
+        .instrument(span)
+        .await
     }
 
     /// Recall relevant memories from the memory store for the given query text.
@@ -1064,6 +1074,7 @@ mod tests {
             source: None,
             message_type: MessageType::Text,
             message_id: Some("msg-1".to_string()),
+            trace_id: None,
             reply_to: None,
             timestamp: chrono::Local::now(),
         };
@@ -1497,6 +1508,7 @@ mod tests {
             source: None,
             message_type: MessageType::Text,
             message_id: None,
+            trace_id: None,
             reply_to: None,
             timestamp: chrono::Local::now(),
         };

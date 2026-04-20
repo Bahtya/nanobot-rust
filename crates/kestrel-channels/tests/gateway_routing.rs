@@ -167,6 +167,7 @@ async fn test_outbound_routing_single_message() {
         chat_id: "12345".to_string(),
         content: "Hello from gateway!".to_string(),
         reply_to: Some("99".to_string()),
+        trace_id: None,
         media: vec![],
         metadata: HashMap::new(),
     };
@@ -206,6 +207,7 @@ async fn test_outbound_routing_multiple_messages() {
             chat_id: format!("channel_{i}"),
             content: format!("Message {i}"),
             reply_to: None,
+            trace_id: None,
             media: vec![],
             metadata: HashMap::new(),
         };
@@ -244,6 +246,7 @@ async fn test_outbound_routing_unknown_platform() {
         chat_id: "99999".to_string(),
         content: "Should not reach anyone".to_string(),
         reply_to: None,
+        trace_id: None,
         media: vec![],
         metadata: HashMap::new(),
     };
@@ -294,6 +297,7 @@ async fn test_inbound_from_channel_to_bus() {
         source: None,
         message_type: MessageType::Text,
         message_id: Some("msg_100".to_string()),
+        trace_id: None,
         reply_to: None,
         timestamp: chrono::Local::now(),
     };
@@ -419,6 +423,7 @@ async fn test_full_roundtrip_inbound_to_outbound() {
         source: None,
         message_type: MessageType::Text,
         message_id: Some("msg_in_1".to_string()),
+        trace_id: None,
         reply_to: None,
         timestamp: chrono::Local::now(),
     };
@@ -438,6 +443,7 @@ async fn test_full_roundtrip_inbound_to_outbound() {
         chat_id: received.chat_id.clone(),
         content: "2+2 = 4".to_string(),
         reply_to: received.message_id.clone(),
+        trace_id: None,
         media: vec![],
         metadata: HashMap::new(),
     };
@@ -487,6 +493,7 @@ fn spawn_mock_agent(
                                 chat_id: inbound.chat_id.clone(),
                                 content: format!("Echo: {}", inbound.content),
                                 reply_to: inbound.message_id.clone(),
+                                trace_id: None,
                                 media: vec![],
                                 metadata: HashMap::new(),
                             };
@@ -552,6 +559,7 @@ async fn test_gateway_mock_agent_single_message() {
         source: None,
         message_type: MessageType::Text,
         message_id: Some("msg_in_1".to_string()),
+        trace_id: None,
         reply_to: None,
         timestamp: chrono::Local::now(),
     };
@@ -624,6 +632,7 @@ async fn test_gateway_mock_agent_multi_platform() {
         source: None,
         message_type: MessageType::Text,
         message_id: Some("tg_msg_1".to_string()),
+        trace_id: None,
         reply_to: None,
         timestamp: chrono::Local::now(),
     };
@@ -638,6 +647,7 @@ async fn test_gateway_mock_agent_multi_platform() {
         source: None,
         message_type: MessageType::Text,
         message_id: Some("dc_msg_1".to_string()),
+        trace_id: None,
         reply_to: None,
         timestamp: chrono::Local::now(),
     };
@@ -719,6 +729,7 @@ async fn test_gateway_mock_agent_burst_messages() {
             source: None,
             message_type: MessageType::Text,
             message_id: Some(format!("msg_burst_{i}")),
+            trace_id: None,
             reply_to: None,
             timestamp: chrono::Local::now(),
         };
@@ -804,6 +815,7 @@ async fn test_gateway_mock_agent_cross_platform_isolation() {
             source: None,
             message_type: MessageType::Text,
             message_id: Some(format!("tg_only_{i}")),
+            trace_id: None,
             reply_to: None,
             timestamp: chrono::Local::now(),
         };
@@ -872,6 +884,7 @@ async fn test_gateway_graceful_shutdown() {
         source: None,
         message_type: MessageType::Text,
         message_id: Some("msg_shutdown_1".to_string()),
+        trace_id: None,
         reply_to: None,
         timestamp: chrono::Local::now(),
     };

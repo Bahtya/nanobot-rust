@@ -19,7 +19,7 @@
 use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
 use axum::{
     body::Body,
-    extract::{DefaultBodyLimit, State},
+    extract::{DefaultBodyLimit, Extension, State},
     http::{HeaderValue, Method, Request, StatusCode},
     middleware::{self, Next},
     response::sse::{Event, KeepAlive, Sse},
@@ -326,7 +326,7 @@ struct ErrorDetail {
 /// If the client sends an `x-request-id` header it is preserved; otherwise a
 /// new UUID v4 is generated. The ID is set on the response header and injected
 /// into the current tracing span for structured log correlation.
-async fn request_id_middleware(req: Request<Body>, next: Next) -> impl IntoResponse {
+async fn request_id_middleware(mut req: Request<Body>, next: Next) -> impl IntoResponse {
     let request_id = req
         .headers()
         .get("x-request-id")
@@ -336,6 +336,7 @@ async fn request_id_middleware(req: Request<Body>, next: Next) -> impl IntoRespo
 
     // Inject into tracing span so downstream log lines carry the request ID.
     let span = tracing::info_span!("request", request_id = %request_id);
+    req.extensions_mut().insert(request_id.clone());
     let response: axum::response::Response = next.run(req).instrument(span).await;
 
     // Attach the request ID to the response.
@@ -490,6 +491,7 @@ fn validate_request(req: &ChatCompletionRequest) -> Result<(), axum::response::R
 
 async fn chat_completions(
     State(state): State<AppState>,
+    Extension(request_id): Extension<String>,
     Json(req): Json<ChatCompletionRequest>,
 ) -> impl IntoResponse {
     debug!(
@@ -544,11 +546,11 @@ async fn chat_completions(
         .collect();
 
     if req.stream {
-        return stream_completion(state, req, system_prompt, messages).await;
+        return stream_completion(state, req, system_prompt, messages, request_id).await;
     }
 
     // Non-streaming path
-    non_stream_completion(state, req, system_prompt, messages).await
+    non_stream_completion(state, req, system_prompt, messages, request_id).await
 }
 
 /// Handle non-streaming completion.
@@ -557,12 +559,14 @@ async fn non_stream_completion(
     req: ChatCompletionRequest,
     system_prompt: String,
     messages: Vec<Message>,
+    request_id: String,
 ) -> axum::response::Response {
     let runner = AgentRunner::new(
         state.config.clone(),
         state.provider_registry.clone(),
         state.tool_registry.clone(),
-    );
+    )
+    .with_trace_id(&request_id);
 
     match runner.run(system_prompt, messages).await {
         Ok(result) => {
@@ -624,6 +628,7 @@ async fn stream_completion(
     req: ChatCompletionRequest,
     system_prompt: String,
     messages: Vec<Message>,
+    request_id: String,
 ) -> axum::response::Response {
     let completion_id = format!("chatcmpl-{}", uuid::Uuid::new_v4());
     let model = req.model.clone();
@@ -633,7 +638,8 @@ async fn stream_completion(
         state.config.clone(),
         state.provider_registry.clone(),
         state.tool_registry.clone(),
-    );
+    )
+    .with_trace_id(&request_id);
 
     let stream_result = runner.run(system_prompt, messages).await;
     let cancel = state.cancel.clone();
@@ -1016,6 +1022,7 @@ mod tests {
             .route("/v1/models", get(list_models))
             .route("/health", get(health))
             .route("/ready", get(ready))
+            .layer(middleware::from_fn(request_id_middleware))
             .with_state(test_state())
     }
 
@@ -1025,6 +1032,7 @@ mod tests {
             .route("/v1/models", get(list_models))
             .route("/health", get(health))
             .route("/ready", get(ready))
+            .layer(middleware::from_fn(request_id_middleware))
             .with_state(test_state_with_provider())
     }
 
@@ -1045,6 +1053,7 @@ mod tests {
         Router::new()
             .merge(public_routes)
             .merge(protected_routes)
+            .layer(middleware::from_fn(request_id_middleware))
             .with_state(state)
     }
 
@@ -1457,6 +1466,7 @@ mod tests {
             .route("/v1/chat/completions", post(chat_completions))
             .route("/v1/models", get(list_models))
             .route("/health", get(health))
+            .layer(middleware::from_fn(request_id_middleware))
             .with_state(state);
 
         let req_body = serde_json::json!({
@@ -2169,6 +2179,7 @@ mod tests {
             .route("/v1/chat/completions", post(chat_completions))
             .layer(DefaultBodyLimit::max(body_limit))
             .layer(middleware::from_fn(request_log_middleware))
+            .layer(middleware::from_fn(request_id_middleware))
             .layer(cors)
             .with_state(state);
 
@@ -2220,6 +2231,7 @@ mod tests {
         let app = Router::new()
             .route("/v1/chat/completions", post(chat_completions))
             .layer(DefaultBodyLimit::max(body_limit))
+            .layer(middleware::from_fn(request_id_middleware))
             .layer(cors)
             .with_state(state);
 
@@ -2285,7 +2297,14 @@ mod tests {
             tool_calls: None,
         }];
 
-        let resp = stream_completion(state, req, "test".to_string(), messages).await;
+        let resp = stream_completion(
+            state,
+            req,
+            "test".to_string(),
+            messages,
+            "test-req-id".to_string(),
+        )
+        .await;
 
         assert_eq!(resp.status(), StatusCode::OK);
         let ct = resp
@@ -2337,7 +2356,14 @@ mod tests {
             tool_calls: None,
         }];
 
-        let resp = stream_completion(state, req, "test".to_string(), messages).await;
+        let resp = stream_completion(
+            state,
+            req,
+            "test".to_string(),
+            messages,
+            "test-req-id".to_string(),
+        )
+        .await;
 
         assert_eq!(resp.status(), StatusCode::OK);
         let body = resp.into_body().collect().await.unwrap().to_bytes();

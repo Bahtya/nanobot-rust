@@ -1081,7 +1081,13 @@ impl TelegramChannel {
                                 .await;
                             }
                             crate::commands::CommandDispatch::Rewrite(rewritten) => {
-                                match Self::dispatch_message(&handler, &msg, Some(rewritten)).await
+                                match Self::dispatch_message(
+                                    &handler,
+                                    &msg,
+                                    Some(rewritten),
+                                    update.update_id,
+                                )
+                                .await
                                 {
                                     Ok(true) => {
                                         Self::send_read_receipt(
@@ -1102,7 +1108,7 @@ impl TelegramChannel {
                             }
                         }
                     } else {
-                        match Self::dispatch_message(&handler, &msg, None).await {
+                        match Self::dispatch_message(&handler, &msg, None, update.update_id).await {
                             Ok(true) => {
                                 // Message dispatched — send 👀 read receipt.
                                 Self::send_read_receipt(
@@ -1120,9 +1126,15 @@ impl TelegramChannel {
                         }
                     }
                 } else if let Some(cq) = update.callback_query {
-                    if let Err(e) =
-                        Self::dispatch_callback_query(&client, &base_url, &handler, &cq, &router)
-                            .await
+                    if let Err(e) = Self::dispatch_callback_query(
+                        &client,
+                        &base_url,
+                        &handler,
+                        &cq,
+                        &router,
+                        update.update_id,
+                    )
+                    .await
                     {
                         error!("Failed to dispatch Telegram callback query: {e}");
                     }
@@ -1142,6 +1154,7 @@ impl TelegramChannel {
         handler: &tokio::sync::mpsc::Sender<InboundMessage>,
         msg: &TgMessage,
         text_override: Option<String>,
+        update_id: i64,
     ) -> Result<bool> {
         let sender_id = msg
             .from
@@ -1240,7 +1253,7 @@ impl TelegramChannel {
             source: Some(source),
             message_type,
             message_id: Some(msg.message_id.to_string()),
-            trace_id: Some(format!("kst_tg_{}", &uuid::Uuid::new_v4().to_string()[..8])),
+            trace_id: Some(format!("tg_{}_{}", update_id, msg.message_id)),
             reply_to: msg
                 .reply_to_message
                 .as_ref()
@@ -1267,6 +1280,7 @@ impl TelegramChannel {
         handler: &tokio::sync::mpsc::Sender<InboundMessage>,
         cq: &TgCallbackQuery,
         router: &Arc<tokio::sync::Mutex<CallbackRouter>>,
+        update_id: i64,
     ) -> Result<()> {
         let sender_id = cq
             .from
@@ -1382,7 +1396,7 @@ impl TelegramChannel {
             source: Some(source),
             message_type: MessageType::Command,
             message_id: Some(msg.message_id.to_string()),
-            trace_id: Some(format!("kst_tg_{}", &uuid::Uuid::new_v4().to_string()[..8])),
+            trace_id: Some(format!("tg_{}_{}", update_id, msg.message_id)),
             reply_to: None,
             timestamp: Local::now(),
         };
@@ -2494,7 +2508,7 @@ mod tests {
             reply_to_message: None,
         };
 
-        TelegramChannel::dispatch_message(&tx, &msg, None)
+        TelegramChannel::dispatch_message(&tx, &msg, None, 0)
             .await
             .unwrap();
 
@@ -2505,11 +2519,44 @@ mod tests {
         assert_eq!(inbound.content, "hello world");
         assert_eq!(inbound.message_type, MessageType::Text);
         assert_eq!(inbound.message_id.as_deref(), Some("42"));
+        assert_eq!(inbound.trace_id.as_deref(), Some("tg_0_42"));
         assert!(inbound.media.is_empty());
         assert!(inbound.source.is_some());
         let src = inbound.source.unwrap();
         assert_eq!(src.chat_type, "dm");
         assert_eq!(src.user_name.as_deref(), Some("Alice"));
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_message_trace_id_uses_platform_native_ids() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<InboundMessage>(10);
+
+        let msg = TgMessage {
+            message_id: 44521,
+            from: Some(TgUser {
+                id: 123,
+                first_name: Some("Alice".to_string()),
+                last_name: None,
+                username: None,
+            }),
+            chat: TgChat {
+                id: 123,
+                chat_type: Some("private".to_string()),
+                title: None,
+                thread_id: None,
+            },
+            text: Some("hello".to_string()),
+            photo: None,
+            caption: None,
+            reply_to_message: None,
+        };
+
+        TelegramChannel::dispatch_message(&tx, &msg, None, 9823)
+            .await
+            .unwrap();
+
+        let inbound = rx.try_recv().unwrap();
+        assert_eq!(inbound.trace_id.as_deref(), Some("tg_9823_44521"));
     }
 
     #[tokio::test]
@@ -2536,7 +2583,7 @@ mod tests {
             reply_to_message: None,
         };
 
-        TelegramChannel::dispatch_message(&tx, &msg, None)
+        TelegramChannel::dispatch_message(&tx, &msg, None, 0)
             .await
             .unwrap();
 
@@ -2585,7 +2632,7 @@ mod tests {
             reply_to_message: None,
         };
 
-        TelegramChannel::dispatch_message(&tx, &msg, None)
+        TelegramChannel::dispatch_message(&tx, &msg, None, 0)
             .await
             .unwrap();
 
@@ -2633,7 +2680,7 @@ mod tests {
             })),
         };
 
-        TelegramChannel::dispatch_message(&tx, &msg, None)
+        TelegramChannel::dispatch_message(&tx, &msg, None, 0)
             .await
             .unwrap();
 
@@ -2666,7 +2713,7 @@ mod tests {
         };
 
         // Should succeed but not send anything — no text, no photo.
-        let dispatched = TelegramChannel::dispatch_message(&tx, &msg, None)
+        let dispatched = TelegramChannel::dispatch_message(&tx, &msg, None, 0)
             .await
             .unwrap();
         assert!(!dispatched);
@@ -2689,7 +2736,7 @@ mod tests {
             caption: None,
             reply_to_message: None,
         };
-        let dispatched = TelegramChannel::dispatch_message(&tx, &msg, None)
+        let dispatched = TelegramChannel::dispatch_message(&tx, &msg, None, 0)
             .await
             .unwrap();
         assert!(dispatched);
@@ -2716,7 +2763,7 @@ mod tests {
             caption: None,
             reply_to_message: None,
         };
-        let dispatched = TelegramChannel::dispatch_message(&tx, &msg, None)
+        let dispatched = TelegramChannel::dispatch_message(&tx, &msg, None, 0)
             .await
             .unwrap();
         assert!(dispatched);
@@ -2806,7 +2853,7 @@ mod tests {
         // The answerCallbackQuery call will fail (no server) but dispatch
         // should still succeed since we only warn on failure.
         let result =
-            TelegramChannel::dispatch_callback_query(&client, base_url, &tx, &cq, &router).await;
+            TelegramChannel::dispatch_callback_query(&client, base_url, &tx, &cq, &router, 0).await;
         // The handler should still receive the message even if answer fails.
         if result.is_ok() {
             let inbound = rx.try_recv().unwrap();
@@ -2816,6 +2863,7 @@ mod tests {
             assert_eq!(inbound.content, "callback:action:confirm");
             assert_eq!(inbound.message_type, MessageType::Command);
             assert_eq!(inbound.message_id.as_deref(), Some("50"));
+            assert_eq!(inbound.trace_id.as_deref(), Some("tg_0_50"));
             assert_eq!(
                 inbound.metadata.get("tg_callback_data").unwrap(),
                 &serde_json::json!("action:confirm")
@@ -2848,7 +2896,7 @@ mod tests {
         };
 
         // Should return Ok(()) — no message attached means nothing to dispatch.
-        TelegramChannel::dispatch_callback_query(&client, base_url, &tx, &cq, &router)
+        TelegramChannel::dispatch_callback_query(&client, base_url, &tx, &cq, &router, 0)
             .await
             .unwrap();
     }
@@ -3579,7 +3627,7 @@ mod tests {
         // Router matches → handler runs, returns Acknowledged.
         // No message sent to bus.
         let result =
-            TelegramChannel::dispatch_callback_query(&client, base_url, &tx, &cq, &router).await;
+            TelegramChannel::dispatch_callback_query(&client, base_url, &tx, &cq, &router, 0).await;
         // Should succeed (HTTP calls to localhost:0 fail but are only warned).
         assert!(result.is_ok() || result.is_err());
     }
@@ -3614,7 +3662,7 @@ mod tests {
         };
 
         let result =
-            TelegramChannel::dispatch_callback_query(&client, base_url, &tx, &cq, &router).await;
+            TelegramChannel::dispatch_callback_query(&client, base_url, &tx, &cq, &router, 0).await;
         if result.is_ok() {
             // Falls through to bus → InboundMessage produced.
             let inbound = rx.try_recv().unwrap();

@@ -28,6 +28,10 @@ pub struct AgentRunner {
     /// Guard that serializes execution of mutating tools. Read-only tools
     /// bypass this lock and run concurrently.
     mutating_guard: Arc<Mutex<()>>,
+    /// Session key for correlating tool-call events and stream chunks.
+    session_key: Option<String>,
+    /// Full-chain trace ID propagated from the originating inbound message.
+    trace_id: Option<String>,
 }
 
 impl AgentRunner {
@@ -43,6 +47,8 @@ impl AgentRunner {
             stream_tx: None,
             event_callback: None,
             mutating_guard: Arc::new(Mutex::new(())),
+            session_key: None,
+            trace_id: None,
         }
     }
 
@@ -58,19 +64,31 @@ impl AgentRunner {
         self
     }
 
+    /// Set the session key for correlating events and stream chunks.
+    pub fn with_session_key(mut self, key: impl Into<String>) -> Self {
+        self.session_key = Some(key.into());
+        self
+    }
+
+    /// Set the trace ID for full-chain correlation.
+    pub fn with_trace_id(mut self, id: impl Into<String>) -> Self {
+        self.trace_id = Some(id.into());
+        self
+    }
+
     fn emit_event(&self, event: AgentEvent) {
         if let Some(cb) = &self.event_callback {
             cb(event);
         }
     }
 
-    fn emit_stream_chunk(&self, session_key: &str, content: String, done: bool) {
+    fn emit_stream_chunk(&self, content: String, done: bool) {
         if let Some(tx) = &self.stream_tx {
             let _ = tx.send(StreamChunk {
-                session_key: session_key.to_string(),
+                session_key: self.session_key.clone().unwrap_or_default(),
                 content,
                 done,
-                trace_id: None,
+                trace_id: self.trace_id.clone(),
             });
         }
     }
@@ -160,7 +178,7 @@ impl AgentRunner {
             // Emit tool call events
             for tc in &tool_calls {
                 self.emit_event(AgentEvent::ToolCall {
-                    session_key: String::new(), // filled by caller
+                    session_key: self.session_key.clone().unwrap_or_default(),
                     tool_name: tc.function.name.clone(),
                     iteration: iteration + 1,
                 });
@@ -224,7 +242,7 @@ impl AgentRunner {
             if let Some(delta) = &chunk.delta {
                 full_content.push_str(delta);
                 // Emit streaming chunk
-                self.emit_stream_chunk("", delta.clone(), false);
+                self.emit_stream_chunk(delta.clone(), false);
             }
 
             // Accumulate tool call deltas
@@ -256,7 +274,7 @@ impl AgentRunner {
         }
 
         // Emit final stream chunk
-        self.emit_stream_chunk("", String::new(), true);
+        self.emit_stream_chunk(String::new(), true);
 
         // Build tool calls from accumulated deltas
         let mut tool_calls_list: Vec<(usize, CoreToolCall)> = tool_calls_map

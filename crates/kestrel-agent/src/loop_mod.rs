@@ -266,13 +266,16 @@ impl AgentLoop {
             let result = {
                 // Build a runner with event callback for this session
                 let event_bus = bus_for_stream.clone();
-                let trace_id_for_stream = msg.trace_id.clone();
+                let session_key_for_runner = session_key.clone();
+                let trace_id_for_runner = msg.trace_id.clone();
 
                 let runner_with_events = AgentRunner::new(
                     self.config.clone(),
                     self.provider_registry.clone(),
                     self.tool_registry.clone(),
                 )
+                .with_session_key(&session_key_for_runner)
+                .with_trace_id(trace_id_for_runner.clone().unwrap_or_default())
                 .with_stream_tx(event_bus.subscribe_stream_tx())
                 .with_event_callback(Box::new(move |event: AgentEvent| {
                     // Re-emit through bus
@@ -285,7 +288,7 @@ impl AgentLoop {
                                 session_key: session_key.clone(),
                                 content: content.clone(),
                                 done: false,
-                                trace_id: trace_id_for_stream.clone(),
+                                trace_id: trace_id_for_runner.clone(),
                             });
                         }
                         AgentEvent::ToolCall {

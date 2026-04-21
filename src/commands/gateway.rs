@@ -104,7 +104,7 @@ async fn seed_default_skills(registry: &SkillRegistry) {
             }
         };
         if let Err(e) = registry
-            .create_skill(&manifest.name, &manifest.description, md_content)
+            .create_skill_from_manifest(manifest, md_content)
             .await
         {
             tracing::warn!("Failed to seed default skill '{}': {}", name, e);
@@ -829,6 +829,52 @@ mod tests {
 
         assert!(!registry.is_empty().await);
         assert!(registry.get("greeting").await.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_seed_default_skills_preserves_bundled_manifest_fields() {
+        let home = tempfile::tempdir().unwrap();
+        let skills_dir = home.path().join("skills");
+        // Don't create dir — init_skill_registry will create and seed
+
+        let registry = init_skill_registry(home.path()).await;
+
+        let skill = registry
+            .get("greeting")
+            .await
+            .expect("greeting should exist");
+        let guard = skill.read();
+        let m = guard.manifest();
+
+        // Verify bundled manifest fields are preserved (not re-derived)
+        assert_eq!(m.category, "social");
+        assert!(
+            m.triggers.contains(&"hello".to_string()),
+            "triggers should include 'hello': {:?}",
+            m.triggers
+        );
+        assert!(
+            m.triggers.contains(&"hi".to_string()),
+            "triggers should include 'hi': {:?}",
+            m.triggers
+        );
+        assert!(
+            m.triggers.contains(&"hey".to_string()),
+            "triggers should include 'hey': {:?}",
+            m.triggers
+        );
+
+        // Verify matching works with bundled triggers
+        drop(guard);
+        assert_eq!(registry.match_skills("hello").await.len(), 1);
+        assert_eq!(registry.match_skills("hey").await.len(), 1);
+
+        // Verify system-info category too
+        let sys = registry
+            .get("system-info")
+            .await
+            .expect("system-info should exist");
+        assert_eq!(sys.read().manifest().category, "utility");
     }
 
     #[tokio::test]

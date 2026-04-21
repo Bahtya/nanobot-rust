@@ -16,6 +16,7 @@ use tokio::sync::{Mutex, RwLock as AsyncRwLock};
 use crate::error::{SkillError, SkillResult};
 use crate::manifest::SkillManifestBuilder;
 use crate::skill::{CompiledSkill, Skill};
+use crate::SkillManifest;
 
 /// A scored skill match returned by [`SkillRegistry::match_skills`].
 #[derive(Debug, Clone)]
@@ -201,6 +202,9 @@ impl SkillRegistry {
     /// configured skills directory using atomic writes (temp file + rename). The new
     /// skill is automatically registered in the registry.
     ///
+    /// Triggers are derived from the skill name (split on hyphens/underscores).
+    /// To supply explicit triggers, use [`create_skill_with_triggers`](Self::create_skill_with_triggers).
+    ///
     /// # Errors
     ///
     /// Returns [`SkillError::SkillsDirNotSet`] if no skills directory is configured,
@@ -211,6 +215,36 @@ impl SkillRegistry {
         name: &str,
         description: &str,
         instructions: &str,
+    ) -> SkillResult<()> {
+        // Derive triggers from name parts (split on hyphens and whitespace)
+        let triggers: Vec<String> = name
+            .split(['-', '_'])
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .chain(std::iter::once(name.to_string()))
+            .collect();
+
+        self.create_skill_with_triggers(name, description, instructions, &triggers)
+            .await
+    }
+
+    /// Create a new skill with explicit triggers.
+    ///
+    /// Like [`create_skill`](Self::create_skill) but uses the provided triggers
+    /// instead of deriving them from the name. Use this when seeding bundled skills
+    /// that have pre-defined trigger lists in their manifests.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SkillError::SkillsDirNotSet`] if no skills directory is configured,
+    /// [`SkillError::AlreadyExists`] if a skill with the same name already exists,
+    /// or an I/O error if writing fails.
+    pub async fn create_skill_with_triggers(
+        &self,
+        name: &str,
+        description: &str,
+        instructions: &str,
+        triggers: &[String],
     ) -> SkillResult<()> {
         if instructions.is_empty() {
             return Err(SkillError::ValidationFailed {
@@ -236,16 +270,8 @@ impl SkillRegistry {
             }
         }
 
-        // Derive triggers from name parts (split on hyphens and whitespace)
-        let triggers: Vec<String> = name
-            .split(['-', '_'])
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string())
-            .chain(std::iter::once(name.to_string()))
-            .collect();
-
         let manifest = SkillManifestBuilder::new(name, "1.0.0", description)
-            .triggers(triggers)
+            .triggers(triggers.to_vec())
             .build();
 
         // Validate before writing
@@ -276,6 +302,67 @@ impl SkillRegistry {
             return Err(SkillError::AlreadyExists(name.to_string()));
         }
         skills.insert(name.to_string(), Arc::new(RwLock::new(skill)));
+
+        Ok(())
+    }
+
+    /// Create a new skill from a pre-built manifest and instructions.
+    ///
+    /// Writes the manifest and instructions to disk as-is, preserving all manifest
+    /// fields (triggers, category, steps, pitfalls, etc.). Use this when seeding
+    /// bundled skills that have complete TOML manifests.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SkillError::SkillsDirNotSet`] if no skills directory is configured,
+    /// [`SkillError::AlreadyExists`] if a skill with the same name already exists,
+    /// or an I/O error if writing fails.
+    pub async fn create_skill_from_manifest(
+        &self,
+        manifest: SkillManifest,
+        instructions: &str,
+    ) -> SkillResult<()> {
+        let name = manifest.name.clone();
+
+        let dir = self
+            .skills_dir
+            .as_deref()
+            .ok_or(SkillError::SkillsDirNotSet)?;
+        let _mutation_guard = self.mutation_lock.lock().await;
+
+        std::fs::create_dir_all(dir)?;
+
+        {
+            let skills = self.skills.read().await;
+            if skills.contains_key(&name) {
+                return Err(SkillError::AlreadyExists(name));
+            }
+        }
+
+        manifest
+            .validate()
+            .map_err(|errors| SkillError::ValidationFailed {
+                name: name.clone(),
+                reason: errors.join("; "),
+            })?;
+
+        let toml_path = dir.join(format!("{name}.toml"));
+        atomic_write(&toml_path, &toml::to_string(&manifest)?)?;
+
+        if !instructions.is_empty() {
+            let md_path = dir.join(format!("{name}.md"));
+            atomic_write(&md_path, instructions)?;
+        }
+
+        let mut skill = CompiledSkill::new(manifest);
+        if !instructions.is_empty() {
+            skill.set_instructions(instructions.to_string());
+        }
+        let mut skills = self.skills.write().await;
+        if skills.contains_key(&name) {
+            return Err(SkillError::AlreadyExists(name));
+        }
+        skills.insert(name, Arc::new(RwLock::new(skill)));
 
         Ok(())
     }
@@ -645,6 +732,73 @@ mod tests {
         let matches = registry.match_skills("my-skill").await;
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].name, "my-skill");
+    }
+
+    #[tokio::test]
+    async fn test_create_skill_with_triggers_preserves_explicit_triggers() {
+        let (registry, dir) = make_registry_with_dir();
+
+        let triggers = vec![
+            "hello".to_string(),
+            "hi".to_string(),
+            "hey".to_string(),
+            "greet".to_string(),
+            "greeting".to_string(),
+        ];
+        registry
+            .create_skill_with_triggers("greeting", "Greet the user", "Say hello", &triggers)
+            .await
+            .unwrap();
+
+        // Verify TOML manifest has the explicit triggers
+        let toml_path = dir.path().join("greeting.toml");
+        let content = std::fs::read_to_string(&toml_path).unwrap();
+        let manifest: crate::SkillManifest = toml::from_str(&content).unwrap();
+        assert_eq!(
+            manifest.triggers,
+            vec!["hello", "hi", "hey", "greet", "greeting"]
+        );
+
+        // Verify matching works with the explicit triggers
+        assert_eq!(registry.match_skills("hello").await.len(), 1);
+        assert_eq!(registry.match_skills("hey").await.len(), 1);
+        assert_eq!(registry.match_skills("greeting").await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_create_skill_from_manifest_preserves_all_fields() {
+        let (registry, dir) = make_registry_with_dir();
+
+        let manifest = crate::SkillManifest {
+            name: "greeting".to_string(),
+            version: "1.0.0".to_string(),
+            description: "Greet the user".to_string(),
+            triggers: vec!["hello".into(), "hi".into(), "hey".into(), "greet".into()],
+            steps: vec!["Say hello".into()],
+            pitfalls: vec!["Don't be rude".into()],
+            category: "social".to_string(),
+            deprecated: None,
+            deprecation_reason: None,
+            confidence: None,
+        };
+
+        registry
+            .create_skill_from_manifest(manifest, "Say hello warmly")
+            .await
+            .unwrap();
+
+        // Verify TOML on disk preserves all fields
+        let toml_path = dir.path().join("greeting.toml");
+        let content = std::fs::read_to_string(&toml_path).unwrap();
+        let persisted: crate::SkillManifest = toml::from_str(&content).unwrap();
+        assert_eq!(persisted.category, "social");
+        assert_eq!(persisted.triggers, vec!["hello", "hi", "hey", "greet"]);
+        assert_eq!(persisted.steps, vec!["Say hello"]);
+        assert_eq!(persisted.pitfalls, vec!["Don't be rude"]);
+
+        // Verify skill is registered and matchable
+        assert!(registry.get("greeting").await.is_some());
+        assert_eq!(registry.match_skills("hello").await.len(), 1);
     }
 
     #[tokio::test]

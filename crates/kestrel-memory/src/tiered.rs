@@ -300,7 +300,11 @@ mod tests {
 
         let tiered = TieredMemoryStore::new(l1, l2);
         let results = tiered
-            .search(&MemoryQuery::new().with_embedding(vec![1.0_f32, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]).with_limit(2))
+            .search(
+                &MemoryQuery::new()
+                    .with_embedding(vec![1.0_f32, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+                    .with_limit(2),
+            )
             .await
             .unwrap();
 

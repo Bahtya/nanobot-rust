@@ -182,7 +182,7 @@ impl AgentRunner {
                     session_key: self.session_key.clone().unwrap_or_default(),
                     tool_name: tc.function.name.clone(),
                     iteration: iteration + 1,
-                    trace_id: None,
+                    trace_id: self.trace_id.clone(),
                 });
             }
 
@@ -574,5 +574,40 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert!(results[0].contains("Tool error"));
         assert!(results[0].contains("not found"));
+    }
+
+    #[test]
+    fn test_trace_id_propagated_to_toolcall_event() {
+        let events: Arc<std::sync::Mutex<Vec<AgentEvent>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let captured = events.clone();
+        let registry = ToolRegistry::new();
+        let runner = AgentRunner::new(
+            Arc::new(Config::default()),
+            Arc::new(ProviderRegistry::new()),
+            Arc::new(registry),
+        )
+        .with_session_key("test-session")
+        .with_trace_id("trace-abc-123")
+        .with_event_callback(Box::new(move |event| {
+            captured.lock().unwrap().push(event);
+        }));
+
+        // Emit a ToolCall event directly through the runner's emit_event
+        runner.emit_event(AgentEvent::ToolCall {
+            session_key: "test-session".to_string(),
+            tool_name: "shell".to_string(),
+            iteration: 1,
+            trace_id: runner.trace_id.clone(),
+        });
+
+        let evts = events.lock().unwrap();
+        assert_eq!(evts.len(), 1);
+        match &evts[0] {
+            AgentEvent::ToolCall { trace_id, .. } => {
+                assert_eq!(trace_id.as_deref(), Some("trace-abc-123"));
+            }
+            other => panic!("Expected ToolCall event, got {:?}", other),
+        }
     }
 }

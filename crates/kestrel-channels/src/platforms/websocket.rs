@@ -643,7 +643,7 @@ impl WebSocketChannel {
             };
 
             let mut metadata = HashMap::new();
-            if let Some(msg_id) = envelope_msg_id {
+            if let Some(ref msg_id) = envelope_msg_id {
                 metadata.insert("ws_msg_id".to_string(), serde_json::json!(msg_id));
             }
             metadata.insert("ws_client_id".to_string(), serde_json::json!(client_id));
@@ -666,7 +666,7 @@ impl WebSocketChannel {
                 metadata,
                 source: Some(source),
                 message_type,
-                message_id: None,
+                message_id: envelope_msg_id.clone(),
                 trace_id: Some(trace_id),
                 reply_to: None,
                 timestamp: chrono::Local::now(),
@@ -1342,6 +1342,32 @@ mod tests {
             .unwrap();
         assert_eq!(inbound.content, "envelope hello");
         assert_eq!(inbound.channel, Platform::WebSocket);
+        assert_eq!(inbound.message_id, Some(envelope.id));
+
+        channel.disconnect().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_legacy_inbound_has_no_message_id() {
+        let (mut channel, addr, mut rx) = setup_server().await;
+        channel.connect().await.unwrap();
+
+        let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{}", addr))
+            .await
+            .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let _welcome = drain_next_text(&mut ws).await;
+
+        let legacy_msg = r#"{"role":"user","content":"legacy"}"#;
+        ws.send(WsMessage::Text(legacy_msg.into())).await.unwrap();
+
+        let inbound = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(inbound.content, "legacy");
+        assert!(inbound.message_id.is_none());
 
         channel.disconnect().await.unwrap();
     }

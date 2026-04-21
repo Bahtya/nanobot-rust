@@ -738,6 +738,10 @@ pub struct DaemonConfig {
     /// Grace period in seconds for in-flight work during shutdown.
     #[serde(default = "default_daemon_grace_period")]
     pub grace_period_secs: u64,
+
+    /// Log level for daemon file logging (trace, debug, info, warn, error).
+    #[serde(default = "default_daemon_log_level")]
+    pub log_level: String,
 }
 
 fn default_daemon_pid_file() -> String {
@@ -766,6 +770,10 @@ const fn default_daemon_grace_period() -> u64 {
     30
 }
 
+fn default_daemon_log_level() -> String {
+    "info".to_string()
+}
+
 impl Default for DaemonConfig {
     fn default() -> Self {
         Self {
@@ -773,6 +781,7 @@ impl Default for DaemonConfig {
             log_dir: default_daemon_log_dir(),
             working_directory: default_daemon_working_directory(),
             grace_period_secs: default_daemon_grace_period(),
+            log_level: default_daemon_log_level(),
         }
     }
 }

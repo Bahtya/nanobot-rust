@@ -73,7 +73,7 @@ pub trait BaseChannel: Send + Sync {
     }
 
     /// Send a typing indicator.
-    async fn send_typing(&self, chat_id: &str) -> Result<()>;
+    async fn send_typing(&self, chat_id: &str, trace_id: Option<&str>) -> Result<()>;
 
     /// Send a reaction emoji to a message.
     ///

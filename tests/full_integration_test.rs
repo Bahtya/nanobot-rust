@@ -204,7 +204,7 @@ impl BaseChannel for MockChannel {
             retryable: false,
         })
     }
-    async fn send_typing(&self, _chat_id: &str) -> anyhow::Result<()> {
+    async fn send_typing(&self, _chat_id: &str, _trace_id: Option<&str>) -> anyhow::Result<()> {
         Ok(())
     }
     async fn send_image(
@@ -383,7 +383,7 @@ async fn test_full_message_pipeline() {
 
     // Verify events: Started → Completed
     let has_started = all_events.iter().any(
-        |e| matches!(e, AgentEvent::Started { session_key } if session_key.contains("chat_42")),
+        |e| matches!(e, AgentEvent::Started { session_key, .. } if session_key.contains("chat_42")),
     );
     assert!(has_started, "Expected a Started event for chat_42");
 

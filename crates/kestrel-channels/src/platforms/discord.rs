@@ -1159,7 +1159,7 @@ impl BaseChannel for DiscordChannel {
         })
     }
 
-    async fn send_typing(&self, chat_id: &str) -> Result<()> {
+    async fn send_typing(&self, chat_id: &str, _trace_id: Option<&str>) -> Result<()> {
         let path = format!("/channels/{chat_id}/typing");
 
         let resp = self

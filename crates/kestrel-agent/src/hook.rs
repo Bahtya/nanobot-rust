@@ -103,6 +103,7 @@ mod tests {
         let hook = CompositeHook::new();
         let ctx = HookContext {
             event: AgentEvent::Started {
+                trace_id: None,
                 session_key: "test".to_string(),
             },
             data: std::collections::HashMap::new(),
@@ -119,6 +120,7 @@ mod tests {
 
         let ctx = HookContext {
             event: AgentEvent::Started {
+                trace_id: None,
                 session_key: "test".to_string(),
             },
             data: std::collections::HashMap::new(),

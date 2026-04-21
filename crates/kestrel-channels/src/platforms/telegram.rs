@@ -1805,7 +1805,7 @@ impl BaseChannel for TelegramChannel {
         }
     }
 
-    async fn send_typing(&self, chat_id: &str) -> Result<()> {
+    async fn send_typing(&self, chat_id: &str, _trace_id: Option<&str>) -> Result<()> {
         debug!("Sending typing indicator to chat {}", chat_id);
 
         let chat_id_num: i64 = match chat_id.parse() {
@@ -2352,7 +2352,7 @@ mod tests {
     async fn test_telegram_send_typing_invalid_chat_id() {
         let channel = TelegramChannel::new();
         // Should not error — just logs a warning.
-        channel.send_typing("not_a_number").await.unwrap();
+        channel.send_typing("not_a_number", None).await.unwrap();
     }
 
     #[tokio::test]

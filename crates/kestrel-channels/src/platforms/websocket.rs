@@ -217,6 +217,8 @@ fn default_user_role() -> String {
 #[derive(Debug, serde::Serialize)]
 struct WsTypingIndicator {
     r#type: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trace_id: Option<String>,
 }
 
 /// Outbound image message.
@@ -850,9 +852,12 @@ impl BaseChannel for WebSocketChannel {
     }
 
     /// Send a typing indicator to a specific client.
-    async fn send_typing(&self, chat_id: &str) -> Result<()> {
+    async fn send_typing(&self, chat_id: &str, trace_id: Option<&str>) -> Result<()> {
         if let Some(client) = self.clients.get(chat_id) {
-            let msg = WsTypingIndicator { r#type: "typing" };
+            let msg = WsTypingIndicator {
+                r#type: "typing",
+                trace_id: trace_id.map(|t| t.to_string()),
+            };
             let json = serde_json::to_string(&msg)?;
             let _ = client.send(json);
         }
@@ -1134,7 +1139,10 @@ mod tests {
 
     #[test]
     fn test_typing_indicator_format() {
-        let msg = WsTypingIndicator { r#type: "typing" };
+        let msg = WsTypingIndicator {
+            r#type: "typing",
+            trace_id: None,
+        };
         let json = serde_json::to_string(&msg).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed["type"], "typing");

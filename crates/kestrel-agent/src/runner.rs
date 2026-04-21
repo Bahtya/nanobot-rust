@@ -181,6 +181,7 @@ impl AgentRunner {
                     session_key: self.session_key.clone().unwrap_or_default(),
                     tool_name: tc.function.name.clone(),
                     iteration: iteration + 1,
+                    trace_id: None,
                 });
             }
 

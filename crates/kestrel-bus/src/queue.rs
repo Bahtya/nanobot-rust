@@ -212,9 +212,11 @@ mod tests {
         let mut events_rx = bus.subscribe_events();
 
         bus.emit_event(AgentEvent::Started {
+            trace_id: None,
             session_key: "test".to_string(),
         });
         bus.emit_event(AgentEvent::Completed {
+            trace_id: None,
             session_key: "test".to_string(),
             iterations: 2,
             tool_calls: 1,

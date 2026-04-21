@@ -260,7 +260,7 @@ async fn test_telegram_send_typing_with_mock() {
         format!("http://127.0.0.1:{}", port),
     );
 
-    let result = channel.send_typing("123").await;
+    let result = channel.send_typing("123", None).await;
     assert!(result.is_ok());
 }
 

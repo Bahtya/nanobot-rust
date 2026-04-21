@@ -173,6 +173,7 @@ impl AgentLoop {
             // Emit started event
             let started_event = AgentEvent::Started {
                 session_key: session_key.clone(),
+                trace_id: msg.trace_id.clone(),
             };
             self.bus.emit_event(started_event.clone());
             self.hooks
@@ -283,6 +284,7 @@ impl AgentLoop {
                         AgentEvent::StreamingChunk {
                             session_key,
                             content,
+                            ..
                         } => {
                             event_bus.publish_stream_chunk(StreamChunk {
                                 session_key: session_key.clone(),
@@ -295,11 +297,13 @@ impl AgentLoop {
                             session_key,
                             tool_name,
                             iteration,
+                            ..
                         } => {
                             event_bus.emit_event(AgentEvent::ToolCall {
                                 session_key: session_key.clone(),
                                 tool_name: tool_name.clone(),
                                 iteration: *iteration,
+                                trace_id: trace_id_for_runner.clone(),
                             });
                         }
                         _ => {}
@@ -400,6 +404,7 @@ impl AgentLoop {
                         session_key: session_key.clone(),
                         iterations: result.iterations_used,
                         tool_calls: result.tool_calls_made,
+                        trace_id: msg.trace_id.clone(),
                     };
                     self.bus.emit_event(completed_event.clone());
                     self.hooks
@@ -429,6 +434,7 @@ impl AgentLoop {
                     let error_event = AgentEvent::Error {
                         session_key: session_key.clone(),
                         error: e.to_string(),
+                        trace_id: msg.trace_id.clone(),
                     };
                     self.bus.emit_event(error_event.clone());
                     self.hooks

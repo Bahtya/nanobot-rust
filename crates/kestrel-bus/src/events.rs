@@ -120,12 +120,16 @@ pub struct StreamChunk {
 #[derive(Debug, Clone)]
 pub enum AgentEvent {
     /// Agent started processing a message.
-    Started { session_key: String },
+    Started {
+        session_key: String,
+        trace_id: Option<String>,
+    },
 
     /// Agent produced a streaming chunk.
     StreamingChunk {
         session_key: String,
         content: String,
+        trace_id: Option<String>,
     },
 
     /// Agent is executing a tool.
@@ -133,6 +137,7 @@ pub enum AgentEvent {
         session_key: String,
         tool_name: String,
         iteration: usize,
+        trace_id: Option<String>,
     },
 
     /// Agent completed processing.
@@ -140,10 +145,15 @@ pub enum AgentEvent {
         session_key: String,
         iterations: usize,
         tool_calls: usize,
+        trace_id: Option<String>,
     },
 
     /// Agent encountered an error.
-    Error { session_key: String, error: String },
+    Error {
+        session_key: String,
+        error: String,
+        trace_id: Option<String>,
+    },
 
     /// A cron job fired.
     CronFired {

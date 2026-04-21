@@ -86,7 +86,7 @@ impl BaseChannel for MockChannel {
         })
     }
 
-    async fn send_typing(&self, _chat_id: &str) -> anyhow::Result<()> {
+    async fn send_typing(&self, _chat_id: &str, _trace_id: Option<&str>) -> anyhow::Result<()> {
         Ok(())
     }
 

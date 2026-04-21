@@ -165,7 +165,7 @@ impl ChannelManager {
     ///
     /// Sends one typing action immediately, then repeats every 4 seconds.
     /// Call [`stop_typing`] to cancel.
-    pub fn start_typing(&self, session_key: &str) {
+    pub fn start_typing(&self, session_key: &str, trace_id: Option<&str>) {
         let (platform, chat_id) = match parse_session_key(session_key) {
             Some(p) => p,
             None => {
@@ -184,14 +184,16 @@ impl ChannelManager {
 
         let chat_id_owned = chat_id.to_string();
         let sk = session_key.to_string();
+        let trace_id_owned = trace_id.map(|t| t.to_string());
 
         // Fire one typing action immediately.
         {
             let ch = channel.clone();
             let cid = chat_id_owned.clone();
+            let tid = trace_id_owned.clone();
             tokio::spawn(async move {
                 let ch = ch.lock().await;
-                let _ = ch.send_typing(&cid).await;
+                let _ = ch.send_typing(&cid, tid.as_deref()).await;
             });
         }
 
@@ -200,7 +202,9 @@ impl ChannelManager {
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 let ch = channel.lock().await;
-                let _ = ch.send_typing(&chat_id_owned).await;
+                let _ = ch
+                    .send_typing(&chat_id_owned, trace_id_owned.as_deref())
+                    .await;
             }
         });
 
@@ -230,9 +234,12 @@ impl ChannelManager {
         loop {
             match rx.recv().await {
                 Ok(event) => match &event {
-                    AgentEvent::Started { session_key } => {
+                    AgentEvent::Started {
+                        session_key,
+                        trace_id,
+                    } => {
                         debug!("Typing started for session: {session_key}");
-                        self.start_typing(session_key);
+                        self.start_typing(session_key, trace_id.as_deref());
                     }
                     AgentEvent::Completed { session_key, .. } => {
                         debug!("Typing stopped for session: {session_key}");
@@ -308,22 +315,27 @@ impl ChannelManager {
                     AgentEvent::StreamingChunk {
                         session_key,
                         content,
+                        trace_id,
                     } => {
                         debug!("Streaming chunk for session: {session_key}");
                         bus.publish_stream_chunk(StreamChunk {
                             session_key: session_key.clone(),
                             content: content.clone(),
                             done: false,
-                            trace_id: None,
+                            trace_id: trace_id.clone(),
                         });
                     }
-                    AgentEvent::Completed { session_key, .. } => {
+                    AgentEvent::Completed {
+                        session_key,
+                        trace_id,
+                        ..
+                    } => {
                         // Send final done chunk.
                         bus.publish_stream_chunk(StreamChunk {
                             session_key: session_key.clone(),
                             content: String::new(),
                             done: true,
-                            trace_id: None,
+                            trace_id: trace_id.clone(),
                         });
                     }
                     _ => {}
@@ -460,7 +472,7 @@ mod tests {
         let bus = MessageBus::new();
         let manager = ChannelManager::new(registry, bus);
         // Should silently do nothing — no panic.
-        manager.start_typing("telegram:123");
+        manager.start_typing("telegram:123", None);
         assert!(manager.typing_tasks.is_empty());
     }
 
@@ -478,7 +490,7 @@ mod tests {
         let registry = ChannelRegistry::new();
         let bus = MessageBus::new();
         let manager = ChannelManager::new(registry, bus);
-        manager.start_typing("invalid-no-colon");
+        manager.start_typing("invalid-no-colon", None);
         assert!(manager.typing_tasks.is_empty());
     }
 
@@ -504,6 +516,7 @@ mod tests {
         let manager = ChannelManager::new(registry, bus.clone());
 
         bus.emit_event(AgentEvent::Started {
+            trace_id: None,
             session_key: "telegram:123".to_string(),
         });
 
@@ -526,6 +539,7 @@ mod tests {
         let manager = ChannelManager::new(registry, bus.clone());
 
         bus.emit_event(AgentEvent::Completed {
+            trace_id: None,
             session_key: "telegram:123".to_string(),
             iterations: 1,
             tool_calls: 0,
@@ -549,6 +563,7 @@ mod tests {
         let manager = ChannelManager::new(registry, bus.clone());
 
         bus.emit_event(AgentEvent::Error {
+            trace_id: None,
             session_key: "discord:456".to_string(),
             error: "timeout".to_string(),
         });
@@ -569,13 +584,14 @@ mod tests {
         let registry = ChannelRegistry::new();
         let bus = MessageBus::new();
         let manager = ChannelManager::new(registry, bus);
+        let trace_id = Some("test-trace".to_string());
 
         let msg = OutboundMessage {
             channel: kestrel_core::Platform::Telegram,
             chat_id: "123".to_string(),
             content: "reply".to_string(),
             reply_to: None,
-            trace_id: None,
+            trace_id,
             media: vec![],
             metadata: Default::default(),
         };

@@ -446,8 +446,11 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
     let _typing_handle = tokio::spawn(async move {
         loop {
             match typing_event_rx.recv().await {
-                Ok(AgentEvent::Started { session_key }) => {
-                    typing_cm.start_typing(&session_key);
+                Ok(AgentEvent::Started {
+                    session_key,
+                    trace_id,
+                }) => {
+                    typing_cm.start_typing(&session_key, trace_id.as_deref());
                 }
                 Ok(AgentEvent::Completed { session_key, .. })
                 | Ok(AgentEvent::Error { session_key, .. }) => {

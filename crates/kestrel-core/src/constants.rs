@@ -1,7 +1,7 @@
 //! Constants for the kestrel project.
 
 /// Current version of kestrel.
-pub const VERSION: &str = "0.1.0";
+pub const VERSION: &str = "0.1.1";
 
 /// Default maximum iterations for the agent loop.
 pub const DEFAULT_MAX_ITERATIONS: usize = 50;

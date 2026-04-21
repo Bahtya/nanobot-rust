@@ -1,0 +1,263 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1776663326807,
+  "projectRoot": "/home/bahtyar/kestrel-agent-src",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Rust",
+        "version": "1.75",
+        "confidence": "high",
+        "markers": [
+          "Cargo.toml"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "axum",
+        "version": null,
+        "category": "backend"
+      }
+    ],
+    "packageManager": "cargo",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "cargo build",
+    "testCommand": "cargo test",
+    "lintCommand": "cargo clippy",
+    "devCommand": "cargo run",
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs",
+      "src",
+      "tests"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "crates": {
+      "path": "crates",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1776663326801,
+      "keyFiles": []
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 27,
+      "lastAccessed": 1776663326802,
+      "keyFiles": [
+        "01-blue-hat-architecture.md",
+        "02-white-hat-specification.md",
+        "03-red-hat-critique.md",
+        "04-black-hat-risks.md",
+        "05-yellow-hat-value.md"
+      ]
+    },
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 1,
+      "lastAccessed": 1776663326804,
+      "keyFiles": [
+        "main.rs"
+      ]
+    },
+    "target": {
+      "path": "target",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1776663326804,
+      "keyFiles": [
+        "CACHEDIR.TAG"
+      ]
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 3,
+      "lastAccessed": 1776663326805,
+      "keyFiles": [
+        "e2e_integration_test.rs",
+        "full_integration_test.rs",
+        "pipeline_e2e.rs"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "crates/kestrel-channels/src/platforms/telegram.rs",
+      "accessCount": 46,
+      "lastAccessed": 1776711276767,
+      "type": "file"
+    },
+    {
+      "path": "crates/kestrel-channels/src/platforms/websocket.rs",
+      "accessCount": 42,
+      "lastAccessed": 1776711103793,
+      "type": "file"
+    },
+    {
+      "path": "crates/kestrel-api/src/server.rs",
+      "accessCount": 38,
+      "lastAccessed": 1776707337739,
+      "type": "file"
+    },
+    {
+      "path": "crates/kestrel-agent/src/loop_mod.rs",
+      "accessCount": 27,
+      "lastAccessed": 1776706850407,
+      "type": "file"
+    },
+    {
+      "path": "crates/kestrel-channels/src/platforms/discord.rs",
+      "accessCount": 16,
+      "lastAccessed": 1776711222507,
+      "type": "file"
+    },
+    {
+      "path": "README.md",
+      "accessCount": 16,
+      "lastAccessed": 1776714636739,
+      "type": "file"
+    },
+    {
+      "path": "crates/kestrel-channels/tests/websocket_integration.rs",
+      "accessCount": 14,
+      "lastAccessed": 1776704800071,
+      "type": "file"
+    },
+    {
+      "path": "crates/kestrel-agent/src/runner.rs",
+      "accessCount": 10,
+      "lastAccessed": 1776706828065,
+      "type": "file"
+    },
+    {
+      "path": "crates/kestrel-channels/src/manager.rs",
+      "accessCount": 9,
+      "lastAccessed": 1776711149036,
+      "type": "file"
+    },
+    {
+      "path": "crates/kestrel-bus/src/events.rs",
+      "accessCount": 6,
+      "lastAccessed": 1776706656615,
+      "type": "file"
+    },
+    {
+      "path": "scripts/extract-changelog.sh",
+      "accessCount": 5,
+      "lastAccessed": 1776665021869,
+      "type": "file"
+    },
+    {
+      "path": "crates/kestrel-channels/src/base.rs",
+      "accessCount": 5,
+      "lastAccessed": 1776703219620,
+      "type": "file"
+    },
+    {
+      "path": ".cargo/config.toml",
+      "accessCount": 4,
+      "lastAccessed": 1776690124784,
+      "type": "file"
+    },
+    {
+      "path": "crates/kestrel-bus/src/queue.rs",
+      "accessCount": 4,
+      "lastAccessed": 1776703931009,
+      "type": "file"
+    },
+    {
+      "path": "tests/e2e_integration_test.rs",
+      "accessCount": 2,
+      "lastAccessed": 1776711672262,
+      "type": "file"
+    },
+    {
+      "path": "crates/kestrel-config/src/schema.rs",
+      "accessCount": 1,
+      "lastAccessed": 1776663373088,
+      "type": "file"
+    },
+    {
+      "path": "crates/kestrel-api/src/lib.rs",
+      "accessCount": 1,
+      "lastAccessed": 1776663397696,
+      "type": "file"
+    },
+    {
+      "path": "CHANGELOG.md",
+      "accessCount": 1,
+      "lastAccessed": 1776664399591,
+      "type": "file"
+    },
+    {
+      "path": "crates/kestrel-agent/Cargo.toml",
+      "accessCount": 1,
+      "lastAccessed": 1776681083146,
+      "type": "directory"
+    },
+    {
+      "path": "Cargo.toml",
+      "accessCount": 1,
+      "lastAccessed": 1776681093238,
+      "type": "directory"
+    },
+    {
+      "path": "crates/kestrel-channels/src/platforms/mod.rs",
+      "accessCount": 1,
+      "lastAccessed": 1776681454510,
+      "type": "file"
+    },
+    {
+      "path": "crates/kestrel-channels/tests/gateway_routing.rs",
+      "accessCount": 1,
+      "lastAccessed": 1776681456927,
+      "type": "file"
+    },
+    {
+      "path": "crates/kestrel-channels/Cargo.toml",
+      "accessCount": 1,
+      "lastAccessed": 1776681603960,
+      "type": "directory"
+    },
+    {
+      "path": "crates/kestrel-channels/tests",
+      "accessCount": 1,
+      "lastAccessed": 1776681835501,
+      "type": "directory"
+    },
+    {
+      "path": "",
+      "accessCount": 1,
+      "lastAccessed": 1776703851162,
+      "type": "directory"
+    },
+    {
+      "path": "crates/kestrel-api/src",
+      "accessCount": 1,
+      "lastAccessed": 1776706668950,
+      "type": "directory"
+    }
+  ],
+  "userDirectives": []
+}

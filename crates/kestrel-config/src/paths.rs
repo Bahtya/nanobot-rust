@@ -3,7 +3,7 @@
 //! Mirrors the Python config/paths.py module for data, media, cron, and workspace paths.
 
 use anyhow::{Context, Result};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Get the kestrel home directory.
 ///
@@ -71,6 +71,13 @@ pub fn get_memory_dir() -> Result<PathBuf> {
 /// Get the skills directory.
 pub fn get_skills_dir() -> Result<PathBuf> {
     let home = get_kestrel_home()?;
+    get_skills_dir_with_home(&home)
+}
+
+/// Get the skills directory using an explicit home path.
+///
+/// Creates the directory if it does not exist.
+pub fn get_skills_dir_with_home(home: &Path) -> Result<PathBuf> {
     let skills_dir = home.join("skills");
     ensure_dir(&skills_dir)?;
     Ok(skills_dir)
@@ -94,7 +101,7 @@ pub fn get_templates_dir() -> Result<PathBuf> {
 }
 
 /// Ensure a directory exists, creating it if necessary.
-fn ensure_dir(path: &PathBuf) -> Result<()> {
+fn ensure_dir(path: &Path) -> Result<()> {
     if !path.exists() {
         std::fs::create_dir_all(path)
             .with_context(|| format!("Failed to create directory: {}", path.display()))?;

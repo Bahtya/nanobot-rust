@@ -1,0 +1,5 @@
+name = "system-info"
+version = "1.0.0"
+description = "Report current system status and configuration"
+category = "utility"
+triggers = ["system info", "status", "health", "config", "uptime", "version"]

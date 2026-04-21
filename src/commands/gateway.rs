@@ -36,19 +36,19 @@ use tracing::info;
 
 /// Initialize the skill registry by loading TOML manifests from the skills directory.
 ///
-/// Looks for `skills/` under the given kestrel home directory. If the directory
-/// does not exist, returns an empty registry. Invalid manifests are logged and skipped.
+/// Calls [`kestrel_config::paths::get_skills_dir`] which auto-creates the directory.
+/// If directory creation fails, returns an empty registry. Invalid manifests are
+/// logged and skipped.
 async fn init_skill_registry(home: &Path) -> Arc<SkillRegistry> {
-    let skills_dir = home.join("skills");
-    let registry = Arc::new(SkillRegistry::new().with_skills_dir(&skills_dir));
+    let skills_dir = match kestrel_config::paths::get_skills_dir_with_home(home) {
+        Ok(dir) => dir,
+        Err(e) => {
+            tracing::warn!("Failed to create skills directory: {}", e);
+            return Arc::new(SkillRegistry::new());
+        }
+    };
 
-    if !skills_dir.exists() {
-        info!(
-            "Skills directory not found at {}, skipping skill loading",
-            skills_dir.display()
-        );
-        return registry;
-    }
+    let registry = Arc::new(SkillRegistry::new().with_skills_dir(&skills_dir));
 
     let config = SkillConfig::default().with_skills_dir(&skills_dir);
     let loader = SkillLoader::new(config);
@@ -56,7 +56,11 @@ async fn init_skill_registry(home: &Path) -> Arc<SkillRegistry> {
     match loader.load_all(&registry).await {
         Ok(loaded) => {
             if loaded.is_empty() {
-                info!("No skill manifests found in {}", skills_dir.display());
+                info!(
+                    "No skill manifests found in {}, seeding defaults",
+                    skills_dir.display()
+                );
+                seed_default_skills(&registry).await;
             } else {
                 info!("Loaded {} skills: {:?}", loaded.len(), loaded);
             }
@@ -67,6 +71,47 @@ async fn init_skill_registry(home: &Path) -> Arc<SkillRegistry> {
     }
 
     registry
+}
+
+/// Seed the registry with bundled default skills when no skills exist.
+///
+/// Writes embedded TOML manifests and Markdown instructions to the skills
+/// directory and registers them. Errors are logged but not propagated so the
+/// gateway can still start.
+async fn seed_default_skills(registry: &SkillRegistry) {
+    let defaults = [
+        (
+            "greeting",
+            include_str!("../skills/default/greeting.toml"),
+            include_str!("../skills/default/greeting.md"),
+        ),
+        (
+            "system-info",
+            include_str!("../skills/default/system-info.toml"),
+            include_str!("../skills/default/system-info.md"),
+        ),
+    ];
+
+    for (name, toml_content, md_content) in &defaults {
+        if registry.get(name).await.is_some() {
+            continue;
+        }
+        let manifest: kestrel_skill::SkillManifest = match toml::from_str(toml_content) {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::warn!("Skipping bundled skill '{}': invalid manifest: {}", name, e);
+                continue;
+            }
+        };
+        if let Err(e) = registry
+            .create_skill(&manifest.name, &manifest.description, md_content)
+            .await
+        {
+            tracing::warn!("Failed to seed default skill '{}': {}", name, e);
+        } else {
+            info!("Seeded default skill: {}", name);
+        }
+    }
 }
 
 /// Register the gateway heartbeat checks and publish an initial snapshot.
@@ -739,13 +784,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_init_skill_registry_missing_dir_returns_empty() {
+    async fn test_init_skill_registry_missing_dir_creates_and_seeds() {
         let home = tempfile::tempdir().unwrap();
-        // No skills/ directory created
+        // No skills/ directory created — should auto-create and seed defaults
 
         let registry = init_skill_registry(home.path()).await;
 
-        assert!(registry.is_empty().await);
+        // Directory should now exist
+        assert!(home.path().join("skills").is_dir());
+        // Default skills should be loaded
+        assert!(!registry.is_empty().await);
+        assert!(registry.get("greeting").await.is_some());
+        assert!(registry.get("system-info").await.is_some());
     }
 
     #[tokio::test]
@@ -766,15 +816,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_init_skill_registry_empty_dir_returns_empty() {
+    async fn test_init_skill_registry_empty_dir_seeds_defaults() {
         let home = tempfile::tempdir().unwrap();
         let skills_dir = home.path().join("skills");
         std::fs::create_dir_all(&skills_dir).unwrap();
-        // Empty directory, no TOML files
+        // Empty directory — should seed default skills
 
         let registry = init_skill_registry(home.path()).await;
 
-        assert!(registry.is_empty().await);
+        assert!(!registry.is_empty().await);
+        assert!(registry.get("greeting").await.is_some());
     }
 
     #[tokio::test]

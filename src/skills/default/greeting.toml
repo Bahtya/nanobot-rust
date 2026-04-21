@@ -1,0 +1,5 @@
+name = "greeting"
+version = "1.0.0"
+description = "Greet the user and offer assistance"
+category = "social"
+triggers = ["hello", "hi", "hey", "greet", "good morning", "good afternoon", "good evening"]

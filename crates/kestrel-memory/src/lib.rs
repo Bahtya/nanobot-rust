@@ -13,6 +13,7 @@ pub mod config;
 pub mod error;
 pub mod hot_store;
 pub mod store;
+pub mod tiered;
 pub mod types;
 pub mod warm_store;
 
@@ -20,5 +21,6 @@ pub use config::MemoryConfig;
 pub use error::MemoryError;
 pub use hot_store::HotStore;
 pub use store::MemoryStore;
+pub use tiered::TieredMemoryStore;
 pub use types::{EntryId, MemoryCategory, MemoryEntry, MemoryQuery, ScoredEntry};
 pub use warm_store::WarmStore;

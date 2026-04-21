@@ -26,7 +26,7 @@ use kestrel_learning::processor::BasicEventProcessor;
 use kestrel_learning::prompt::PromptAssembler;
 use kestrel_learning::store::EventStore;
 use kestrel_learning::LearningEventHandler;
-use kestrel_memory::{HotStore, MemoryCategory, MemoryConfig, MemoryEntry, MemoryStore};
+use kestrel_memory::{HotStore, MemoryCategory, MemoryConfig, MemoryEntry, MemoryStore, WarmStore};
 use kestrel_providers::ProviderRegistry;
 use kestrel_session::SessionManager;
 use kestrel_skill::{SkillConfig, SkillLoader, SkillRegistry};
@@ -360,13 +360,28 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
     // Initialize memory store early so it can be shared with the learning consumer.
     let memory_config = MemoryConfig {
         hot_store_path: home.join("memory").join("hot.jsonl"),
+        warm_store_path: home.join("memory").join("warm"),
         ..MemoryConfig::default()
     };
-    let memory_store: Option<Arc<dyn kestrel_memory::MemoryStore>> =
+    let memory_store: Option<Arc<dyn kestrel_memory::MemoryStore>> = {
         match HotStore::new(&memory_config).await {
             Ok(hot_store) => {
-                info!("Memory store initialized (HotStore L1)");
-                Some(Arc::new(hot_store))
+                let l1: Arc<dyn MemoryStore> = Arc::new(hot_store);
+                match WarmStore::new(&memory_config).await {
+                    Ok(warm_store) => {
+                        let tiered = kestrel_memory::TieredMemoryStore::new(l1, Arc::new(warm_store));
+                        info!("Memory store initialized (HotStore L1 + WarmStore L2)");
+                        Some(Arc::new(tiered))
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "WarmStore L2 init failed, falling back to L1 only: {}",
+                            e
+                        );
+                        info!("Memory store initialized (HotStore L1 only)");
+                        Some(l1)
+                    }
+                }
             }
             Err(e) => {
                 tracing::warn!(
@@ -375,7 +390,8 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
                 );
                 None
             }
-        };
+        }
+    };
     let heartbeat_memory_store = memory_store.clone();
     let learning_memory_store = memory_store.clone();
 
@@ -388,7 +404,7 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
             tool_registry.clone(),
         );
 
-        // Wire memory store (HotStore L1)
+        // Wire memory store (TieredStore L1+L2)
         if let Some(ref ms) = memory_store {
             al = al.with_memory_store(ms.clone());
         }

@@ -24,7 +24,7 @@
 //!
 //! **Welcome (sent on connect):**
 //! ```json
-//! {"type": "welcome", "id": "uuid", "client_id": "...", "server_version": "0.1.0"}
+//! {"type": "welcome", "id": "uuid", "client_id": "...", "server_version": "0.1.1"}
 //! ```
 //!
 //! **Streaming:**
@@ -56,7 +56,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use kestrel_bus::events::InboundMessage;
-use kestrel_core::{MessageType, Platform, SessionSource};
+use kestrel_core::{MessageType, Platform, SessionSource, VERSION};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -72,9 +72,6 @@ use crate::base::{BaseChannel, SendResult};
 
 /// Default WebSocket listen address.
 const DEFAULT_LISTEN_ADDR: &str = "127.0.0.1:8090";
-
-/// Server version reported in welcome messages.
-const SERVER_VERSION: &str = "0.1.0";
 
 // ---------------------------------------------------------------------------
 // Rich message envelope
@@ -169,7 +166,7 @@ impl WsEnvelope {
     pub fn welcome(client_id: &str) -> Self {
         let mut env = Self::new("welcome");
         env.client_id = Some(client_id.to_string());
-        env.server_version = Some(SERVER_VERSION.to_string());
+        env.server_version = Some(VERSION.to_string());
         env.trace_id = Some(format!("kst_ws_{}", &env.id[..8.min(env.id.len())]));
         env
     }
@@ -1023,7 +1020,7 @@ mod tests {
         let env = WsEnvelope::welcome("client-123");
         assert_eq!(env.msg_type, "welcome");
         assert_eq!(env.client_id.unwrap(), "client-123");
-        assert_eq!(env.server_version.unwrap(), SERVER_VERSION);
+        assert_eq!(env.server_version.unwrap(), VERSION);
         // Welcome envelope includes session_trace_id
         assert!(env.trace_id.is_some());
         assert!(env.trace_id.unwrap().starts_with("kst_"));
@@ -1242,7 +1239,7 @@ mod tests {
         assert_eq!(parsed["type"], "welcome");
         assert!(parsed["id"].is_string());
         assert!(parsed["client_id"].is_string());
-        assert_eq!(parsed["server_version"], SERVER_VERSION);
+        assert_eq!(parsed["server_version"], VERSION);
 
         channel.disconnect().await.unwrap();
     }
@@ -1505,7 +1502,7 @@ mod tests {
 
     #[test]
     fn test_server_version() {
-        assert_eq!(SERVER_VERSION, "0.1.0");
+        assert_eq!(VERSION, kestrel_core::VERSION);
     }
 
     // -----------------------------------------------------------------------

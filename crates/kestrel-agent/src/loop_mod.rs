@@ -52,6 +52,7 @@ struct ReflectionTask {
     iterations_used: usize,
     success: bool,
     response_preview: String,
+    trace_id: Option<String>,
 }
 
 /// The main agent loop that processes messages from the bus.
@@ -251,6 +252,7 @@ impl AgentLoop {
                                 match_score: m.score,
                                 outcome: SkillOutcome::Helpful,
                                 timestamp: chrono::Utc::now(),
+                                trace_id: msg.trace_id.clone(),
                             });
                         }
                     }
@@ -361,6 +363,7 @@ impl AgentLoop {
                                 duration_ms: 0,
                                 context_hash: format!("sess:{}", session_key),
                                 timestamp: chrono::Utc::now(),
+                                trace_id: msg.trace_id.clone(),
                             });
                         }
                     }
@@ -390,6 +393,7 @@ impl AgentLoop {
                     if let Some(bus) = self.learning_bus.clone() {
                         let provider_registry = self.provider_registry.clone();
                         let config = self.config.clone();
+                        let trace_id = msg.trace_id.clone();
                         tokio::spawn(async move {
                             post_task_reflect(ReflectionTask {
                                 learning_bus: bus,
@@ -400,6 +404,7 @@ impl AgentLoop {
                                 iterations_used: iterations,
                                 success,
                                 response_preview: result_content,
+                                trace_id,
                             })
                             .await;
                         });
@@ -434,6 +439,7 @@ impl AgentLoop {
                             error_message: e.to_string(),
                             retry_count: 0,
                             timestamp: chrono::Utc::now(),
+                            trace_id: msg.trace_id.clone(),
                         });
                     }
 
@@ -443,6 +449,7 @@ impl AgentLoop {
                         let config = self.config.clone();
                         let user_msg = msg.content.clone();
                         let error_msg = e.to_string();
+                        let trace_id = msg.trace_id.clone();
                         tokio::spawn(async move {
                             post_task_reflect(ReflectionTask {
                                 learning_bus: bus,
@@ -453,6 +460,7 @@ impl AgentLoop {
                                 iterations_used: 0,
                                 success: false,
                                 response_preview: error_msg,
+                                trace_id,
                             })
                             .await;
                         });
@@ -505,6 +513,7 @@ impl AgentLoop {
                         results_count: 0,
                         hit: false,
                         timestamp: chrono::Utc::now(),
+                        trace_id: None,
                     });
                 }
                 None
@@ -539,6 +548,7 @@ impl AgentLoop {
                         results_count: count,
                         hit: true,
                         timestamp: chrono::Utc::now(),
+                        trace_id: None,
                     });
                 }
                 Some(format!(
@@ -882,6 +892,7 @@ async fn post_task_reflect(task: ReflectionTask) {
                         success: task.success,
                         reflection,
                         timestamp: chrono::Utc::now(),
+                        trace_id: task.trace_id.clone(),
                     });
                 }
             }
@@ -2136,6 +2147,7 @@ mod tests {
                     match_score: m.score,
                     outcome: kestrel_learning::event::SkillOutcome::Helpful,
                     timestamp: chrono::Utc::now(),
+                    trace_id: None,
                 });
             }
         }
@@ -2165,6 +2177,7 @@ mod tests {
             duration_ms: 10,
             context_hash: "hash".to_string(),
             timestamp: chrono::Utc::now(),
+            trace_id: None,
         });
 
         assert!(rx.try_recv().is_ok());
@@ -2221,6 +2234,7 @@ mod tests {
             iterations_used: 2,
             success: true,
             response_preview: "deployed successfully".to_string(),
+            trace_id: None,
         })
         .await;
 
@@ -2268,6 +2282,7 @@ mod tests {
             iterations_used: 0,
             success: true,
             response_preview: "ok".to_string(),
+            trace_id: None,
         })
         .await;
 
@@ -2290,6 +2305,7 @@ mod tests {
             iterations_used: 1,
             success: true,
             response_preview: "done".to_string(),
+            trace_id: None,
         })
         .await;
 

@@ -13,6 +13,7 @@ use std::sync::Arc;
 use kestrel_memory::{MemoryCategory, MemoryEntry, MemoryStore};
 use kestrel_skill::{ConfidenceEvent, SkillRegistry};
 use tracing::info;
+use tracing::Instrument;
 
 use crate::event::LearningAction;
 
@@ -50,37 +51,45 @@ impl LearningConsumer {
         }
     }
 
-    /// Dispatches a single learning action.
+    /// Dispatches a single learning action with a tracing span.
     async fn dispatch_one(&self, action: LearningAction) {
-        match action {
-            LearningAction::RecordInsight { insight, category } => {
-                self.handle_record_insight(insight, category).await;
-            }
-            LearningAction::AdjustConfidence { skill, delta } => {
-                self.handle_adjust_confidence(skill, delta).await;
-            }
-            LearningAction::ProposeSkill { name, reason } => {
-                info!(
-                    "ProposeSkill: name={}, reason={} (not yet implemented)",
-                    name, reason
-                );
-            }
-            LearningAction::PatchSkill { skill, description } => {
-                info!(
-                    "PatchSkill: skill={}, description={} (not yet implemented)",
-                    skill, description
-                );
-            }
-            LearningAction::DeprecateSkill { skill, reason } => {
-                info!(
-                    "DeprecateSkill: skill={}, reason={} (not yet implemented)",
-                    skill, reason
-                );
-            }
-            LearningAction::NoOp => {
-                // Explicitly skipped — no work to do.
+        let span = tracing::info_span!("learning_action", action_type = action_type_name(&action),);
+        async move {
+            match action {
+                LearningAction::RecordInsight { insight, category } => {
+                    tracing::Span::current().record("category", category.as_str());
+                    self.handle_record_insight(insight, category).await;
+                }
+                LearningAction::AdjustConfidence { skill, delta } => {
+                    tracing::Span::current().record("skill", skill.as_str());
+                    tracing::Span::current().record("delta", delta);
+                    self.handle_adjust_confidence(skill, delta).await;
+                }
+                LearningAction::ProposeSkill { name, reason } => {
+                    info!(
+                        "ProposeSkill: name={}, reason={} (not yet implemented)",
+                        name, reason
+                    );
+                }
+                LearningAction::PatchSkill { skill, description } => {
+                    info!(
+                        "PatchSkill: skill={}, description={} (not yet implemented)",
+                        skill, description
+                    );
+                }
+                LearningAction::DeprecateSkill { skill, reason } => {
+                    info!(
+                        "DeprecateSkill: skill={}, reason={} (not yet implemented)",
+                        skill, reason
+                    );
+                }
+                LearningAction::NoOp => {
+                    // Explicitly skipped — no work to do.
+                }
             }
         }
+        .instrument(span)
+        .await
     }
 
     /// Stores an insight as a memory entry in the memory store.
@@ -120,6 +129,18 @@ impl LearningConsumer {
         if let Err(e) = registry.update_confidence(&skill, event).await {
             tracing::warn!("Failed to update confidence for skill '{}': {}", skill, e);
         }
+    }
+}
+
+/// Returns a static name for a [`LearningAction`] variant for use in span fields.
+fn action_type_name(action: &LearningAction) -> &'static str {
+    match action {
+        LearningAction::NoOp => "no_op",
+        LearningAction::RecordInsight { .. } => "record_insight",
+        LearningAction::AdjustConfidence { .. } => "adjust_confidence",
+        LearningAction::ProposeSkill { .. } => "propose_skill",
+        LearningAction::PatchSkill { .. } => "patch_skill",
+        LearningAction::DeprecateSkill { .. } => "deprecate_skill",
     }
 }
 

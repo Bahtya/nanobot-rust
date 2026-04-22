@@ -33,6 +33,7 @@ use kestrel_skill::{SkillConfig, SkillLoader, SkillRegistry};
 use kestrel_tools::{builtins, SkillViewTool};
 use tokio::sync::{broadcast, watch};
 use tracing::info;
+use tracing::Instrument;
 
 /// Initialize the skill registry by loading TOML manifests from the skills directory.
 ///
@@ -183,39 +184,56 @@ async fn execute_learning_action(
     memory_store: Option<&Arc<dyn MemoryStore>>,
     skill_registry: &SkillRegistry,
 ) -> Result<()> {
+    let span = tracing::info_span!("learning_action", action_type = action_type_name(action),);
+    async move {
+        match action {
+            LearningAction::NoOp => Ok(()),
+            LearningAction::AdjustConfidence { skill, delta } => skill_registry
+                .adjust_confidence(skill, *delta)
+                .await
+                .with_context(|| format!("failed to adjust confidence for skill '{skill}'")),
+            LearningAction::ProposeSkill { name, reason } => {
+                let instructions = if reason.is_empty() {
+                    format!("Auto-generated skill: {name}")
+                } else {
+                    reason.clone()
+                };
+                skill_registry
+                    .create_skill(name, reason, &instructions)
+                    .await
+                    .with_context(|| format!("failed to create skill '{name}'"))
+            }
+            LearningAction::PatchSkill { skill, description } => skill_registry
+                .update_skill_instructions(skill, description)
+                .await
+                .with_context(|| format!("failed to patch skill '{skill}'")),
+            LearningAction::DeprecateSkill { skill, reason } => skill_registry
+                .deprecate_skill(skill, reason)
+                .await
+                .with_context(|| format!("failed to deprecate skill '{skill}'")),
+            LearningAction::RecordInsight { insight, category } => {
+                let store = memory_store.context("memory store not configured")?;
+                let entry = build_memory_entry(insight, category);
+                store
+                    .store(entry)
+                    .await
+                    .with_context(|| format!("failed to store insight in category '{category}'"))
+            }
+        }
+    }
+    .instrument(span)
+    .await
+}
+
+/// Returns a static name for a [`LearningAction`] variant for use in span fields.
+fn action_type_name(action: &LearningAction) -> &'static str {
     match action {
-        LearningAction::NoOp => Ok(()),
-        LearningAction::AdjustConfidence { skill, delta } => skill_registry
-            .adjust_confidence(skill, *delta)
-            .await
-            .with_context(|| format!("failed to adjust confidence for skill '{skill}'")),
-        LearningAction::ProposeSkill { name, reason } => {
-            let instructions = if reason.is_empty() {
-                format!("Auto-generated skill: {name}")
-            } else {
-                reason.clone()
-            };
-            skill_registry
-                .create_skill(name, reason, &instructions)
-                .await
-                .with_context(|| format!("failed to create skill '{name}'"))
-        }
-        LearningAction::PatchSkill { skill, description } => skill_registry
-            .update_skill_instructions(skill, description)
-            .await
-            .with_context(|| format!("failed to patch skill '{skill}'")),
-        LearningAction::DeprecateSkill { skill, reason } => skill_registry
-            .deprecate_skill(skill, reason)
-            .await
-            .with_context(|| format!("failed to deprecate skill '{skill}'")),
-        LearningAction::RecordInsight { insight, category } => {
-            let store = memory_store.context("memory store not configured")?;
-            let entry = build_memory_entry(insight, category);
-            store
-                .store(entry)
-                .await
-                .with_context(|| format!("failed to store insight in category '{category}'"))
-        }
+        LearningAction::NoOp => "no_op",
+        LearningAction::RecordInsight { .. } => "record_insight",
+        LearningAction::AdjustConfidence { .. } => "adjust_confidence",
+        LearningAction::ProposeSkill { .. } => "propose_skill",
+        LearningAction::PatchSkill { .. } => "patch_skill",
+        LearningAction::DeprecateSkill { .. } => "deprecate_skill",
     }
 }
 
@@ -229,6 +247,20 @@ async fn execute_learning_actions(
         if let Err(e) = execute_learning_action(action, memory_store, skill_registry).await {
             tracing::error!("Failed to execute learning action {:?}: {}", action, e);
         }
+    }
+}
+
+/// Returns a static name for a [`LearningEvent`] variant for use in span fields.
+fn event_type_name(event: &LearningEvent) -> &'static str {
+    match event {
+        LearningEvent::ToolSucceeded { .. } => "tool_succeeded",
+        LearningEvent::ToolFailed { .. } => "tool_failed",
+        LearningEvent::UserCorrection { .. } => "user_correction",
+        LearningEvent::UserApproval { .. } => "user_approval",
+        LearningEvent::SkillUsed { .. } => "skill_used",
+        LearningEvent::SkillCreated { .. } => "skill_created",
+        LearningEvent::MemoryAccessed { .. } => "memory_accessed",
+        LearningEvent::TaskReflection { .. } => "task_reflection",
     }
 }
 
@@ -277,11 +309,28 @@ async fn run_learning_consumer<P>(
             received = learning_rx.recv() => {
                 match received {
                     Ok(event) => {
+                        let trace_id_str = event.trace_id().unwrap_or("no-trace").to_string();
+                        let event_type_str = event_type_name(&event).to_string();
+
+                        tracing::info!(
+                            event_type = %event_type_str,
+                            trace_id = %trace_id_str,
+                            "Processing learning event"
+                        );
+
                         if let Err(e) = event_store.append(&event).await {
-                            tracing::warn!("Failed to persist learning event: {}", e);
+                            tracing::warn!(
+                                trace_id = %trace_id_str,
+                                "Failed to persist learning event: {}", e
+                            );
                         }
 
                         let actions = processor.process_event(&event).await;
+                        tracing::debug!(
+                            trace_id = %trace_id_str,
+                            action_count = actions.len(),
+                            "learning actions generated"
+                        );
                         execute_learning_actions(
                             &actions,
                             memory_store.as_ref(),
@@ -1123,6 +1172,7 @@ mod tests {
             match_score: 0.8,
             outcome: SkillOutcome::Helpful,
             timestamp: Utc::now(),
+            trace_id: None,
         });
         tokio::task::yield_now().await;
 

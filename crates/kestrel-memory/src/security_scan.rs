@@ -4,6 +4,45 @@
 //! malicious or injection-laden memory entries before they are stored.
 //! Checks include prompt injection patterns, malicious HTML/JS payloads,
 //! and content length limits.
+//!
+//! # How it works
+//!
+//! The scanner performs **case-insensitive substring matching** against two
+//! blocklists ([`PROMPT_INJECTION_PATTERNS`] and [`MALICIOUS_CONTENT_PATTERNS`]).
+//! Content is lowercased via `str::to_lowercase()` and checked with `str::contains()`.
+//! The length check runs first, followed by injection patterns, then malicious patterns.
+//! The first match short-circuits and returns a [`SecurityScanResult::Violation`].
+//!
+//! # Security Scanner Limitations
+//!
+//! **This is a safety net, not a security guarantee.** The blocklist approach has
+//! inherent limitations:
+//!
+//! - **No leetspeak detection**: `1gn0r3`, `d@n`, `j41lbr3ak` bypass the scanner.
+//! - **No Unicode normalization**: Characters like `båd` (with combining marks or
+//!   lookalikes) are not normalized to their ASCII equivalents before matching.
+//! - **No semantic analysis**: Sophisticated prompt injection using indirect phrasing,
+//!   role-playing scenarios, or multi-turn strategies will not be caught.
+//! - **No context awareness**: The scanner treats every memory entry independently.
+//!
+//! # Known false positives
+//!
+//! The blocklist includes standalone entries that match common English words
+//! and phrases (`"disregard"`, `"system prompt"`, `"forget everything"`,
+//! `"jailbreak"`, `"dan mode"`) that appear in legitimate content. For example:
+//!
+//! - *"Please disregard my previous message"* (normal conversation)
+//! - *"The system prompt defines the model's behavior"* (technical discussion)
+//! - *"We need to jailbreak the legacy bootloader"* (embedded systems)
+//!
+//! These false positives are an intentional trade-off: catching more attacks at the
+//! cost of occasionally rejecting benign entries.
+//!
+//! # Recommendations for improvement
+//!
+//! - Add NFKC Unicode normalization before pattern matching
+//! - Consider a severity tier (INFO/WARNING/CRITICAL) instead of binary accept/reject
+//! - Log rejected entries for offline review to tune the blocklist
 
 use crate::types::MemoryEntry;
 
@@ -61,13 +100,21 @@ const MALICIOUS_PATTERNS: &[&str] = &[
 
 /// Scan a memory entry for security violations.
 ///
-/// Checks the entry's content for:
+/// Applies checks in order: content length, prompt injection patterns,
+/// then malicious HTML/JS patterns. Returns on the first violation.
+///
+/// # Checks
+///
 /// - Content length exceeding 65_536 bytes
-/// - Prompt injection patterns (case-insensitive)
-/// - Malicious HTML/JS patterns (case-insensitive)
+/// - Prompt injection patterns (case-insensitive blocklist)
+/// - Malicious HTML/JS patterns (case-insensitive blocklist)
 ///
 /// Returns [`SecurityScanResult::Clean`] if no violations are found,
 /// or [`SecurityScanResult::Violation`] with a description of the issue.
+///
+/// **Note**: This uses simple blocklist matching. See the
+/// [module-level documentation][self#security-scanner-limitations] for known
+/// limitations and false positives.
 pub fn scan_memory_entry(entry: &MemoryEntry) -> SecurityScanResult {
     // Check content length
     let content_bytes = entry.content.len();

@@ -1009,7 +1009,6 @@ fn is_near_duplicate(new_content: &str, existing: &[kestrel_memory::MemoryEntry]
     false
 }
 
-/// Truncate a string to at most `max_len` characters, appending "..." if truncated.
 /// Escape `&`, `<`, `>` for safe embedding in XML tags.
 fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;")
@@ -1017,6 +1016,7 @@ fn xml_escape(s: &str) -> String {
         .replace('>', "&gt;")
 }
 
+/// Truncate a string to at most `max_len` characters, appending "..." if truncated.
 fn truncate_str(s: &str, max_len: usize) -> &str {
     if s.len() <= max_len {
         s

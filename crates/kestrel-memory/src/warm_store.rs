@@ -13,6 +13,7 @@ use async_trait::async_trait;
 use futures::TryStreamExt;
 use lancedb::query::{ExecutableQuery, QueryBase};
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use crate::config::MemoryConfig;
 use crate::error::{MemoryError, Result};
@@ -39,6 +40,8 @@ pub struct WarmStore {
     max_entries: usize,
     /// Expected embedding dimension.
     embedding_dim: usize,
+    /// Lock serializing concurrent writes to LanceDB.
+    write_lock: Mutex<()>,
 }
 
 impl WarmStore {
@@ -87,6 +90,7 @@ impl WarmStore {
             schema,
             max_entries: config.max_entries,
             embedding_dim: config.embedding_dim,
+            write_lock: Mutex::new(()),
         })
     }
 
@@ -103,8 +107,27 @@ impl WarmStore {
         Ok(())
     }
 
+    /// Validate that an id contains only safe characters for LanceDB predicates.
+    ///
+    /// Only `[a-zA-Z0-9_-]` are allowed to prevent predicate injection.
+    fn validate_id(id: &str) -> Result<()> {
+        if id.is_empty() {
+            return Err(MemoryError::LanceDb("id must not be empty".into()));
+        }
+        if !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
+            return Err(MemoryError::LanceDb(format!(
+                "id contains invalid characters: {id}"
+            )));
+        }
+        Ok(())
+    }
+
     /// Query a single entry by id using a filter predicate.
     async fn query_by_id(&self, id: &str) -> Result<Option<MemoryEntry>> {
+        Self::validate_id(id)?;
         let predicate = format!("id = '{id}'");
         let batches = self
             .table
@@ -146,6 +169,8 @@ impl WarmStore {
 
     /// Delete a row by id and add the updated entry (upsert helper).
     async fn upsert_entry(&self, entry: &MemoryEntry) -> Result<()> {
+        Self::validate_id(&entry.id)?;
+        let _guard = self.write_lock.lock().await;
         // Delete existing row with same id
         let predicate = format!("id = '{}'", entry.id);
         self.table
@@ -178,6 +203,8 @@ impl MemoryStore for WarmStore {
         }
 
         self.validate_embedding(&entry)?;
+        Self::validate_id(&entry.id)?;
+        let _guard = self.write_lock.lock().await;
 
         // Delete existing row with same id (no-op if not found)
         let predicate = format!("id = '{}'", entry.id);
@@ -257,6 +284,7 @@ impl MemoryStore for WarmStore {
     }
 
     async fn delete(&self, id: &str) -> Result<()> {
+        Self::validate_id(id)?;
         let predicate = format!("id = '{id}'");
         self.table
             .delete(&predicate)
@@ -718,5 +746,83 @@ mod tests {
         );
         let result = store.store(entry).await;
         assert!(result.is_ok());
+    }
+
+    // -- ID validation tests (#127) -----------------------------------------
+
+    #[test]
+    fn test_validate_id_accepts_uuid() {
+        assert!(WarmStore::validate_id("550e8400-e29b-41d4-a716-446655440000").is_ok());
+    }
+
+    #[test]
+    fn test_validate_id_accepts_alphanumeric_and_safe_chars() {
+        assert!(WarmStore::validate_id("abc123_DEF-456").is_ok());
+    }
+
+    #[test]
+    fn test_validate_id_rejects_empty() {
+        assert!(WarmStore::validate_id("").is_err());
+    }
+
+    #[test]
+    fn test_validate_id_rejects_quotes() {
+        assert!(WarmStore::validate_id("'; DROP TABLE --").is_err());
+    }
+
+    #[test]
+    fn test_validate_id_rejects_special_chars() {
+        assert!(WarmStore::validate_id("id with spaces").is_err());
+        assert!(WarmStore::validate_id("id;semicolon").is_err());
+        assert!(WarmStore::validate_id("id'quote").is_err());
+        assert!(WarmStore::validate_id("id\"double").is_err());
+    }
+
+    #[tokio::test]
+    async fn test_store_rejects_injection_id() {
+        let (store, _dir) = make_test_store().await;
+        let mut entry = MemoryEntry::new("test", MemoryCategory::Fact);
+        entry.id = "'; DROP TABLE --".to_string();
+
+        let result = store.store(entry).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("invalid characters"));
+    }
+
+    #[tokio::test]
+    async fn test_delete_rejects_injection_id() {
+        let (store, _dir) = make_test_store().await;
+        let result = store.delete("'; DROP TABLE --").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_recall_rejects_injection_id() {
+        let (store, _dir) = make_test_store().await;
+        let result = store.recall("'; DROP TABLE --").await;
+        assert!(result.is_err());
+    }
+
+    // -- Concurrent write test (#128) ---------------------------------------
+
+    #[tokio::test]
+    async fn test_concurrent_stores_no_corruption() {
+        use futures::future::join_all;
+
+        let (store, _dir) = make_test_store().await;
+
+        let futures: Vec<_> = (0..10)
+            .map(|i| store.store(MemoryEntry::new(format!("entry {i}"), MemoryCategory::Fact)))
+            .collect();
+
+        let results = join_all(futures).await;
+        for result in results {
+            assert!(result.is_ok());
+        }
+
+        assert_eq!(store.len().await, 10);
     }
 }

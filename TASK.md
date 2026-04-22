@@ -1,20 +1,23 @@
-# Hotfix: XML Escaping for Memory Content (PR #120 follow-up)
+# Task: Fix WarmStore issues #127 and #128
 
-## Problem
-PR #120 introduced `<memory-context>` XML wrapping for recalled memories, but the memory content is not XML-escaped. If a memory entry contains `</memory-context>`, it prematurely closes the tag and breaks isolation — this is a prompt injection vector since `store_conversation_memory()` stores user message excerpts.
+Branch: `fix/warmstore-127-128`
+Issues: #127 (LanceDB predicate injection), #128 (race condition)
 
-## Task
+## #127 LanceDB predicate injection
 
-1. Create branch `fix/xml-escaping-memory-context` from main
-2. In `crates/kestrel-agent/src/loop_mod.rs`, find the `recall_memories()` function where memory lines are wrapped in `<memory-context>` tags
-3. Add XML escaping for `<`, `>`, `&` characters in each memory line before wrapping
-4. Add a test that verifies content containing `</memory-context>` is properly escaped
-5. Also fix: change `let _ = self.save_to_disk().await;` in `mark_dirty()` (hot_store.rs) to log the error (use `tracing::warn!`)
-6. Run `cargo test --workspace` and `cargo clippy --workspace --all-targets --all-features` — all must pass
-7. Commit and push
-8. Create PR with title `fix(memory): XML-escape memory content in prompt injection protection` and body referencing this as follow-up to PR #120
+- File: `crates/kestrel-memory/src/warm_store.rs`
+- Problem: `format!("id = '{id}'")` builds predicate by string concatenation
+- Fix: Add strict input validation before formatting — only allow `[a-zA-Z0-9_-]` chars in `id`. Or better, use parameterized query if LanceDB supports it. If not, validate and escape.
 
-## Constraints
-- Every commit must pass `cargo test --workspace` + `cargo clippy --workspace` = 0 failures, 0 warnings
-- Do NOT merge the PR yourself — only create it for review
-- JOBS=2 or fewer for cargo build/test
+## #128 WarmStore race condition
+
+- File: `crates/kestrel-memory/src/warm_store.rs`
+- Problem: `store()` has no locking; concurrent `append()` to LanceDB may corrupt data
+- Fix: Add `tokio::sync::RwLock<()>` or `Mutex<()>` around the `append()` call in `store()`. Must be stored in `WarmStore` struct.
+
+## Rules
+
+1. Do NOT run cargo build/test/clippy locally. Commit + push, let GitHub CI verify.
+2. Add tests for both fixes.
+3. Comment on issues when starting and when done.
+4. Do NOT merge the PR yourself.

@@ -1849,8 +1849,14 @@ mod tests {
             !result.contains("</memory-context><injected>"),
             "unescaped closing tag allows injection: {result}"
         );
-        assert!(result.contains("&lt;/memory-context&gt;"), "expected escaped angle brackets");
-        assert!(result.contains("&lt;injected&gt;"), "expected escaped injected tag");
+        assert!(
+            result.contains("&lt;/memory-context&gt;"),
+            "expected escaped angle brackets"
+        );
+        assert!(
+            result.contains("&lt;injected&gt;"),
+            "expected escaped injected tag"
+        );
         // The wrapper itself must still be intact
         assert!(result.starts_with("<memory-context>\n"));
         assert!(result.ends_with("\n</memory-context>"));
@@ -1859,11 +1865,9 @@ mod tests {
     #[tokio::test]
     async fn test_recall_memories_xml_escapes_ampersand() {
         let mock = Arc::new(MockMemoryStore::new());
-        mock.store(
-            MemoryEntry::new("A & B < C > D", MemoryCategory::Fact).with_confidence(0.9),
-        )
-        .await
-        .unwrap();
+        mock.store(MemoryEntry::new("A & B < C > D", MemoryCategory::Fact).with_confidence(0.9))
+            .await
+            .unwrap();
 
         let al = make_agent_loop().with_memory_store(mock);
         let result = al.recall_memories("A").await.unwrap();
@@ -1875,11 +1879,9 @@ mod tests {
     async fn test_recall_memories_xml_escapes_category() {
         let mock = Arc::new(MockMemoryStore::new());
         // Use a category-like string via the MockMemoryStore which filters by category
-        mock.store(
-            MemoryEntry::new("test", MemoryCategory::Fact).with_confidence(0.9),
-        )
-        .await
-        .unwrap();
+        mock.store(MemoryEntry::new("test", MemoryCategory::Fact).with_confidence(0.9))
+            .await
+            .unwrap();
 
         let al = make_agent_loop().with_memory_store(mock);
         let result = al.recall_memories("test").await.unwrap();

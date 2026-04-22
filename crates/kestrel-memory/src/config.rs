@@ -32,6 +32,14 @@ pub struct MemoryConfig {
     /// Dimension of embedding vectors for semantic search.
     #[serde(default = "default_embedding_dim")]
     pub embedding_dim: usize,
+
+    /// Character budget for recalled memory content injected into prompts.
+    #[serde(default = "default_memory_char_budget")]
+    pub memory_char_budget: usize,
+
+    /// Overflow character budget used during compaction or tight-context scenarios.
+    #[serde(default = "default_memory_char_budget_overflow")]
+    pub memory_char_budget_overflow: usize,
 }
 
 fn default_max_entries() -> usize {
@@ -58,6 +66,14 @@ fn default_embedding_dim() -> usize {
     1536
 }
 
+fn default_memory_char_budget() -> usize {
+    2200
+}
+
+fn default_memory_char_budget_overflow() -> usize {
+    1375
+}
+
 impl Default for MemoryConfig {
     fn default() -> Self {
         Self {
@@ -65,6 +81,8 @@ impl Default for MemoryConfig {
             hot_store_path: default_hot_store_path(),
             warm_store_path: default_warm_store_path(),
             embedding_dim: default_embedding_dim(),
+            memory_char_budget: default_memory_char_budget(),
+            memory_char_budget_overflow: default_memory_char_budget_overflow(),
         }
     }
 }
@@ -77,6 +95,8 @@ impl MemoryConfig {
             hot_store_path: temp_dir.join("hot.jsonl"),
             warm_store_path: temp_dir.join("warm"),
             embedding_dim: 8,
+            memory_char_budget: default_memory_char_budget(),
+            memory_char_budget_overflow: default_memory_char_budget_overflow(),
         }
     }
 
@@ -100,6 +120,8 @@ mod tests {
         let config = MemoryConfig::default();
         assert_eq!(config.max_entries, 1000);
         assert_eq!(config.embedding_dim, 1536);
+        assert_eq!(config.memory_char_budget, 2200);
+        assert_eq!(config.memory_char_budget_overflow, 1375);
         assert!(config.hot_store_path.to_string_lossy().contains(".kestrel"));
         assert!(config
             .warm_store_path
@@ -124,11 +146,15 @@ mod tests {
             hot_store_path: PathBuf::from("/tmp/hot.jsonl"),
             warm_store_path: PathBuf::from("/tmp/warm"),
             embedding_dim: 768,
+            memory_char_budget: 3000,
+            memory_char_budget_overflow: 1500,
         };
         let toml_str = config.to_toml().unwrap();
         let parsed = MemoryConfig::from_toml(&toml_str).unwrap();
         assert_eq!(parsed.max_entries, 500);
         assert_eq!(parsed.embedding_dim, 768);
+        assert_eq!(parsed.memory_char_budget, 3000);
+        assert_eq!(parsed.memory_char_budget_overflow, 1500);
         assert_eq!(parsed.hot_store_path, PathBuf::from("/tmp/hot.jsonl"));
         assert_eq!(parsed.warm_store_path, PathBuf::from("/tmp/warm"));
     }
@@ -140,6 +166,8 @@ mod tests {
         assert_eq!(config.max_entries, 42);
         // Other fields get defaults
         assert_eq!(config.embedding_dim, 1536);
+        assert_eq!(config.memory_char_budget, 2200);
+        assert_eq!(config.memory_char_budget_overflow, 1375);
     }
 
     #[test]
@@ -147,5 +175,13 @@ mod tests {
         let toml_str = "max_entries = \"not a number\"";
         let result = MemoryConfig::from_toml(toml_str);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_custom_char_budget_from_toml() {
+        let toml_str = "memory_char_budget = 1000\nmemory_char_budget_overflow = 500";
+        let config = MemoryConfig::from_toml(toml_str).unwrap();
+        assert_eq!(config.memory_char_budget, 1000);
+        assert_eq!(config.memory_char_budget_overflow, 500);
     }
 }

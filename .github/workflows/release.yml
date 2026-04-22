@@ -93,6 +93,11 @@ jobs:
             ${{ runner.os }}-cargo-${{ matrix.target }}-
 
       - run: cargo build --release --target ${{ matrix.target }}
+        env:
+          # `lance-linalg` compiles AVX512 C kernels through the `cc` crate on x86_64.
+          # Rust target-feature flags do not reach that C build, so disable AVX512 here
+          # for the macOS Intel target to avoid missing AVX512 symbols at link time.
+          CFLAGS_x86_64_apple_darwin: ${{ matrix.target == 'x86_64-apple-darwin' && '-mno-avx512f -mno-avx512vl -mno-avx512bw -mno-avx512dq' || '' }}
 
       - name: Package binary
         run: |

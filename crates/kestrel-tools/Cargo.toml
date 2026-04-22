@@ -9,6 +9,7 @@ kestrel-config = { path = "../kestrel-config" }
 kestrel-bus = { path = "../kestrel-bus" }
 kestrel-security = { path = "../kestrel-security" }
 kestrel-skill = { path = "../kestrel-skill" }
+kestrel-memory = { path = "../kestrel-memory" }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }

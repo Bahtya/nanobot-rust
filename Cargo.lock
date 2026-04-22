@@ -2993,6 +2993,7 @@ dependencies = [
  "kestrel-bus",
  "kestrel-config",
  "kestrel-core",
+ "kestrel-memory",
  "kestrel-security",
  "kestrel-skill",
  "notify",

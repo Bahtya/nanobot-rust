@@ -2,6 +2,7 @@
 
 pub mod cron;
 pub mod filesystem;
+pub mod memory;
 pub mod message;
 pub mod search;
 pub mod shell;

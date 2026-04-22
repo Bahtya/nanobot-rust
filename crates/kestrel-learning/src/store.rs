@@ -220,6 +220,7 @@ mod tests {
             duration_ms: 100,
             context_hash: "hash".into(),
             timestamp: ts,
+            trace_id: None,
         }
     }
 

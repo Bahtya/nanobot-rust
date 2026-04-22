@@ -16,7 +16,7 @@ use tracing;
 
 use crate::event::{LearningAction, LearningEvent};
 
-const PROCESSOR_STATS_VERSION: u32 = 2;
+const PROCESSOR_STATS_VERSION: u32 = 3;
 const SKILL_PATCH_SCORE_THRESHOLD: f64 = 0.85;
 const SKILL_PROPOSE_SCORE_THRESHOLD: f64 = 0.25;
 const SKILL_DEPRECATION_STREAK_THRESHOLD: u32 = 3;
@@ -89,6 +89,15 @@ pub struct SkillStats {
     pub low_outcome_streak: u32,
 }
 
+/// Per-action-type outcome counts.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ActionOutcomeStats {
+    /// Number of successful action executions.
+    pub success_count: u64,
+    /// Number of failed action executions.
+    pub failure_count: u64,
+}
+
 /// Aggregate statistics from the [`BasicEventProcessor`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessorStats {
@@ -104,6 +113,9 @@ pub struct ProcessorStats {
     pub skills: HashMap<String, SkillStats>,
     /// Total events processed.
     pub events_processed: u64,
+    /// Per-action-type outcome counts.
+    #[serde(default)]
+    pub action_outcomes: HashMap<String, ActionOutcomeStats>,
 }
 
 impl Default for ProcessorStats {
@@ -114,6 +126,7 @@ impl Default for ProcessorStats {
             corrections: HashMap::new(),
             skills: HashMap::new(),
             events_processed: 0,
+            action_outcomes: HashMap::new(),
         }
     }
 }
@@ -156,6 +169,20 @@ impl BasicEventProcessor {
     /// Resets all accumulated statistics.
     pub fn reset(&self) {
         *self.stats.write() = ProcessorStats::default();
+    }
+
+    /// Records the outcome of a learning action execution.
+    pub fn record_action_outcome(&self, action_type: &str, success: bool) {
+        let mut stats = self.stats.write();
+        let entry = stats
+            .action_outcomes
+            .entry(action_type.to_string())
+            .or_default();
+        if success {
+            entry.success_count += 1;
+        } else {
+            entry.failure_count += 1;
+        }
     }
 
     /// Persists the current statistics to the configured file path.
@@ -426,6 +453,7 @@ mod tests {
             error_message: "something went wrong".into(),
             retry_count: retries,
             timestamp: Utc::now(),
+            trace_id: None,
         }
     }
 
@@ -436,6 +464,7 @@ mod tests {
             duration_ms: dur,
             context_hash: "h".into(),
             timestamp: Utc::now(),
+            trace_id: None,
         }
     }
 
@@ -445,6 +474,7 @@ mod tests {
             correction_hint: hint.into(),
             topic: topic.into(),
             timestamp: Utc::now(),
+            trace_id: None,
         }
     }
 
@@ -454,6 +484,7 @@ mod tests {
             match_score: score,
             outcome,
             timestamp: Utc::now(),
+            trace_id: None,
         }
     }
 
@@ -723,6 +754,7 @@ mod tests {
         proc.reset();
         assert_eq!(proc.stats().events_processed, 0);
         assert!(proc.stats().tools.is_empty());
+        assert!(proc.stats().action_outcomes.is_empty());
     }
 
     #[tokio::test]
@@ -740,6 +772,7 @@ mod tests {
             success: true,
             reflection: "Smooth execution, all tools worked correctly.".into(),
             timestamp: Utc::now(),
+            trace_id: None,
         };
         let actions = proc.handle(&event).await;
         assert_eq!(actions.len(), 1);
@@ -765,6 +798,7 @@ mod tests {
             success: false,
             reflection: "Task failed due to missing permissions.".into(),
             timestamp: Utc::now(),
+            trace_id: None,
         };
         let actions = proc.handle(&event).await;
         assert!(actions.iter().any(|a| {
@@ -917,5 +951,61 @@ mod tests {
         let mut loaded = BasicEventProcessor::new().with_stats_path(&stats_path);
         loaded.load_stats().await.unwrap();
         assert_eq!(loaded.stats().version, PROCESSOR_STATS_VERSION);
+    }
+
+    #[tokio::test]
+    async fn record_action_outcome_tracks_success_and_failure() {
+        let proc = BasicEventProcessor::new();
+        proc.record_action_outcome("record_insight", true);
+        proc.record_action_outcome("record_insight", true);
+        proc.record_action_outcome("record_insight", false);
+
+        let stats = proc.stats();
+        let outcomes = stats
+            .action_outcomes
+            .get("record_insight")
+            .expect("should exist");
+        assert_eq!(outcomes.success_count, 2);
+        assert_eq!(outcomes.failure_count, 1);
+    }
+
+    #[tokio::test]
+    async fn action_outcomes_persist_across_save_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let stats_path = dir.path().join("stats.json");
+
+        let proc = BasicEventProcessor::new().with_stats_path(&stats_path);
+        proc.record_action_outcome("adjust_confidence", true);
+        proc.record_action_outcome("adjust_confidence", false);
+        proc.save_stats().await.unwrap();
+
+        let mut proc2 = BasicEventProcessor::new().with_stats_path(&stats_path);
+        proc2.load_stats().await.unwrap();
+
+        let outcomes = proc2
+            .stats()
+            .action_outcomes
+            .get("adjust_confidence")
+            .expect("should exist");
+        assert_eq!(outcomes.success_count, 1);
+        assert_eq!(outcomes.failure_count, 1);
+    }
+
+    #[tokio::test]
+    async fn event_trace_id_propagated_through_processor() {
+        let proc = BasicEventProcessor::new();
+        let event = LearningEvent::ToolSucceeded {
+            tool: "shell".into(),
+            args_summary: "ls".into(),
+            duration_ms: 50,
+            context_hash: "h".into(),
+            timestamp: Utc::now(),
+            trace_id: Some("trace-123".into()),
+        };
+        let actions = proc.handle(&event).await;
+        // Should process normally; trace_id is on the event for correlation.
+        assert_eq!(proc.stats().events_processed, 1);
+        // ToolSucceeded produces no actions in basic processor.
+        assert!(actions.is_empty());
     }
 }

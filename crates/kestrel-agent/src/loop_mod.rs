@@ -1497,11 +1497,9 @@ mod tests {
     #[tokio::test]
     async fn test_recall_memories_xml_isolation() {
         let mock = Arc::new(MockMemoryStore::new());
-        mock.store(
-            MemoryEntry::new("test fact", MemoryCategory::Fact).with_confidence(0.9),
-        )
-        .await
-        .unwrap();
+        mock.store(MemoryEntry::new("test fact", MemoryCategory::Fact).with_confidence(0.9))
+            .await
+            .unwrap();
 
         let al = make_agent_loop().with_memory_store(mock);
         let result = al.recall_memories("test").await.unwrap();
@@ -1527,16 +1525,12 @@ mod tests {
 
         // Create entries that individually fit but together exceed budget
         let long_content = "x".repeat(1500);
-        mock.store(
-            MemoryEntry::new(&long_content, MemoryCategory::Fact).with_confidence(0.9),
-        )
-        .await
-        .unwrap();
-        mock.store(
-            MemoryEntry::new("short entry", MemoryCategory::Fact).with_confidence(0.8),
-        )
-        .await
-        .unwrap();
+        mock.store(MemoryEntry::new(&long_content, MemoryCategory::Fact).with_confidence(0.9))
+            .await
+            .unwrap();
+        mock.store(MemoryEntry::new("short entry", MemoryCategory::Fact).with_confidence(0.8))
+            .await
+            .unwrap();
 
         let al = make_agent_loop().with_memory_store(mock);
         let result = al.recall_memories("x").await.unwrap();

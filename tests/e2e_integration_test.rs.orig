@@ -444,13 +444,13 @@ async fn test_e2e_session_persistence() {
 
     let provider = MockProvider::multi_step(vec![
         CompletionResponse {
-            content: Some("Async Rust uses futures and an executor to manage concurrent tasks efficiently.".to_string()),
+            content: Some("First response.".to_string()),
             tool_calls: None,
             usage: None,
             finish_reason: Some("stop".to_string()),
         },
         CompletionResponse {
-            content: Some("Tokyo has humid summers and mild winters, while Paris has oceanic climate with steady rainfall.".to_string()),
+            content: Some("Second response.".to_string()),
             tool_calls: None,
             usage: None,
             finish_reason: Some("stop".to_string()),
@@ -466,19 +466,14 @@ async fn test_e2e_session_persistence() {
     let agent_handle = tokio::spawn(async move { agent_loop.run().await.unwrap() });
 
     // First message
-    bus.publish_inbound(make_inbound(
-        "Explain the architecture of async Rust with concrete examples",
-    ))
-    .await
-    .unwrap();
+    bus.publish_inbound(make_inbound("First message"))
+        .await
+        .unwrap();
     let out1 = timeout(TEST_TIMEOUT, outbound_rx.recv())
         .await
         .expect("Timeout on first")
         .expect("Channel closed");
-    assert_eq!(
-        out1.content,
-        "Async Rust uses futures and an executor to manage concurrent tasks efficiently."
-    );
+    assert_eq!(out1.content, "First response.");
 
     // Second message — same chat
     bus.publish_inbound(make_inbound("Second message"))
@@ -488,7 +483,7 @@ async fn test_e2e_session_persistence() {
         .await
         .expect("Timeout on second")
         .expect("Channel closed");
-    assert_eq!(out2.content, "Tokyo has humid summers and mild winters, while Paris has oceanic climate with steady rainfall.");
+    assert_eq!(out2.content, "Second response.");
 
     // Verify session has at least 4 entries: user1, assistant1, user2, assistant2
     wait_for_session_message_count(session_dir.clone(), "telegram:chat_100", 4).await;

@@ -947,7 +947,7 @@ fn summary_quality(user_msg: &str, agent_response: &str) -> f64 {
 }
 
 /// Minimum quality score required to store a conversation summary.
-const MEMORY_QUALITY_THRESHOLD: f64 = 0.05;
+const MEMORY_QUALITY_THRESHOLD: f64 = 0.2;
 
 /// Map a quality score to a confidence value in [0.3, 0.9].
 fn quality_to_confidence(quality: f64) -> f64 {

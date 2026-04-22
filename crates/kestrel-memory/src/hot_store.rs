@@ -291,7 +291,9 @@ impl HotStore {
         self.dirty.store(true, Ordering::Relaxed);
         let pending = self.pending_dirty_writes.fetch_add(1, Ordering::Relaxed) + 1;
         if pending >= DIRTY_WRITE_THRESHOLD {
-            let _ = self.save_to_disk().await;
+            if let Err(e) = self.save_to_disk().await {
+                tracing::warn!("Auto-flush in mark_dirty failed: {e}");
+            }
         }
     }
 

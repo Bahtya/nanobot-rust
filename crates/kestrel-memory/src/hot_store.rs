@@ -13,9 +13,12 @@ use fs4::fs_std::FileExt;
 use lru::LruCache;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tokio::fs;
 use tokio::sync::RwLock;
+
+/// Number of dirty recalls before auto-flushing to disk.
+const DIRTY_WRITE_THRESHOLD: u64 = 10;
 
 use crate::config::MemoryConfig;
 use crate::error::{MemoryError, Result};
@@ -117,6 +120,10 @@ pub struct HotStore {
     max_entries: usize,
     /// Number of entries evicted by LRU policy.
     eviction_count: AtomicU64,
+    /// Whether in-memory state has changed since last disk persist.
+    dirty: AtomicBool,
+    /// Number of recall-triggered dirty writes since last flush.
+    pending_dirty_writes: AtomicU64,
 }
 
 impl HotStore {
@@ -129,6 +136,8 @@ impl HotStore {
             lock_path,
             max_entries: config.max_entries,
             eviction_count: AtomicU64::new(0),
+            dirty: AtomicBool::new(false),
+            pending_dirty_writes: AtomicU64::new(0),
         };
         store.load_from_disk().await?;
         Ok(store)
@@ -226,12 +235,60 @@ impl HotStore {
         let temp_path = self.path.with_extension("jsonl.tmp");
         fs::write(&temp_path, &lines).await?;
         fs::rename(&temp_path, &self.path).await?;
+
+        self.dirty.store(false, Ordering::Relaxed);
+        self.pending_dirty_writes.store(0, Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Mark the store as dirty (in-memory state diverged from disk).
+    ///
+    /// When the number of pending dirty writes reaches the threshold, this
+    /// triggers an automatic flush.
+    async fn mark_dirty(&self) {
+        self.dirty.store(true, Ordering::Relaxed);
+        let pending = self.pending_dirty_writes.fetch_add(1, Ordering::Relaxed) + 1;
+        if pending >= DIRTY_WRITE_THRESHOLD {
+            let _ = self.save_to_disk().await;
+        }
+    }
+
+    /// Explicitly flush dirty state to disk.
+    ///
+    /// No-op when the store is clean.
+    pub async fn flush(&self) -> Result<()> {
+        if self.dirty.load(Ordering::Relaxed) {
+            self.save_to_disk().await?;
+        }
         Ok(())
     }
 
     /// Return the total number of entries evicted since store creation.
     pub fn eviction_count(&self) -> u64 {
         self.eviction_count.load(Ordering::Relaxed)
+    }
+}
+
+impl Drop for HotStore {
+    fn drop(&mut self) {
+        if self.dirty.load(Ordering::Relaxed) {
+            if let Ok(entries) = self.entries.try_write() {
+                let mut lines = String::new();
+                for entry in entries.ordered_entries() {
+                    if let Ok(line) = serde_json::to_string(&entry) {
+                        lines.push_str(&line);
+                        lines.push('\n');
+                    }
+                }
+                if let Some(parent) = self.path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let temp_path = self.path.with_extension("jsonl.tmp");
+                if std::fs::write(&temp_path, &lines).is_ok() {
+                    let _ = std::fs::rename(&temp_path, &self.path);
+                }
+            }
+        }
     }
 }
 
@@ -284,7 +341,7 @@ impl MemoryStore for HotStore {
         };
 
         if entry.is_some() {
-            self.save_to_disk().await?;
+            self.mark_dirty().await;
         }
 
         Ok(entry)
@@ -835,6 +892,59 @@ mod tests {
         assert!(recalled.is_some());
         assert_eq!(recalled.unwrap().content, "valid");
         assert_eq!(store.len().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_recall_deferred_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = MemoryConfig::for_test(dir.path());
+        let path = config.hot_store_path.clone();
+
+        let entry = MemoryEntry::new("deferred", MemoryCategory::Fact);
+        let id = entry.id.clone();
+
+        {
+            let store = HotStore::new(&config).await.unwrap();
+            store.store(entry).await.unwrap();
+
+            // Read the file — baseline (store writes immediately)
+            let size_after_store = std::fs::read_to_string(&path).unwrap().len();
+
+            // Recall should NOT trigger a disk write
+            store.recall(&id).await.unwrap();
+            let size_after_recall = std::fs::read_to_string(&path).unwrap().len();
+            assert_eq!(
+                size_after_store, size_after_recall,
+                "recall should not rewrite the file"
+            );
+
+            // Explicit flush should persist the dirty state
+            store.flush().await.unwrap();
+            let content = std::fs::read_to_string(&path).unwrap();
+            assert!(content.contains("deferred"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_recall_persists_via_drop() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = MemoryConfig::for_test(dir.path());
+        let path = config.hot_store_path.clone();
+
+        let entry = MemoryEntry::new("drop-persist", MemoryCategory::Fact);
+        let id = entry.id.clone();
+
+        {
+            let store = HotStore::new(&config).await.unwrap();
+            store.store(entry).await.unwrap();
+            store.recall(&id).await.unwrap();
+            // Drop without explicit flush — Drop should persist dirty state
+        }
+
+        let store = HotStore::new(&config).await.unwrap();
+        let recalled = store.recall(&id).await.unwrap();
+        assert!(recalled.is_some());
+        assert_eq!(recalled.unwrap().access_count, 2);
     }
 
     #[test]

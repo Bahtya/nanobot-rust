@@ -25,6 +25,7 @@ use kestrel_heartbeat::HeartbeatService;
 use kestrel_learning::event::{ErrorClassification, LearningEvent, LearningEventBus, SkillOutcome};
 use kestrel_learning::prompt::{PromptAssembler, SkillIndexEntry};
 use kestrel_memory::types::{MemoryCategory, MemoryEntry, MemoryQuery};
+use kestrel_memory::MemoryConfig;
 use kestrel_memory::MemoryStore as AsyncMemoryStore;
 use kestrel_providers::{CompletionRequest, ProviderRegistry};
 use kestrel_session::SessionManager;
@@ -38,10 +39,10 @@ use tracing::{error, info, warn, Instrument};
 const REFLECTION_SYSTEM_PROMPT: &str = "You are a brief task reflection engine. Respond in 1-2 concise sentences about what went well or what to improve.";
 const REFLECTION_USER_TEMPLATE: &str = "Briefly reflect (1-2 sentences) on this completed agent task:\n- User request: {user_request}\n- Tool calls made: {tool_calls}\n- Iterations: {iterations}\n- Success: {success}\n- Response preview: {response_preview}\n\nFocus on what went well or what could be improved next time.";
 
-/// Maximum character budget for recalled memory content injected into the prompt.
-/// Entries are added in relevance order and truncated or dropped when the budget
-/// is exceeded. Based on Hermes agent hard limits (2200 chars).
-const MEMORY_CHAR_BUDGET: usize = 2200;
+/// Default character budget for recalled memory content injected into the prompt.
+/// Used when no MemoryConfig is attached. Entries that exceed the remaining budget
+/// are skipped entirely (no mid-entry truncation).
+const DEFAULT_MEMORY_CHAR_BUDGET: usize = 2200;
 
 struct ReflectionTask {
     learning_bus: LearningEventBus,
@@ -75,6 +76,8 @@ pub struct AgentLoop {
     subagent_manager: Option<Arc<SubAgentManager>>,
     /// Optional async memory store (kestrel-memory crate) for recall/store.
     memory_store: Option<Arc<dyn AsyncMemoryStore>>,
+    /// Optional memory config providing char budgets for recall truncation.
+    memory_config: Option<MemoryConfig>,
     /// Optional learning event bus (kestrel-learning crate) for event emission.
     learning_bus: Option<LearningEventBus>,
     /// Optional prompt assembler for dynamic system prompt construction.
@@ -104,6 +107,7 @@ impl AgentLoop {
             agent_activity: Arc::new(parking_lot::RwLock::new(None)),
             subagent_manager: None,
             memory_store: None,
+            memory_config: None,
             learning_bus: None,
             prompt_assembler: None,
         }
@@ -493,9 +497,9 @@ impl AgentLoop {
     ///
     /// Returns a formatted string section wrapped in `<memory-context>` XML tags
     /// for injection into the system prompt, or `None` if no memory store is
-    /// configured or no memories were found. Output is bounded by
-    /// [`MEMORY_CHAR_BUDGET`] — entries that would exceed the budget are
-    /// truncated or dropped.
+    /// configured or no memories were found. Output is bounded by the char budget
+    /// from [`MemoryConfig`] (or [`DEFAULT_MEMORY_CHAR_BUDGET`] as fallback) —
+    /// entries that would exceed the budget are skipped entirely.
     async fn recall_memories(&self, query_text: &str) -> Option<String> {
         let store = self.memory_store.as_ref()?;
 
@@ -520,8 +524,13 @@ impl AgentLoop {
             }
             Ok(results) => {
                 let count = results.len();
+                let budget = self
+                    .memory_config
+                    .as_ref()
+                    .map(|c| c.memory_char_budget)
+                    .unwrap_or(DEFAULT_MEMORY_CHAR_BUDGET);
                 let mut lines = Vec::new();
-                let mut budget_remaining = MEMORY_CHAR_BUDGET;
+                let mut budget_remaining = budget;
 
                 for scored in &results {
                     let escaped = xml_escape(&scored.entry.content);
@@ -533,12 +542,8 @@ impl AgentLoop {
                     if line.len() <= budget_remaining {
                         budget_remaining -= line.len();
                         lines.push(line);
-                    } else if budget_remaining > 0 {
-                        // Truncate the last entry to fit remaining budget
-                        lines.push(truncate_str(&line, budget_remaining).to_string());
-                        budget_remaining = 0;
                     }
-                    // Entries beyond the budget are silently dropped
+                    // Entries that don't fit within budget are silently dropped
                 }
 
                 // Emit MemoryAccessed (hit)
@@ -791,6 +796,16 @@ impl AgentLoop {
     /// and store new memory entries after each conversation turn.
     pub fn with_memory_store(mut self, store: Arc<dyn AsyncMemoryStore>) -> Self {
         self.memory_store = Some(store);
+        self
+    }
+
+    /// Attach a [`MemoryConfig`] providing char budgets for memory recall.
+    ///
+    /// When set, `memory_char_budget` controls how many characters of recalled
+    /// memory content are injected into the prompt. Falls back to
+    /// [`DEFAULT_MEMORY_CHAR_BUDGET`] when unset.
+    pub fn with_memory_config(mut self, config: MemoryConfig) -> Self {
+        self.memory_config = Some(config);
         self
     }
 
@@ -1901,7 +1916,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_recall_memories_char_budget_truncates() {
+    async fn test_recall_memories_char_budget_skips_oversized_entries() {
         let mock = Arc::new(MockMemoryStore::new());
 
         // Create entries that individually fit but together exceed budget
@@ -1916,15 +1931,112 @@ mod tests {
         let al = make_agent_loop().with_memory_store(mock);
         let result = al.recall_memories("x").await.unwrap();
 
-        // Total output should be bounded by MEMORY_CHAR_BUDGET + XML tag overhead
-        assert!(
-            result.len() < long_content.len() * 2,
-            "output should be truncated well below raw content length"
-        );
         assert!(
             result.contains("<memory-context>"),
             "XML wrapper should still be present"
         );
+        // The long entry should be included (fits within default 2200 budget),
+        // but "short entry" should be skipped since the first entry consumed most of the budget.
+        // No partial/truncated lines should appear.
+        for line in result.lines() {
+            if line.starts_with("- ") {
+                assert!(
+                    !line.ends_with("abou") && !line.contains(char::is_control),
+                    "no mid-entry truncation: got line ending with '{}'",
+                    line
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_recall_memories_no_mid_entry_truncation() {
+        let mock = Arc::new(MockMemoryStore::new());
+
+        // Use a tiny budget so entries don't fit
+        let mut mem_config = kestrel_memory::MemoryConfig::default();
+        mem_config.memory_char_budget = 50;
+
+        let long = "a".repeat(200);
+        mock.store(MemoryEntry::new(&long, MemoryCategory::Fact).with_confidence(0.9))
+            .await
+            .unwrap();
+        mock.store(MemoryEntry::new("short", MemoryCategory::Fact).with_confidence(0.8))
+            .await
+            .unwrap();
+
+        let al = make_agent_loop()
+            .with_memory_store(mock)
+            .with_memory_config(mem_config);
+        let result = al.recall_memories("a").await.unwrap();
+
+        let inner = result
+            .strip_prefix("<memory-context>\n")
+            .unwrap()
+            .strip_suffix("\n</memory-context>")
+            .unwrap();
+
+        // With budget=50, the long entry (~230 chars formatted) won't fit and
+        // the short entry (~30 chars formatted) should be the only one included.
+        assert!(
+            !inner.contains(&"a".repeat(100)),
+            "long entry should have been skipped entirely, not truncated"
+        );
+        // Verify no partial lines — every line should end cleanly
+        for line in inner.lines() {
+            if line.starts_with("- ") {
+                // A properly formed line ends with the confidence number like "0.80)"
+                assert!(
+                    line.ends_with(')'),
+                    "entry line should end with confidence, not mid-content: '{line}'"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_recall_memories_custom_budget_from_config() {
+        let mock = Arc::new(MockMemoryStore::new());
+
+        let mut mem_config = kestrel_memory::MemoryConfig::default();
+        mem_config.memory_char_budget = 50;
+
+        mock.store(MemoryEntry::new("alpha", MemoryCategory::Fact).with_confidence(0.9))
+            .await
+            .unwrap();
+        mock.store(MemoryEntry::new("beta", MemoryCategory::Fact).with_confidence(0.8))
+            .await
+            .unwrap();
+        mock.store(MemoryEntry::new("gamma", MemoryCategory::Fact).with_confidence(0.7))
+            .await
+            .unwrap();
+
+        let al = make_agent_loop()
+            .with_memory_store(mock)
+            .with_memory_config(mem_config);
+        let result = al.recall_memories("a").await.unwrap();
+
+        // With budget=50, each entry line is ~34 chars ("- ENTRY [fact] (confidence: 0.XX)"),
+        // so only 1 entry should fit.
+        let inner = result
+            .strip_prefix("<memory-context>\n")
+            .unwrap()
+            .strip_suffix("\n</memory-context>")
+            .unwrap();
+        let entry_count = inner.lines().filter(|l| l.starts_with("- ")).count();
+        assert_eq!(
+            entry_count, 1,
+            "budget=50 should fit exactly 1 entry: got {entry_count}"
+        );
+    }
+
+    #[test]
+    fn test_with_memory_config_builder() {
+        let al = make_agent_loop();
+        assert!(al.memory_config.is_none());
+        let mem_config = kestrel_memory::MemoryConfig::default();
+        let al = al.with_memory_config(mem_config);
+        assert!(al.memory_config.is_some());
     }
 
     #[tokio::test]

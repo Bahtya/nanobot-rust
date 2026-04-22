@@ -61,6 +61,7 @@ pub fn matches_filters(entry: &MemoryEntry, query: &MemoryQuery) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::MemoryCategory;
 
     // -- text_matches precision tests --
 

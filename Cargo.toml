@@ -74,7 +74,7 @@ base64 = "0.22"
 url = "2"
 ipnet = "2"
 dirs = "5"
-lru = "0.12"
+lru = "0.16"
 fs4 = "0.13"
 
 # Vector database

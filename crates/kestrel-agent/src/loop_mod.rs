@@ -38,6 +38,11 @@ use tracing::{error, info, warn, Instrument};
 const REFLECTION_SYSTEM_PROMPT: &str = "You are a brief task reflection engine. Respond in 1-2 concise sentences about what went well or what to improve.";
 const REFLECTION_USER_TEMPLATE: &str = "Briefly reflect (1-2 sentences) on this completed agent task:\n- User request: {user_request}\n- Tool calls made: {tool_calls}\n- Iterations: {iterations}\n- Success: {success}\n- Response preview: {response_preview}\n\nFocus on what went well or what could be improved next time.";
 
+/// Maximum character budget for recalled memory content injected into the prompt.
+/// Entries are added in relevance order and truncated or dropped when the budget
+/// is exceeded. Based on Hermes agent hard limits (2200 chars).
+const MEMORY_CHAR_BUDGET: usize = 2200;
+
 struct ReflectionTask {
     learning_bus: LearningEventBus,
     provider_registry: Arc<ProviderRegistry>,
@@ -478,8 +483,11 @@ impl AgentLoop {
 
     /// Recall relevant memories from the memory store for the given query text.
     ///
-    /// Returns a formatted string section for injection into the system prompt,
-    /// or `None` if no memory store is configured or no memories were found.
+    /// Returns a formatted string section wrapped in `<memory-context>` XML tags
+    /// for injection into the system prompt, or `None` if no memory store is
+    /// configured or no memories were found. Output is bounded by
+    /// [`MEMORY_CHAR_BUDGET`] — entries that would exceed the budget are
+    /// truncated or dropped.
     async fn recall_memories(&self, query_text: &str) -> Option<String> {
         let store = self.memory_store.as_ref()?;
 
@@ -504,12 +512,24 @@ impl AgentLoop {
             Ok(results) => {
                 let count = results.len();
                 let mut lines = Vec::new();
+                let mut budget_remaining = MEMORY_CHAR_BUDGET;
+
                 for scored in &results {
-                    lines.push(format!(
+                    let line = format!(
                         "- {} [{}] (confidence: {:.2})",
                         scored.entry.content, scored.entry.category, scored.entry.confidence
-                    ));
+                    );
+                    if line.len() <= budget_remaining {
+                        budget_remaining -= line.len();
+                        lines.push(line);
+                    } else if budget_remaining > 0 {
+                        // Truncate the last entry to fit remaining budget
+                        lines.push(truncate_str(&line, budget_remaining).to_string());
+                        budget_remaining = 0;
+                    }
+                    // Entries beyond the budget are silently dropped
                 }
+
                 // Emit MemoryAccessed (hit)
                 if let Some(ref bus) = self.learning_bus {
                     bus.publish(LearningEvent::MemoryAccessed {
@@ -519,7 +539,10 @@ impl AgentLoop {
                         timestamp: chrono::Utc::now(),
                     });
                 }
-                Some(lines.join("\n"))
+                Some(format!(
+                    "<memory-context>\n{}\n</memory-context>",
+                    lines.join("\n")
+                ))
             }
             Err(e) => {
                 warn!("Memory recall failed: {}", e);
@@ -1349,6 +1372,8 @@ mod tests {
         let text = result.unwrap();
         assert!(text.contains("User likes Rust"));
         assert!(text.contains("preference"));
+        assert!(text.starts_with("<memory-context>\n"));
+        assert!(text.ends_with("\n</memory-context>"));
     }
 
     #[tokio::test]
@@ -1467,6 +1492,58 @@ mod tests {
         assert!(result.is_some());
         let text = result.unwrap();
         assert!(text.contains("dark mode"));
+    }
+
+    #[tokio::test]
+    async fn test_recall_memories_xml_isolation() {
+        let mock = Arc::new(MockMemoryStore::new());
+        mock.store(MemoryEntry::new("test fact", MemoryCategory::Fact).with_confidence(0.9))
+            .await
+            .unwrap();
+
+        let al = make_agent_loop().with_memory_store(mock);
+        let result = al.recall_memories("test").await.unwrap();
+        assert!(
+            result.starts_with("<memory-context>\n"),
+            "should start with <memory-context> tag"
+        );
+        assert!(
+            result.ends_with("\n</memory-context>"),
+            "should end with </memory-context> tag"
+        );
+        let inner = result
+            .strip_prefix("<memory-context>\n")
+            .unwrap()
+            .strip_suffix("\n</memory-context>")
+            .unwrap();
+        assert!(inner.contains("test fact"));
+    }
+
+    #[tokio::test]
+    async fn test_recall_memories_char_budget_truncates() {
+        let mock = Arc::new(MockMemoryStore::new());
+
+        // Create entries that individually fit but together exceed budget
+        let long_content = "x".repeat(1500);
+        mock.store(MemoryEntry::new(&long_content, MemoryCategory::Fact).with_confidence(0.9))
+            .await
+            .unwrap();
+        mock.store(MemoryEntry::new("short entry", MemoryCategory::Fact).with_confidence(0.8))
+            .await
+            .unwrap();
+
+        let al = make_agent_loop().with_memory_store(mock);
+        let result = al.recall_memories("x").await.unwrap();
+
+        // Total output should be bounded by MEMORY_CHAR_BUDGET + XML tag overhead
+        assert!(
+            result.len() < long_content.len() * 2,
+            "output should be truncated well below raw content length"
+        );
+        assert!(
+            result.contains("<memory-context>"),
+            "XML wrapper should still be present"
+        );
     }
 
     #[tokio::test]

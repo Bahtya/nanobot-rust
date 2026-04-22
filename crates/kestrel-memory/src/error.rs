@@ -42,6 +42,14 @@ pub enum MemoryError {
     /// A LanceDB error occurred.
     #[error("LanceDB error: {0}")]
     LanceDb(String),
+
+    /// A security violation was detected in a memory entry.
+    #[error("Security violation: {0}")]
+    SecurityViolation(String),
+
+    /// A concurrent write conflict occurred.
+    #[error("Concurrent write conflict: {0}")]
+    ConcurrentWrite(String),
 }
 
 /// Convenience type alias for Results using MemoryError.
@@ -77,6 +85,24 @@ mod tests {
     }
 
     #[test]
+    fn test_security_violation_display() {
+        let err = MemoryError::SecurityViolation(
+            "Prompt injection pattern detected: \"jailbreak\"".to_string(),
+        );
+        let msg = err.to_string();
+        assert!(msg.contains("Security violation"));
+        assert!(msg.contains("jailbreak"));
+    }
+
+    #[test]
+    fn test_concurrent_write_display() {
+        let err = MemoryError::ConcurrentWrite("lock acquisition failed".to_string());
+        let msg = err.to_string();
+        assert!(msg.contains("Concurrent write conflict"));
+        assert!(msg.contains("lock acquisition failed"));
+    }
+
+    #[test]
     fn test_from_io_error() {
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file missing");
         let err: MemoryError = io_err.into();
@@ -90,5 +116,21 @@ mod tests {
 
         let err: Result<String> = Err(MemoryError::NotFound("x".to_string()));
         assert!(err.is_err());
+    }
+
+    #[test]
+    fn test_result_with_security_violation() {
+        let err: Result<()> = Err(MemoryError::SecurityViolation("bad input".to_string()));
+        assert!(err.is_err());
+        let msg = err.unwrap_err().to_string();
+        assert!(msg.contains("Security violation"));
+    }
+
+    #[test]
+    fn test_result_with_concurrent_write() {
+        let err: Result<()> = Err(MemoryError::ConcurrentWrite("conflict".to_string()));
+        assert!(err.is_err());
+        let msg = err.unwrap_err().to_string();
+        assert!(msg.contains("Concurrent write conflict"));
     }
 }

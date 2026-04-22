@@ -156,6 +156,7 @@ impl HotStore {
     /// Acquire a shared (read) lock on the lock file.
     ///
     /// The lock is held until the returned `File` is dropped.
+    #[allow(clippy::incompatible_msrv)]
     fn acquire_shared_lock(&self) -> Result<std::fs::File> {
         let file = self.open_lock_file()?;
         file.lock_shared().map_err(|e| {

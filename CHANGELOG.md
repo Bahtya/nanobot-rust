@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-04-22
+
+### Fixed
+
+- Fix macOS x86_64 release build by disabling AVX512 in `.cargo/config.toml` (#135)
+
 ## [0.2.0] - 2026-04-22
 
 ### Added

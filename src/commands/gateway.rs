@@ -246,7 +246,9 @@ async fn execute_learning_actions(
     embedding: &Arc<dyn kestrel_memory::EmbeddingGenerator>,
 ) {
     for action in actions {
-        if let Err(e) = execute_learning_action(action, memory_store, skill_registry, embedding).await {
+        if let Err(e) =
+            execute_learning_action(action, memory_store, skill_registry, embedding).await
+        {
             tracing::error!("Failed to execute learning action {:?}: {}", action, e);
         }
     }
@@ -1236,6 +1238,7 @@ mod tests {
                 &mut processor,
                 None,
                 skill_registry,
+                test_embedding(),
             )
             .await;
         });

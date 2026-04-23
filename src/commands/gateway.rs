@@ -244,9 +244,7 @@ async fn execute_learning_actions(
     skill_registry: &SkillRegistry,
 ) {
     for action in actions {
-        if let Err(e) =
-            execute_learning_action(action, memory_store, skill_registry).await
-        {
+        if let Err(e) = execute_learning_action(action, memory_store, skill_registry).await {
             tracing::error!("Failed to execute learning action {:?}: {}", action, e);
         }
     }
@@ -1176,12 +1174,7 @@ mod tests {
             },
         ];
 
-        execute_learning_actions(
-            &actions,
-            Some(&memory_store),
-            &skill_registry,
-        )
-        .await;
+        execute_learning_actions(&actions, Some(&memory_store), &skill_registry).await;
 
         let skill = skill_registry.get("deploy").await.unwrap();
         assert!(skill.read().confidence() > 0.5);

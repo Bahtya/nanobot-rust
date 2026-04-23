@@ -11,6 +11,7 @@ use std::sync::Arc;
 use tantivy::collector::TopDocs;
 use tantivy::query::{BooleanQuery, Occur, QueryParser, RangeQuery, TermQuery};
 use tantivy::schema::*;
+use tantivy::tokenizer::{LowerCaser, TextAnalyzer};
 use tantivy::{doc, Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument};
 use tantivy_jieba::JiebaTokenizer;
 use tokio::sync::Mutex;
@@ -85,10 +86,11 @@ impl TantivyStore {
             Index::create_in_dir(tantivy_path, schema.clone()).map_err(tantivy_err)?
         };
 
-        // Register jieba tokenizer for CJK support
-        index
-            .tokenizers()
-            .register(MEMORY_TOKENIZER, JiebaTokenizer::new());
+        // Register jieba tokenizer + LowerCaser for case-insensitive CJK search
+        let jieba_analyzer = TextAnalyzer::builder(JiebaTokenizer::new())
+            .filter(LowerCaser)
+            .build();
+        index.tokenizers().register(MEMORY_TOKENIZER, jieba_analyzer);
 
         let reader = index
             .reader_builder()
@@ -116,11 +118,10 @@ impl TantivyStore {
 
     /// Convert a MemoryEntry into a tantivy Document.
     fn entry_to_doc(&self, entry: &MemoryEntry) -> TantivyDocument {
-        let lowered_content = entry.content.to_lowercase();
         doc!(
             self.id_field => entry.id.as_str(),
             self.content_field => entry.content.as_str(),
-            self.content_search_field => lowered_content.as_str(),
+            self.content_search_field => entry.content.as_str(),
             self.category_field => entry.category.to_string(),
             self.confidence_field => entry.confidence,
             self.created_at_field => entry.created_at.timestamp_micros(),
@@ -186,13 +187,13 @@ impl TantivyStore {
     fn build_query(&self, query: &MemoryQuery) -> Result<Box<dyn tantivy::query::Query>> {
         let mut clauses: Vec<(Occur, Box<dyn tantivy::query::Query>)> = Vec::new();
 
-        // Text search via QueryParser (uses jieba tokenizer on content field)
+        // Text search via QueryParser (uses jieba+LowerCaser tokenizer on content_search field)
         if let Some(ref text) = query.text {
             if !text.is_empty() {
-                let lowered = text.to_lowercase();
-                let parser = QueryParser::for_index(&self.index, vec![self.content_search_field]);
+                let parser =
+                    QueryParser::for_index(&self.index, vec![self.content_search_field]);
                 let parsed = parser
-                    .parse_query(&lowered)
+                    .parse_query(text)
                     .map_err(|e| MemoryError::SearchEngine(format!("query parse error: {e}")))?;
                 clauses.push((Occur::Must, parsed));
             }

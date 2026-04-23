@@ -168,6 +168,13 @@ impl AgentLoop {
                     // Record activity for heartbeat tracking
                     *self.agent_activity.write() = Some(chrono::Local::now());
 
+                    // Extract fields before msg is moved into process_message,
+                    // so the timeout branch can still build a reply.
+                    let timeout_channel = msg.channel.clone();
+                    let timeout_chat_id = msg.chat_id.clone();
+                    let timeout_message_id = msg.message_id.clone();
+                    let timeout_trace_id = msg.trace_id.clone();
+
                     let result = tokio::time::timeout(
                         std::time::Duration::from_secs(self.config.agent.message_timeout),
                         self.process_message(msg),
@@ -182,15 +189,15 @@ impl AgentLoop {
                             error!("Message processing timed out after {}s", timeout_secs);
 
                             let timeout_reply = OutboundMessage {
-                                channel: msg.channel.clone(),
-                                chat_id: msg.chat_id.clone(),
+                                channel: timeout_channel,
+                                chat_id: timeout_chat_id,
                                 content: format!(
                                     "⏳ Processing your message took too long ({}s limit). \
                                      Please try again later.",
                                     timeout_secs
                                 ),
-                                reply_to: msg.message_id.clone(),
-                                trace_id: msg.trace_id.clone(),
+                                reply_to: timeout_message_id,
+                                trace_id: timeout_trace_id,
                                 media: vec![],
                                 metadata: Default::default(),
                             };

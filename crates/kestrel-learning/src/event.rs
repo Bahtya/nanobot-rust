@@ -138,6 +138,24 @@ pub enum LearningEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         trace_id: Option<String>,
     },
+    /// A post-task reflection failed after all retries.
+    ReflectionFailed {
+        /// Brief summary of the task that was being reflected on.
+        task_summary: String,
+        /// Number of tool calls made during the task.
+        tool_calls_count: u32,
+        /// Whether the task completed successfully.
+        success: bool,
+        /// The last error from the LLM provider.
+        error_message: String,
+        /// Number of retry attempts made.
+        retry_count: u32,
+        #[serde(with = "chrono::serde::ts_seconds")]
+        timestamp: DateTime<Utc>,
+        /// Trace ID linking back to the originating user request.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        trace_id: Option<String>,
+    },
 }
 
 impl LearningEvent {
@@ -151,7 +169,8 @@ impl LearningEvent {
             | Self::SkillUsed { timestamp, .. }
             | Self::SkillCreated { timestamp, .. }
             | Self::MemoryAccessed { timestamp, .. }
-            | Self::TaskReflection { timestamp, .. } => *timestamp,
+            | Self::TaskReflection { timestamp, .. }
+            | Self::ReflectionFailed { timestamp, .. } => *timestamp,
         }
     }
 
@@ -165,7 +184,8 @@ impl LearningEvent {
             | Self::SkillUsed { trace_id, .. }
             | Self::SkillCreated { trace_id, .. }
             | Self::MemoryAccessed { trace_id, .. }
-            | Self::TaskReflection { trace_id, .. } => trace_id.as_deref(),
+            | Self::TaskReflection { trace_id, .. }
+            | Self::ReflectionFailed { trace_id, .. } => trace_id.as_deref(),
         }
     }
 }
@@ -396,5 +416,22 @@ mod tests {
         let decoded: LearningEvent = serde_json::from_str(&json).expect("deserialize");
         assert!(matches!(decoded, LearningEvent::TaskReflection { .. }));
         assert_eq!(decoded.trace_id(), Some("trace-refl"));
+    }
+
+    #[test]
+    fn reflection_failed_serde_roundtrip() {
+        let event = LearningEvent::ReflectionFailed {
+            task_summary: "deploy to prod".into(),
+            tool_calls_count: 2,
+            success: false,
+            error_message: "provider unavailable".into(),
+            retry_count: 2,
+            timestamp: Utc::now(),
+            trace_id: Some("trace-fail".into()),
+        };
+        let json = serde_json::to_string(&event).expect("serialize");
+        let decoded: LearningEvent = serde_json::from_str(&json).expect("deserialize");
+        assert!(matches!(decoded, LearningEvent::ReflectionFailed { .. }));
+        assert_eq!(decoded.trace_id(), Some("trace-fail"));
     }
 }

@@ -427,7 +427,8 @@ impl LearningEventHandler for BasicEventProcessor {
 
             LearningEvent::UserApproval { .. }
             | LearningEvent::SkillCreated { .. }
-            | LearningEvent::MemoryAccessed { .. } => {
+            | LearningEvent::MemoryAccessed { .. }
+            | LearningEvent::ReflectionFailed { .. } => {
                 // No action from the basic processor for these.
             }
         }

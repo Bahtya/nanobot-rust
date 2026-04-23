@@ -36,6 +36,11 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn, Instrument};
 
+const REFLECTION_MAX_RETRIES: u32 = 2;
+const REFLECTION_BACKOFF_BASE_MS: u64 = 1000;
+/// Log ERROR when this many consecutive reflection failures accumulate.
+const REFLECTION_CONSECUTIVE_ERROR_THRESHOLD: u32 = 3;
+
 const REFLECTION_SYSTEM_PROMPT: &str = "You are a brief task reflection engine. Respond in 1-2 concise sentences about what went well or what to improve.";
 const REFLECTION_USER_TEMPLATE: &str = "Briefly reflect (1-2 sentences) on this completed agent task:\n- User request: {user_request}\n- Tool calls made: {tool_calls}\n- Iterations: {iterations}\n- Success: {success}\n- Response preview: {response_preview}\n\nFocus on what went well or what could be improved next time.";
 
@@ -54,6 +59,7 @@ struct ReflectionTask {
     success: bool,
     response_preview: String,
     trace_id: Option<String>,
+    consecutive_failures: Arc<std::sync::atomic::AtomicU32>,
 }
 
 /// Callback for recording audit events during agent execution.
@@ -103,6 +109,8 @@ pub struct AgentLoop {
     prompt_assembler: Option<PromptAssembler>,
     /// Optional audit callback for recording key events to the JSONL audit log.
     audit_callback: Option<AuditCallback>,
+    /// Consecutive reflection failure count for escalating log level.
+    consecutive_reflection_failures: Arc<std::sync::atomic::AtomicU32>,
 }
 
 impl AgentLoop {
@@ -132,6 +140,7 @@ impl AgentLoop {
             learning_bus: None,
             prompt_assembler: None,
             audit_callback: None,
+            consecutive_reflection_failures: Arc::new(std::sync::atomic::AtomicU32::new(0)),
         }
     }
 
@@ -472,6 +481,7 @@ impl AgentLoop {
                         let provider_registry = self.provider_registry.clone();
                         let config = self.config.clone();
                         let trace_id = msg.trace_id.clone();
+                        let consecutive_failures = self.consecutive_reflection_failures.clone();
                         tokio::spawn(async move {
                             post_task_reflect(ReflectionTask {
                                 learning_bus: bus,
@@ -483,6 +493,7 @@ impl AgentLoop {
                                 success,
                                 response_preview: result_content,
                                 trace_id,
+                                consecutive_failures,
                             })
                             .await;
                         });
@@ -557,6 +568,7 @@ impl AgentLoop {
                         let user_msg = msg.content.clone();
                         let error_msg = e.to_string();
                         let trace_id = msg.trace_id.clone();
+                        let consecutive_failures = self.consecutive_reflection_failures.clone();
                         tokio::spawn(async move {
                             post_task_reflect(ReflectionTask {
                                 learning_bus: bus,
@@ -568,6 +580,7 @@ impl AgentLoop {
                                 success: false,
                                 response_preview: error_msg,
                                 trace_id,
+                                consecutive_failures,
                             })
                             .await;
                         });
@@ -969,8 +982,13 @@ impl AgentLoop {
 ///
 /// Collects task metadata (user message, tool calls, iterations, outcome),
 /// asks the configured LLM for a 1-2 sentence assessment, and publishes
-/// the result as a [`LearningEvent::TaskReflection`]. Failures are logged
-/// and silently ignored — reflection must not break the agent loop.
+/// the result as a [`LearningEvent::TaskReflection`].
+///
+/// On failure, retries up to [`REFLECTION_MAX_RETRIES`] times with
+/// exponential backoff. If all retries are exhausted, publishes a
+/// [`LearningEvent::ReflectionFailed`] so the event data is not lost.
+/// Consecutive failures are tracked and logged at ERROR level once the
+/// threshold is exceeded.
 async fn post_task_reflect(task: ReflectionTask) {
     let model = &task.config.agent.model;
     let provider = match task.provider_registry.get_provider(model) {
@@ -1015,26 +1033,70 @@ async fn post_task_reflect(task: ReflectionTask) {
         stream: false,
     };
 
-    match provider.complete(request).await {
-        Ok(response) => {
-            if let Some(reflection) = response.content {
-                if !reflection.trim().is_empty() {
-                    let tool_calls_u32 = task.tool_calls_made as u32;
-                    task.learning_bus.publish(LearningEvent::TaskReflection {
-                        task_summary: truncate_str(&task.user_message, 100).to_string(),
-                        tool_calls_count: tool_calls_u32,
-                        success: task.success,
-                        reflection,
-                        timestamp: chrono::Utc::now(),
-                        trace_id: task.trace_id.clone(),
-                    });
+    let mut last_error = String::new();
+    for attempt in 0..=REFLECTION_MAX_RETRIES {
+        match provider.complete(request.clone()).await {
+            Ok(response) => {
+                if let Some(reflection) = response.content {
+                    if !reflection.trim().is_empty() {
+                        task.consecutive_failures
+                            .store(0, std::sync::atomic::Ordering::Relaxed);
+                        let tool_calls_u32 = task.tool_calls_made as u32;
+                        task.learning_bus.publish(LearningEvent::TaskReflection {
+                            task_summary: truncate_str(&task.user_message, 100).to_string(),
+                            tool_calls_count: tool_calls_u32,
+                            success: task.success,
+                            reflection,
+                            timestamp: chrono::Utc::now(),
+                            trace_id: task.trace_id.clone(),
+                        });
+                    }
+                }
+                return;
+            }
+            Err(e) => {
+                last_error = e.to_string();
+                if attempt < REFLECTION_MAX_RETRIES {
+                    let delay = REFLECTION_BACKOFF_BASE_MS * 2u64.pow(attempt);
+                    warn!(
+                        attempt,
+                        max_retries = REFLECTION_MAX_RETRIES,
+                        "Post-task reflection LLM call failed, retrying in {}ms: {}",
+                        delay,
+                        last_error
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                 }
             }
         }
-        Err(e) => {
-            warn!("Post-task reflection LLM call failed: {}", e);
-        }
     }
+
+    // All retries exhausted — track consecutive failures and publish fallback event.
+    let prev = task
+        .consecutive_failures
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let total = prev + 1;
+    if total >= REFLECTION_CONSECUTIVE_ERROR_THRESHOLD {
+        error!(
+            consecutive_failures = total,
+            "Post-task reflection has failed {} times in a row: {}", total, last_error
+        );
+    } else {
+        warn!(
+            "Post-task reflection failed after {} retries: {}",
+            REFLECTION_MAX_RETRIES, last_error
+        );
+    }
+
+    task.learning_bus.publish(LearningEvent::ReflectionFailed {
+        task_summary: truncate_str(&task.user_message, 100).to_string(),
+        tool_calls_count: task.tool_calls_made as u32,
+        success: task.success,
+        error_message: last_error,
+        retry_count: REFLECTION_MAX_RETRIES,
+        timestamp: chrono::Utc::now(),
+        trace_id: task.trace_id.clone(),
+    });
 }
 
 /// Format a conversation turn into a concise memory summary.
@@ -1203,6 +1265,7 @@ mod tests {
     use kestrel_providers::base::{BoxStream, CompletionChunk};
     use kestrel_providers::{CompletionRequest, CompletionResponse, LlmProvider};
     use std::collections::HashMap;
+    use std::sync::atomic::AtomicU32;
 
     fn make_agent_loop() -> AgentLoop {
         let config = Config::default();
@@ -1258,6 +1321,87 @@ mod tests {
         fn supports_model(&self, _model: &str) -> bool {
             true
         }
+    }
+
+    /// Provider that fails the first N calls then succeeds with `response`.
+    struct FailingMockProvider {
+        fail_count: Arc<AtomicU32>,
+        response: String,
+    }
+
+    #[async_trait::async_trait]
+    impl LlmProvider for FailingMockProvider {
+        fn name(&self) -> &str {
+            "failing-mock"
+        }
+
+        fn default_model(&self) -> &str {
+            "mock-model"
+        }
+
+        async fn complete(
+            &self,
+            _request: CompletionRequest,
+        ) -> anyhow::Result<CompletionResponse> {
+            let remaining = self.fail_count.load(std::sync::atomic::Ordering::SeqCst);
+            if remaining > 0 {
+                self.fail_count
+                    .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                return Err(anyhow::anyhow!("transient provider error"));
+            }
+            Ok(CompletionResponse {
+                content: Some(self.response.clone()),
+                tool_calls: None,
+                usage: None,
+                finish_reason: Some("stop".to_string()),
+            })
+        }
+
+        async fn complete_stream(&self, _request: CompletionRequest) -> anyhow::Result<BoxStream> {
+            Ok(Box::pin(stream::iter(vec![Ok(CompletionChunk {
+                delta: Some(self.response.clone()),
+                tool_call_deltas: None,
+                usage: None,
+                done: true,
+            })])))
+        }
+
+        fn supports_model(&self, _model: &str) -> bool {
+            true
+        }
+    }
+
+    /// Provider that always fails.
+    struct AlwaysFailingProvider;
+
+    #[async_trait::async_trait]
+    impl LlmProvider for AlwaysFailingProvider {
+        fn name(&self) -> &str {
+            "always-failing"
+        }
+
+        fn default_model(&self) -> &str {
+            "mock-model"
+        }
+
+        async fn complete(
+            &self,
+            _request: CompletionRequest,
+        ) -> anyhow::Result<CompletionResponse> {
+            Err(anyhow::anyhow!("provider permanently unavailable"))
+        }
+
+        async fn complete_stream(&self, _request: CompletionRequest) -> anyhow::Result<BoxStream> {
+            Err(anyhow::anyhow!("provider permanently unavailable"))
+        }
+
+        fn supports_model(&self, _model: &str) -> bool {
+            true
+        }
+    }
+
+    fn default_consecutive_failures() -> Arc<AtomicU32> {
+        Arc::new(AtomicU32::new(0))
     }
 
     fn make_agent_loop_with_provider(response: &str) -> AgentLoop {
@@ -2466,6 +2610,7 @@ mod tests {
             success: true,
             response_preview: "deployed successfully".to_string(),
             trace_id: None,
+            consecutive_failures: default_consecutive_failures(),
         })
         .await;
 
@@ -2514,6 +2659,7 @@ mod tests {
             success: true,
             response_preview: "ok".to_string(),
             trace_id: None,
+            consecutive_failures: default_consecutive_failures(),
         })
         .await;
 
@@ -2537,9 +2683,149 @@ mod tests {
             success: true,
             response_preview: "done".to_string(),
             trace_id: None,
+            consecutive_failures: default_consecutive_failures(),
         })
         .await;
 
         assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_post_task_reflect_retry_succeeds_on_second_attempt() {
+        let bus = LearningEventBus::new();
+        let mut rx = bus.subscribe();
+
+        let mut config = Config::default();
+        config.agent.model = "mock-model".to_string();
+
+        let mut provider_registry = ProviderRegistry::new();
+        let fail_count = Arc::new(AtomicU32::new(1));
+        provider_registry.register(
+            "failing-mock",
+            FailingMockProvider {
+                fail_count: fail_count.clone(),
+                response: "Retry worked well.".to_string(),
+            },
+        );
+        provider_registry.set_default("failing-mock");
+
+        post_task_reflect(ReflectionTask {
+            learning_bus: bus,
+            provider_registry: Arc::new(provider_registry),
+            config: Arc::new(config),
+            user_message: "deploy".to_string(),
+            tool_calls_made: 1,
+            iterations_used: 1,
+            success: true,
+            response_preview: "done".to_string(),
+            trace_id: None,
+            consecutive_failures: default_consecutive_failures(),
+        })
+        .await;
+
+        let event = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+            .await
+            .expect("timeout")
+            .expect("should receive event");
+
+        match event {
+            LearningEvent::TaskReflection { reflection, .. } => {
+                assert!(reflection.contains("Retry worked"));
+            }
+            other => panic!("Expected TaskReflection, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_post_task_reflect_all_retries_fail_publishes_reflection_failed() {
+        let bus = LearningEventBus::new();
+        let mut rx = bus.subscribe();
+
+        let mut config = Config::default();
+        config.agent.model = "mock-model".to_string();
+
+        let mut provider_registry = ProviderRegistry::new();
+        provider_registry.register("always-failing", AlwaysFailingProvider);
+        provider_registry.set_default("always-failing");
+
+        let failures = default_consecutive_failures();
+        post_task_reflect(ReflectionTask {
+            learning_bus: bus,
+            provider_registry: Arc::new(provider_registry),
+            config: Arc::new(config),
+            user_message: "important task".to_string(),
+            tool_calls_made: 2,
+            iterations_used: 1,
+            success: false,
+            response_preview: "error occurred".to_string(),
+            trace_id: Some("trace-123".to_string()),
+            consecutive_failures: failures.clone(),
+        })
+        .await;
+
+        let event = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
+            .await
+            .expect("timeout")
+            .expect("should receive event");
+
+        match event {
+            LearningEvent::ReflectionFailed {
+                task_summary,
+                tool_calls_count,
+                success,
+                error_message,
+                retry_count,
+                trace_id,
+                ..
+            } => {
+                assert!(task_summary.contains("important task"));
+                assert_eq!(tool_calls_count, 2);
+                assert!(!success);
+                assert!(error_message.contains("permanently unavailable"));
+                assert_eq!(retry_count, REFLECTION_MAX_RETRIES);
+                assert_eq!(trace_id, Some("trace-123".to_string()));
+            }
+            other => panic!("Expected ReflectionFailed, got: {:?}", other),
+        }
+
+        assert_eq!(failures.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn test_post_task_reflect_consecutive_failure_counter_resets_on_success() {
+        let bus = LearningEventBus::new();
+        let mut rx = bus.subscribe();
+
+        let mut config = Config::default();
+        config.agent.model = "mock-model".to_string();
+
+        let mut provider_registry = ProviderRegistry::new();
+        let fail_count = Arc::new(AtomicU32::new(1));
+        provider_registry.register(
+            "failing-mock",
+            FailingMockProvider {
+                fail_count,
+                response: "Success after retry.".to_string(),
+            },
+        );
+        provider_registry.set_default("failing-mock");
+
+        let failures = Arc::new(AtomicU32::new(5));
+        post_task_reflect(ReflectionTask {
+            learning_bus: bus,
+            provider_registry: Arc::new(provider_registry),
+            config: Arc::new(config),
+            user_message: "task".to_string(),
+            tool_calls_made: 1,
+            iterations_used: 1,
+            success: true,
+            response_preview: "ok".to_string(),
+            trace_id: None,
+            consecutive_failures: failures.clone(),
+        })
+        .await;
+
+        let _ = rx.try_recv();
+        assert_eq!(failures.load(std::sync::atomic::Ordering::Relaxed), 0);
     }
 }

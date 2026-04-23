@@ -81,6 +81,25 @@ pub struct AuditLogEntry {
     pub duration_ms: Option<u64>,
 }
 
+/// Callback for recording audit events during agent execution.
+pub type AuditCallback = Arc<dyn Fn(AuditLogEntry) + Send + Sync>;
+
+/// A single audit log entry passed to the audit callback.
+pub struct AuditLogEntry {
+    /// Event type (e.g. "message_received", "message_completed", "error").
+    pub event_type: String,
+    /// Human-readable message.
+    pub message: String,
+    /// Optional trace ID for correlation.
+    pub trace_id: Option<String>,
+    /// Optional session key.
+    pub session_key: Option<String>,
+    /// Optional channel name.
+    pub channel: Option<String>,
+    /// Optional duration in milliseconds.
+    pub duration_ms: Option<u64>,
+}
+
 /// The main agent loop that processes messages from the bus.
 pub struct AgentLoop {
     config: Arc<Config>,
@@ -177,8 +196,15 @@ impl AgentLoop {
                     // Record activity for heartbeat tracking
                     *self.agent_activity.write() = Some(chrono::Local::now());
 
+                    // Extract fields before msg is moved into process_message,
+                    // so the timeout branch can still build a reply.
+                    let timeout_channel = msg.channel.clone();
+                    let timeout_chat_id = msg.chat_id.clone();
+                    let timeout_message_id = msg.message_id.clone();
+                    let timeout_trace_id = msg.trace_id.clone();
+
                     let result = tokio::time::timeout(
-                        std::time::Duration::from_secs(90),
+                        std::time::Duration::from_secs(self.config.agent.message_timeout),
                         self.process_message(msg),
                     )
                     .await;
@@ -186,7 +212,27 @@ impl AgentLoop {
                     match result {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => error!("Error processing message: {}", e),
-                        Err(_) => error!("Message processing timed out after 90s"),
+                        Err(_) => {
+                            let timeout_secs = self.config.agent.message_timeout;
+                            error!("Message processing timed out after {}s", timeout_secs);
+
+                            let timeout_reply = OutboundMessage {
+                                channel: timeout_channel,
+                                chat_id: timeout_chat_id,
+                                content: format!(
+                                    "⏳ Processing your message took too long ({}s limit). \
+                                     Please try again later.",
+                                    timeout_secs
+                                ),
+                                reply_to: timeout_message_id,
+                                trace_id: timeout_trace_id,
+                                media: vec![],
+                                metadata: Default::default(),
+                            };
+                            if let Err(e) = self.bus.publish_outbound(timeout_reply).await {
+                                error!("Failed to send timeout reply: {}", e);
+                            }
+                        }
                     }
                 }
                 None => {

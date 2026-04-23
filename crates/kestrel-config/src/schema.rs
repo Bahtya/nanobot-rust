@@ -559,6 +559,13 @@ pub struct AgentDefaults {
     /// Per-chunk idle timeout in seconds during SSE streaming.
     #[serde(default = "default_idle_timeout")]
     pub idle_timeout: u64,
+
+    /// Message processing timeout in seconds.
+    ///
+    /// When a single message exceeds this duration, the agent loop sends a
+    /// timeout reply to the user instead of silently dropping the message.
+    #[serde(default = "default_message_timeout")]
+    pub message_timeout: u64,
 }
 
 impl Default for AgentDefaults {
@@ -575,6 +582,7 @@ impl Default for AgentDefaults {
             connect_timeout: default_connect_timeout(),
             first_byte_timeout: default_first_byte_timeout(),
             idle_timeout: default_idle_timeout(),
+            message_timeout: default_message_timeout(),
         }
     }
 }
@@ -889,6 +897,10 @@ fn default_max_iterations() -> usize {
 
 fn default_tool_timeout() -> u64 {
     120
+}
+
+const fn default_message_timeout() -> u64 {
+    90
 }
 
 const fn default_connect_timeout() -> u64 {

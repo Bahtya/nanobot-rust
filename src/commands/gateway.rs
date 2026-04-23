@@ -261,6 +261,7 @@ fn event_type_name(event: &LearningEvent) -> &'static str {
         LearningEvent::SkillCreated { .. } => "skill_created",
         LearningEvent::MemoryAccessed { .. } => "memory_accessed",
         LearningEvent::TaskReflection { .. } => "task_reflection",
+        LearningEvent::ReflectionFailed { .. } => "reflection_failed",
     }
 }
 

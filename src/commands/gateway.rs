@@ -26,7 +26,7 @@ use kestrel_learning::processor::BasicEventProcessor;
 use kestrel_learning::prompt::PromptAssembler;
 use kestrel_learning::store::EventStore;
 use kestrel_learning::LearningEventHandler;
-use kestrel_memory::{HotStore, MemoryCategory, MemoryConfig, MemoryEntry, MemoryStore, WarmStore};
+use kestrel_memory::{MemoryCategory, MemoryConfig, MemoryEntry, MemoryStore, TantivyStore};
 use kestrel_providers::ProviderRegistry;
 use kestrel_session::SessionManager;
 use kestrel_skill::{SkillConfig, SkillLoader, SkillRegistry};
@@ -183,7 +183,6 @@ async fn execute_learning_action(
     action: &LearningAction,
     memory_store: Option<&Arc<dyn MemoryStore>>,
     skill_registry: &SkillRegistry,
-    embedding: &Arc<dyn kestrel_memory::EmbeddingGenerator>,
 ) -> Result<()> {
     let span = tracing::info_span!("learning_action", action_type = action_type_name(action),);
     async move {
@@ -214,7 +213,7 @@ async fn execute_learning_action(
                 .with_context(|| format!("failed to deprecate skill '{skill}'")),
             LearningAction::RecordInsight { insight, category } => {
                 let store = memory_store.context("memory store not configured")?;
-                let entry = build_memory_entry(insight, category, embedding).await?;
+                let entry = build_memory_entry(insight, category).await?;
                 store
                     .store(entry)
                     .await
@@ -243,12 +242,9 @@ async fn execute_learning_actions(
     actions: &[LearningAction],
     memory_store: Option<&Arc<dyn MemoryStore>>,
     skill_registry: &SkillRegistry,
-    embedding: &Arc<dyn kestrel_memory::EmbeddingGenerator>,
 ) {
     for action in actions {
-        if let Err(e) =
-            execute_learning_action(action, memory_store, skill_registry, embedding).await
-        {
+        if let Err(e) = execute_learning_action(action, memory_store, skill_registry).await {
             tracing::error!("Failed to execute learning action {:?}: {}", action, e);
         }
     }
@@ -270,18 +266,8 @@ fn event_type_name(event: &LearningEvent) -> &'static str {
 }
 
 /// Convert an insight action into a memory entry for persistence.
-async fn build_memory_entry(
-    insight: &str,
-    category: &str,
-    embedding: &Arc<dyn kestrel_memory::EmbeddingGenerator>,
-) -> Result<MemoryEntry> {
-    let vec = embedding
-        .generate(insight)
-        .await
-        .context("embedding generation failed")?;
-    Ok(MemoryEntry::new(insight, map_memory_category(category))
-        .with_confidence(0.8)
-        .with_embedding(vec))
+async fn build_memory_entry(insight: &str, category: &str) -> Result<MemoryEntry> {
+    Ok(MemoryEntry::new(insight, map_memory_category(category)).with_confidence(0.8))
 }
 
 /// Map a learning insight category to the closest memory category.
@@ -307,7 +293,6 @@ async fn run_learning_consumer<P>(
     processor: &mut P,
     memory_store: Option<Arc<dyn MemoryStore>>,
     skill_registry: Arc<SkillRegistry>,
-    embedding: Arc<dyn kestrel_memory::EmbeddingGenerator>,
 ) where
     P: GatewayLearningProcessor,
 {
@@ -351,7 +336,6 @@ async fn run_learning_consumer<P>(
                             &actions,
                             memory_store.as_ref(),
                             skill_registry.as_ref(),
-                            &embedding,
                         )
                         .await;
 
@@ -423,41 +407,16 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
     // ── Agent loop ────────────────────────────────────────────
     let learning_bus = LearningEventBus::new();
 
-    // Shared embedding generator for memory tools and learning insights.
-    let embedding: Arc<dyn kestrel_memory::EmbeddingGenerator> =
-        Arc::new(kestrel_memory::HashEmbedding::default_dim());
-
     // Initialize memory store early so it can be shared with the learning consumer.
     let memory_config = MemoryConfig {
-        hot_store_path: home.join("memory").join("hot.jsonl"),
-        warm_store_path: home.join("memory").join("warm"),
+        tantivy_store_path: home.join("memory").join("tantivy"),
         ..MemoryConfig::default()
     };
     let memory_store: Option<Arc<dyn kestrel_memory::MemoryStore>> = {
-        match HotStore::new(&memory_config).await {
-            Ok(hot_store) => {
-                let l1: Arc<dyn MemoryStore> = Arc::new(hot_store);
-                if config.dream.enabled {
-                    match WarmStore::new(&memory_config).await {
-                        Ok(warm_store) => {
-                            let tiered =
-                                kestrel_memory::TieredMemoryStore::new(l1, Arc::new(warm_store));
-                            info!("Memory store initialized (HotStore L1 + WarmStore L2)");
-                            Some(Arc::new(tiered))
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                "WarmStore L2 init failed, falling back to L1 only: {}",
-                                e
-                            );
-                            info!("Memory store initialized (HotStore L1 only)");
-                            Some(l1)
-                        }
-                    }
-                } else {
-                    info!("Memory store initialized (HotStore L1 only, WarmStore disabled)");
-                    Some(l1)
-                }
+        match TantivyStore::new(&memory_config).await {
+            Ok(store) => {
+                info!("Memory store initialized (TantivyStore with jieba CJK tokenization)");
+                Some(Arc::new(store))
             }
             Err(e) => {
                 tracing::warn!(
@@ -470,11 +429,10 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
     };
     let heartbeat_memory_store = memory_store.clone();
     let learning_memory_store = memory_store.clone();
-    let learning_embedding = embedding.clone();
 
     // Register memory tools if the memory store is available.
     if let Some(ref ms) = memory_store {
-        builtins::register_memory_tools(&tool_registry, ms.clone(), embedding.clone());
+        builtins::register_memory_tools(&tool_registry, ms.clone());
         info!("Memory tools registered (store_memory, recall_memory)");
     }
 
@@ -689,7 +647,6 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
                 &mut processor,
                 memory_store,
                 skill_registry,
-                learning_embedding,
             )
             .await;
         })
@@ -779,11 +736,8 @@ mod tests {
     use super::*;
     use chrono::Utc;
     use kestrel_learning::event::SkillOutcome;
-    use kestrel_memory::{HashEmbedding, MemoryQuery, ScoredEntry};
+    use kestrel_memory::{MemoryQuery, ScoredEntry};
 
-    fn test_embedding() -> Arc<dyn kestrel_memory::EmbeddingGenerator> {
-        Arc::new(HashEmbedding::default_dim())
-    }
     use kestrel_skill::manifest::SkillManifestBuilder;
     use kestrel_skill::skill::CompiledSkill;
     use kestrel_skill::Skill;
@@ -1090,7 +1044,6 @@ mod tests {
             },
             None,
             &registry,
-            &test_embedding(),
         )
         .await
         .unwrap();
@@ -1124,7 +1077,6 @@ mod tests {
             },
             None,
             &registry,
-            &test_embedding(),
         )
         .await
         .unwrap();
@@ -1135,7 +1087,6 @@ mod tests {
             },
             None,
             &registry,
-            &test_embedding(),
         )
         .await
         .unwrap();
@@ -1167,7 +1118,6 @@ mod tests {
             },
             Some(&memory_store),
             &skill_registry,
-            &test_embedding(),
         )
         .await
         .unwrap();
@@ -1176,10 +1126,6 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].content, "remember this");
         assert_eq!(entries[0].category, MemoryCategory::Environment);
-        assert!(
-            entries[0].embedding.is_some(),
-            "learning insight should have an embedding"
-        );
     }
 
     #[tokio::test]
@@ -1207,7 +1153,6 @@ mod tests {
             &actions,
             Some(&memory_store),
             &skill_registry,
-            &test_embedding(),
         )
         .await;
 
@@ -1238,7 +1183,6 @@ mod tests {
                 &mut processor,
                 None,
                 skill_registry,
-                test_embedding(),
             )
             .await;
         });

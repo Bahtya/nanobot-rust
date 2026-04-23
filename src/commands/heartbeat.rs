@@ -6,7 +6,7 @@ use kestrel_config::Config;
 use kestrel_heartbeat::{
     BusHealthCheck, HeartbeatService, MemoryStoreHealthCheck, ProviderHealthCheck,
 };
-use kestrel_memory::{HotStore, MemoryConfig, MemoryStore};
+use kestrel_memory::{MemoryConfig, MemoryStore, TantivyStore};
 use kestrel_providers::ProviderRegistry;
 use kestrel_session::SessionManager;
 use kestrel_tools::builtins;
@@ -40,12 +40,12 @@ pub async fn run(config: Config, dangerous: bool) -> Result<()> {
     heartbeat.register_check(std::sync::Arc::new(BusHealthCheck::new(bus)));
 
     let memory_config = MemoryConfig {
-        hot_store_path: home.join("memory").join("hot.jsonl"),
+        tantivy_store_path: home.join("memory").join("tantivy"),
         ..MemoryConfig::default()
     };
-    match HotStore::new(&memory_config).await {
-        Ok(hot_store) => {
-            let store: std::sync::Arc<dyn MemoryStore> = std::sync::Arc::new(hot_store);
+    match TantivyStore::new(&memory_config).await {
+        Ok(store_impl) => {
+            let store: std::sync::Arc<dyn MemoryStore> = std::sync::Arc::new(store_impl);
             heartbeat.register_check(std::sync::Arc::new(MemoryStoreHealthCheck::new(store)));
         }
         Err(e) => {

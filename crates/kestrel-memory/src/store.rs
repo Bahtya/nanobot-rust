@@ -7,7 +7,7 @@ use crate::types::{MemoryEntry, MemoryQuery, ScoredEntry};
 
 /// Async interface for memory storage backends.
 ///
-/// All memory stores (HotStore L1, WarmStore L2) implement this trait,
+/// All memory stores implement this trait,
 /// providing a uniform API for storing, recalling, searching, and deleting
 /// memory entries.
 #[async_trait]

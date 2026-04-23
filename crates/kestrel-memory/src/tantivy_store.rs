@@ -39,7 +39,6 @@ pub struct TantivyStore {
     index: Index,
     reader: IndexReader,
     writer: Arc<Mutex<IndexWriter>>,
-    schema: Schema,
     max_entries: usize,
     // Pre-bound field handles
     id_field: Field,
@@ -98,7 +97,6 @@ impl TantivyStore {
             index,
             reader,
             writer: Arc::new(Mutex::new(writer)),
-            schema,
             max_entries: config.max_entries,
             id_field,
             content_field,

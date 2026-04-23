@@ -256,16 +256,26 @@ impl MemoryStore for TantivyStore {
 
         // Delete existing entry with same id (upsert)
         let term = tantivy::Term::from_field_text(self.id_field, &entry.id);
+        let existing = {
+            let searcher = self.reader.searcher();
+            let query = TermQuery::new(term.clone(), IndexRecordOption::Basic);
+            searcher
+                .search(&query, &tantivy::collector::Count)
+                .map_err(tantivy_err)?
+                > 0
+        };
         writer.delete_term(term);
 
-        // Check capacity
-        let searcher = self.reader.searcher();
-        let num_docs = searcher.num_docs() as usize;
-        if num_docs >= self.max_entries {
-            return Err(MemoryError::CapacityExceeded {
-                max: self.max_entries,
-                current: num_docs,
-            });
+        // Check capacity only for new entries (not overwrites)
+        if !existing {
+            let searcher = self.reader.searcher();
+            let num_docs = searcher.num_docs() as usize;
+            if num_docs >= self.max_entries {
+                return Err(MemoryError::CapacityExceeded {
+                    max: self.max_entries,
+                    current: num_docs,
+                });
+            }
         }
 
         writer

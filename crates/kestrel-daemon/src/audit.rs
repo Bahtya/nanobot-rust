@@ -36,7 +36,10 @@ pub struct AuditEvent {
 /// Creates the file if it doesn't exist. Each call appends one line.
 /// Errors are logged via `tracing::warn` but not propagated — audit
 /// logging must not break the agent loop.
-pub fn append_audit_event(log_dir: &str, event: &AuditEvent) {
+///
+/// Uses `tokio::task::spawn_blocking` to avoid blocking the async runtime
+/// with file I/O.
+pub async fn append_audit_event(log_dir: &str, event: &AuditEvent) {
     let path = Path::new(log_dir).join("kestrel.audit.jsonl");
 
     let line = match serde_json::to_string(event) {
@@ -47,20 +50,25 @@ pub fn append_audit_event(log_dir: &str, event: &AuditEvent) {
         }
     };
 
-    match std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-    {
-        Ok(mut file) => {
-            if let Err(e) = writeln!(file, "{}", line) {
-                tracing::warn!("Failed to write audit event: {}", e);
+    let path = path.clone();
+    tokio::task::spawn_blocking(move || {
+        match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            Ok(mut file) => {
+                if let Err(e) = writeln!(file, "{}", line) {
+                    tracing::warn!("Failed to write audit event: {}", e);
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to open audit log {:?}: {}", path, e);
             }
         }
-        Err(e) => {
-            tracing::warn!("Failed to open audit log {:?}: {}", path, e);
-        }
-    }
+    })
+    .await
+    .unwrap_or(());
 }
 
 /// Create a timestamped audit event with the current UTC time.
@@ -88,8 +96,8 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    #[test]
-    fn test_append_audit_event_creates_file() {
+    #[tokio::test]
+    async fn test_append_audit_event_creates_file() {
         let tmp = TempDir::new().unwrap();
         let log_dir = tmp.path().to_str().unwrap();
 
@@ -102,7 +110,7 @@ mod tests {
             "User sent hello".to_string(),
         );
 
-        append_audit_event(log_dir, &event);
+        append_audit_event(log_dir, &event).await;
 
         let content = std::fs::read_to_string(tmp.path().join("kestrel.audit.jsonl")).unwrap();
         assert!(content.contains("message_received"));
@@ -111,8 +119,8 @@ mod tests {
         assert!(content.contains("User sent hello"));
     }
 
-    #[test]
-    fn test_append_multiple_events() {
+    #[tokio::test]
+    async fn test_append_multiple_events() {
         let tmp = TempDir::new().unwrap();
         let log_dir = tmp.path().to_str().unwrap();
 
@@ -126,7 +134,8 @@ mod tests {
                 None,
                 "first".to_string(),
             ),
-        );
+        )
+        .await;
         append_audit_event(
             log_dir,
             &audit_event(
@@ -137,7 +146,8 @@ mod tests {
                 Some(150),
                 "second".to_string(),
             ),
-        );
+        )
+        .await;
 
         let content = std::fs::read_to_string(tmp.path().join("kestrel.audit.jsonl")).unwrap();
         let lines: Vec<&str> = content.trim().lines().collect();
@@ -165,12 +175,13 @@ mod tests {
         assert!(json.contains("error"));
     }
 
-    #[test]
-    fn test_append_audit_event_nonexistent_dir() {
+    #[tokio::test]
+    async fn test_append_audit_event_nonexistent_dir() {
         // Should not panic — just log a warning
         append_audit_event(
             "/tmp/nonexistent_kestrel_audit_test",
             &audit_event("test", None, None, None, None, "ok".to_string()),
-        );
+        )
+        .await;
     }
 }

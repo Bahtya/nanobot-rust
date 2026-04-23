@@ -467,6 +467,27 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
             tool_registry.clone(),
         );
 
+        // Wire audit callback for JSONL audit logging
+        let audit_log_dir = config.daemon.log_dir.clone();
+        let audit_cb: kestrel_agent::AuditCallback =
+            Arc::new(move |entry: kestrel_agent::AuditLogEntry| {
+                let event = kestrel_daemon::audit::audit_event(
+                    &entry.event_type,
+                    entry.trace_id,
+                    entry.session_key,
+                    entry.channel,
+                    entry.duration_ms,
+                    entry.message,
+                );
+                // Use a blocking write via spawn_blocking — the callback must be
+                // sync (Fn, not async), so we fire-and-forget the spawned task.
+                let log_dir = audit_log_dir.clone();
+                tokio::spawn(async move {
+                    kestrel_daemon::audit::append_audit_event(&log_dir, &event).await;
+                });
+            });
+        al = al.with_audit_callback(audit_cb);
+
         // Wire memory store (TieredStore L1+L2)
         if let Some(ref ms) = memory_store {
             al = al.with_memory_store(ms.clone());
@@ -607,6 +628,13 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
             tracing::error!("API server error: {}", e);
         }
     });
+
+    // ── Log auto-cleanup ──────────────────────────────────────
+    {
+        let log_dir = config.daemon.log_dir.clone();
+        let retain_days = config.daemon.log_retain_days;
+        let _log_cleanup_handle = kestrel_daemon::logging::spawn_log_cleanup(log_dir, retain_days);
+    }
 
     // ── Learning event processor + persistent store ──────────
     let learning_config = LearningConfig::default();

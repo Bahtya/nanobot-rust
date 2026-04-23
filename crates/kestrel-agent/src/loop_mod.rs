@@ -56,6 +56,25 @@ struct ReflectionTask {
     trace_id: Option<String>,
 }
 
+/// Callback for recording audit events during agent execution.
+pub type AuditCallback = Arc<dyn Fn(AuditLogEntry) + Send + Sync>;
+
+/// A single audit log entry passed to the audit callback.
+pub struct AuditLogEntry {
+    /// Event type (e.g. "message_received", "message_completed", "error").
+    pub event_type: String,
+    /// Human-readable message.
+    pub message: String,
+    /// Optional trace ID for correlation.
+    pub trace_id: Option<String>,
+    /// Optional session key.
+    pub session_key: Option<String>,
+    /// Optional channel name.
+    pub channel: Option<String>,
+    /// Optional duration in milliseconds.
+    pub duration_ms: Option<u64>,
+}
+
 /// The main agent loop that processes messages from the bus.
 pub struct AgentLoop {
     config: Arc<Config>,
@@ -82,6 +101,8 @@ pub struct AgentLoop {
     learning_bus: Option<LearningEventBus>,
     /// Optional prompt assembler for dynamic system prompt construction.
     prompt_assembler: Option<PromptAssembler>,
+    /// Optional audit callback for recording key events to the JSONL audit log.
+    audit_callback: Option<AuditCallback>,
 }
 
 impl AgentLoop {
@@ -110,6 +131,7 @@ impl AgentLoop {
             memory_config: None,
             learning_bus: None,
             prompt_assembler: None,
+            audit_callback: None,
         }
     }
 
@@ -194,6 +216,15 @@ impl AgentLoop {
                 channel = %msg.channel,
                 "Incoming message"
             );
+
+            self.record_audit(AuditLogEntry {
+                event_type: "message_received".to_string(),
+                message: content_preview.to_string(),
+                trace_id: msg.trace_id.clone(),
+                session_key: Some(session_key.clone()),
+                channel: Some(format!("{}", msg.channel)),
+                duration_ms: None,
+            });
 
             info!("Processing message");
 
@@ -357,6 +388,19 @@ impl AgentLoop {
                         iterations = result.iterations_used,
                         "Agent run completed"
                     );
+
+                    self.record_audit(AuditLogEntry {
+                        event_type: "message_completed".to_string(),
+                        message: format!(
+                            "tool_calls={}, iterations={}",
+                            result.tool_calls_made, result.iterations_used
+                        ),
+                        trace_id: msg.trace_id.clone(),
+                        session_key: Some(session_key.clone()),
+                        channel: Some(format!("{}", msg.channel)),
+                        duration_ms: Some(duration_ms),
+                    });
+
                     session.add_assistant_message(result.content.clone());
 
                     // Auto-extract structured notes from the response
@@ -462,7 +506,17 @@ impl AgentLoop {
                         .await;
                 }
                 Err(e) => {
-                    let error_msg = format!("处理消息时遇到问题: {e}，请稍后重试");
+                    let error_msg = format!("An error occurred while processing your message: {e}. Please try again later.");
+
+                    self.record_audit(AuditLogEntry {
+                        event_type: "error".to_string(),
+                        message: format!("{:#}", e),
+                        trace_id: msg.trace_id.clone(),
+                        session_key: Some(session_key.clone()),
+                        channel: Some(format!("{}", msg.channel)),
+                        duration_ms: None,
+                    });
+
                     error!(
                         error = %e,
                         "Agent run error for session {}, sending error reply",
@@ -661,6 +715,13 @@ impl AgentLoop {
 
         if let Err(e) = store.store(entry).await {
             warn!("Failed to store conversation memory: {}", e);
+        }
+    }
+
+    /// Record an audit event if an audit callback is attached.
+    fn record_audit(&self, entry: AuditLogEntry) {
+        if let Some(cb) = &self.audit_callback {
+            cb(entry);
         }
     }
 
@@ -886,6 +947,15 @@ impl AgentLoop {
     /// Get the prompt assembler, if one has been attached.
     pub fn prompt_assembler(&self) -> Option<&PromptAssembler> {
         self.prompt_assembler.as_ref()
+    }
+
+    /// Attach an audit callback for recording key events to the JSONL audit log.
+    ///
+    /// When set, the agent loop will record audit events at message processing
+    /// start, completion, and error points.
+    pub fn with_audit_callback(mut self, cb: AuditCallback) -> Self {
+        self.audit_callback = Some(cb);
+        self
     }
 
     /// Get the sub-agent manager, if one has been attached.

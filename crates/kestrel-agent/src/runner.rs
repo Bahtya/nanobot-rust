@@ -205,21 +205,19 @@ impl AgentRunner {
             conversation.push(assistant_msg);
 
             // Execute tool calls concurrently
-            let tool_start = std::time::Instant::now();
             let results = self.execute_tools(&tool_calls).await;
-            let tool_duration_ms = tool_start.elapsed().as_millis() as u64;
             tool_calls_made += tool_calls.len();
 
-            for tc in &tool_calls {
+            for (tc, (_, duration_ms)) in tool_calls.iter().zip(&results) {
                 debug!(
                     tool_name = %tc.function.name,
-                    duration_ms = tool_duration_ms,
+                    duration_ms = *duration_ms,
                     "Tool call completed"
                 );
             }
 
             // Add tool results to conversation
-            for (tool_call, result) in tool_calls.iter().zip(results) {
+            for (tool_call, (result, _)) in tool_calls.iter().zip(results) {
                 conversation.push(Message {
                     role: MessageRole::Tool,
                     content: result,
@@ -377,7 +375,7 @@ impl AgentRunner {
     /// Read-only tools run concurrently as before. Mutating tools each
     /// acquire a shared mutex before executing, guaranteeing they run
     /// one at a time even when the LLM issues several in a single turn.
-    async fn execute_tools(&self, tool_calls: &[ToolCall]) -> Vec<String> {
+    async fn execute_tools(&self, tool_calls: &[ToolCall]) -> Vec<(String, u64)> {
         let mut handles = Vec::new();
 
         for tc in tool_calls {
@@ -388,18 +386,22 @@ impl AgentRunner {
             let is_mutating = self.tools.is_mutating(&tool_name);
 
             let handle = tokio::spawn(async move {
+                let start = std::time::Instant::now();
                 let args: Value = match serde_json::from_str(&args_str) {
                     Ok(v) => v,
                     Err(e) => {
-                        return format!(
-                            "Tool argument error for '{}': failed to parse arguments: {}. \
+                        return (
+                            format!(
+                                "Tool argument error for '{}': failed to parse arguments: {}. \
                              Raw arguments: {:?}",
-                            tool_name, e, args_str
+                                tool_name, e, args_str
+                            ),
+                            start.elapsed().as_millis() as u64,
                         );
                     }
                 };
 
-                if is_mutating {
+                let result = if is_mutating {
                     let _lock = guard.lock().await;
                     match tools.execute(&tool_name, args).await {
                         Ok(result) => result,
@@ -410,7 +412,8 @@ impl AgentRunner {
                         Ok(result) => result,
                         Err(e) => format!("Tool error: {}", e),
                     }
-                }
+                };
+                (result, start.elapsed().as_millis() as u64)
             });
 
             handles.push(handle);
@@ -419,8 +422,8 @@ impl AgentRunner {
         let mut results = Vec::new();
         for handle in handles {
             match handle.await {
-                Ok(result) => results.push(result),
-                Err(e) => results.push(format!("Tool execution failed: {}", e)),
+                Ok((result, duration)) => results.push((result, duration)),
+                Err(e) => results.push((format!("Tool execution failed: {}", e), 0)),
             }
         }
 
@@ -527,7 +530,7 @@ mod tests {
         // Counter must be exactly 3
         assert_eq!(counter.load(Ordering::SeqCst), 3);
         // Each result should be distinct (serialized execution)
-        assert!(results.iter().all(|r| r.starts_with("write-")));
+        assert!(results.iter().all(|(r, _)| r.starts_with("write-")));
     }
 
     #[tokio::test]
@@ -606,7 +609,7 @@ mod tests {
 
         assert_eq!(results.len(), 1);
         assert_eq!(counter.load(Ordering::SeqCst), 1);
-        assert_eq!(results[0], "exec-0");
+        assert_eq!(results[0].0, "exec-0");
     }
 
     #[tokio::test]
@@ -629,8 +632,28 @@ mod tests {
         let results = runner.execute_tools(&calls).await;
 
         assert_eq!(results.len(), 1);
-        assert!(results[0].contains("Tool error"));
-        assert!(results[0].contains("not found"));
+        assert!(results[0].0.contains("Tool error"));
+        assert!(results[0].0.contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_per_tool_duration_tracked() {
+        let registry = ToolRegistry::new();
+        registry.register(
+            CountingTool::new("slow", false, Arc::new(AtomicUsize::new(0)))
+                .with_work_duration(std::time::Duration::from_millis(50)),
+        );
+
+        let runner = make_runner(registry);
+        let calls = vec![tool_call("slow", 1)];
+        let results = runner.execute_tools(&calls).await;
+
+        assert_eq!(results.len(), 1);
+        let (_, duration_ms) = &results[0];
+        assert!(
+            *duration_ms >= 40,
+            "per-tool duration should reflect actual execution time, got {duration_ms}ms"
+        );
     }
 
     #[test]

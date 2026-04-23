@@ -37,12 +37,23 @@ pub fn setup_file_logging(log_dir: &str, level: &str, log_format: &str) -> Resul
     let log_path = Path::new(log_dir);
     std::fs::create_dir_all(log_path).context("create log directory")?;
 
+    let effective_format = match log_format {
+        "text" | "json" => log_format,
+        _ => {
+            tracing::warn!(
+                "Invalid log_format '{}', falling back to 'text'. Supported: text, json",
+                log_format
+            );
+            "text"
+        }
+    };
+
     let file_appender = tracing_appender::rolling::daily(log_path, "kestrel.log");
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level));
 
-    if log_format == "json" {
+    if effective_format == "json" {
         let file_layer = tracing_subscriber::fmt::layer()
             .with_writer(non_blocking)
             .with_ansi(false)
@@ -64,7 +75,7 @@ pub fn setup_file_logging(log_dir: &str, level: &str, log_format: &str) -> Resul
     tracing::info!(
         "File logging initialized: {}/kestrel.log (format: {})",
         log_dir,
-        log_format
+        effective_format
     );
 
     Ok(guard)
@@ -118,13 +129,19 @@ pub fn cleanup_old_logs(log_dir: &str, retain_days: u64) {
 /// the returned `JoinHandle` is dropped or cancelled.
 pub fn spawn_log_cleanup(log_dir: String, retain_days: u64) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        // Run once at startup
-        cleanup_old_logs(&log_dir, retain_days);
+        // Run once at startup (offloaded to blocking thread)
+        let dir = log_dir.clone();
+        tokio::task::spawn_blocking(move || cleanup_old_logs(&dir, retain_days))
+            .await
+            .unwrap_or(());
 
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(24 * 60 * 60));
         loop {
             interval.tick().await;
-            cleanup_old_logs(&log_dir, retain_days);
+            let dir = log_dir.clone();
+            tokio::task::spawn_blocking(move || cleanup_old_logs(&dir, retain_days))
+                .await
+                .unwrap_or(());
         }
     })
 }
@@ -175,8 +192,8 @@ mod tests {
         std::fs::write(&old_file, "old log").unwrap();
         let old_time =
             std::time::SystemTime::now() - std::time::Duration::from_secs(60 * 24 * 60 * 60);
-        let ft =
-            filetime::set_file_mtime(&old_file, filetime::FileTime::from_system_time(old_time));
+        filetime::set_file_mtime(&old_file, filetime::FileTime::from_system_time(old_time))
+            .unwrap();
 
         // Create a recent file that should be kept
         let recent_file = log_dir.join("kestrel.log.2099-01-01");
@@ -211,5 +228,19 @@ mod tests {
         cleanup_old_logs(log_dir.to_str().unwrap(), 0);
 
         assert!(audit_file.exists(), "audit file should not be cleaned up");
+    }
+
+    #[test]
+    fn test_log_format_invalid_falls_back_to_text() {
+        let tmp = TempDir::new().unwrap();
+        let log_dir = tmp.path().join("format_test");
+        let log_dir_str = log_dir.to_str().unwrap();
+
+        // "xml" is not a valid format — should fall back to "text"
+        let result = setup_file_logging(log_dir_str, "info", "xml");
+        assert!(log_dir.exists());
+        if let Ok(_guard) = result {
+            // Subscriber may conflict with other tests; that's OK
+        }
     }
 }

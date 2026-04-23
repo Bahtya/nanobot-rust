@@ -5,10 +5,11 @@
 //! confidence, text) is pushed down to tantivy queries — no post-hoc memory filtering.
 
 use async_trait::async_trait;
+use std::ops::Bound;
 use std::path::Path;
 use std::sync::Arc;
 use tantivy::collector::TopDocs;
-use tantivy::query::{BooleanQuery, Occur, QueryParser, TermQuery};
+use tantivy::query::{BooleanQuery, Occur, QueryParser, RangeQuery, TermQuery};
 use tantivy::schema::*;
 use tantivy::{doc, Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument};
 use tantivy_jieba::JiebaTokenizer;
@@ -62,22 +63,22 @@ impl TantivyStore {
         let updated_at_field = schema.get_field(field::UPDATED_AT).map_err(tantivy_err)?;
         let access_count_field = schema.get_field(field::ACCESS_COUNT).map_err(tantivy_err)?;
 
-        let tantivy_path = config.tantivy_store_path();
-        tokio::fs::create_dir_all(&tantivy_path)
+        let tantivy_path = &config.tantivy_store_path;
+        tokio::fs::create_dir_all(tantivy_path)
             .await
             .map_err(MemoryError::Io)?;
 
-        let index = if Path::new(&tantivy_path).exists()
-            && std::fs::read_dir(&tantivy_path)
+        let index = if Path::new(tantivy_path).exists()
+            && std::fs::read_dir(tantivy_path)
                 .map(|mut d| d.next().is_some())
                 .unwrap_or(false)
         {
-            Index::open_in_dir(&tantivy_path).map_err(tantivy_err)?
+            Index::open_in_dir(tantivy_path).map_err(tantivy_err)?
         } else {
             // Clean up stale files before creating fresh index
-            let _ = std::fs::remove_dir_all(&tantivy_path);
-            std::fs::create_dir_all(&tantivy_path).map_err(MemoryError::Io)?;
-            Index::create_in_dir(&tantivy_path, schema.clone()).map_err(tantivy_err)?
+            let _ = std::fs::remove_dir_all(tantivy_path);
+            std::fs::create_dir_all(tantivy_path).map_err(MemoryError::Io)?;
+            Index::create_in_dir(tantivy_path, schema.clone()).map_err(tantivy_err)?
         };
 
         // Register jieba tokenizer for CJK support
@@ -145,7 +146,7 @@ impl TantivyStore {
         let confidence = doc
             .get_first(self.confidence_field)
             .and_then(|v| v.as_f64())
-            .ok_or_else(|| MemoryError::SearchEngine("missing confidence field".into))?;
+            .ok_or_else(|| MemoryError::SearchEngine("missing confidence field".to_string()))?;
 
         let created_at_micros = doc
             .get_first(self.created_at_field)
@@ -159,7 +160,7 @@ impl TantivyStore {
         let access_count = doc
             .get_first(self.access_count_field)
             .and_then(|v| v.as_u64())
-            .ok_or_else(|| MemoryError::SearchEngine("missing access_count field".into))?
+            .ok_or_else(|| MemoryError::SearchEngine("missing access_count field".to_string()))?
             as u32;
 
         Ok(MemoryEntry {
@@ -204,10 +205,12 @@ impl TantivyStore {
 
         // Confidence filter — range query: confidence >= min_confidence
         if let Some(min_conf) = query.min_confidence {
-            let range = tantivy::query::RangeQuery::new_f64_bounds(
-                self.confidence_field,
-                tantivy::query::Bound::Included(min_conf),
-                tantivy::query::Bound::Unbounded,
+            let range = RangeQuery::new(
+                Bound::Included(tantivy::Term::from_field_f64(
+                    self.confidence_field,
+                    min_conf,
+                )),
+                Bound::Unbounded,
             );
             clauses.push((Occur::Must, Box::new(range)));
         }
@@ -225,7 +228,7 @@ impl TantivyStore {
     /// Delete a document by entry ID.
     async fn delete_by_id(&self, id: &str) -> Result<()> {
         let term = tantivy::Term::from_field_text(self.id_field, id);
-        let writer = self.writer.lock().await;
+        let mut writer = self.writer.lock().await;
         writer.delete_term(term);
         writer.commit().map_err(tantivy_err)?;
         self.reader.reload().map_err(tantivy_err)?;
@@ -245,7 +248,7 @@ impl MemoryStore for TantivyStore {
             return Err(MemoryError::SecurityViolation(reason));
         }
 
-        let writer = self.writer.lock().await;
+        let mut writer = self.writer.lock().await;
 
         // Delete existing entry with same id (upsert)
         let term = tantivy::Term::from_field_text(self.id_field, &entry.id);
@@ -275,7 +278,7 @@ impl MemoryStore for TantivyStore {
         let searcher = self.reader.searcher();
 
         let top_docs = searcher
-            .search(&query, &TopDocs::with_limit(1))
+            .search(&query, TopDocs::with_limit(1).order_by_score())
             .map_err(tantivy_err)?;
 
         if let Some((_score, doc_address)) = top_docs.first() {
@@ -284,7 +287,7 @@ impl MemoryStore for TantivyStore {
             entry.touch();
 
             // Update access count in index
-            let writer = self.writer.lock().await;
+            let mut writer = self.writer.lock().await;
             let del_term = tantivy::Term::from_field_text(self.id_field, id);
             writer.delete_term(del_term);
             writer
@@ -304,7 +307,7 @@ impl MemoryStore for TantivyStore {
         let searcher = self.reader.searcher();
 
         let top_docs = searcher
-            .search(&tantivy_query, &TopDocs::with_limit(query.limit))
+            .search(&tantivy_query, TopDocs::with_limit(query.limit).order_by_score())
             .map_err(tantivy_err)?;
 
         let mut results = Vec::with_capacity(top_docs.len());
@@ -329,7 +332,7 @@ impl MemoryStore for TantivyStore {
     }
 
     async fn clear(&self) -> Result<()> {
-        let writer = self.writer.lock().await;
+        let mut writer = self.writer.lock().await;
         writer.delete_all_documents().map_err(tantivy_err)?;
         writer.commit().map_err(tantivy_err)?;
         self.reader.reload().map_err(tantivy_err)?;

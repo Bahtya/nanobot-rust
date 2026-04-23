@@ -26,15 +26,6 @@ pub enum MemoryError {
         current: usize,
     },
 
-    /// An invalid embedding vector was provided.
-    #[error("Invalid embedding: expected dimension {expected}, got {actual}")]
-    InvalidEmbedding {
-        /// Expected embedding dimension.
-        expected: usize,
-        /// Actual embedding dimension provided.
-        actual: usize,
-    },
-
     /// A configuration error occurred.
     #[error("Configuration error: {0}")]
     Config(String),
@@ -46,10 +37,6 @@ pub enum MemoryError {
     /// A security violation was detected in a memory entry.
     #[error("Security violation: {0}")]
     SecurityViolation(String),
-
-    /// A concurrent write conflict occurred.
-    #[error("Concurrent write conflict: {0}")]
-    ConcurrentWrite(String),
 }
 
 /// Convenience type alias for Results using MemoryError.
@@ -70,13 +57,6 @@ mod tests {
         };
         assert!(err.to_string().contains("100"));
 
-        let err = MemoryError::InvalidEmbedding {
-            expected: 1536,
-            actual: 512,
-        };
-        assert!(err.to_string().contains("1536"));
-        assert!(err.to_string().contains("512"));
-
         let err = MemoryError::Config("bad config".to_string());
         assert!(err.to_string().contains("bad config"));
 
@@ -92,14 +72,6 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("Security violation"));
         assert!(msg.contains("jailbreak"));
-    }
-
-    #[test]
-    fn test_concurrent_write_display() {
-        let err = MemoryError::ConcurrentWrite("lock acquisition failed".to_string());
-        let msg = err.to_string();
-        assert!(msg.contains("Concurrent write conflict"));
-        assert!(msg.contains("lock acquisition failed"));
     }
 
     #[test]
@@ -124,13 +96,5 @@ mod tests {
         assert!(err.is_err());
         let msg = err.unwrap_err().to_string();
         assert!(msg.contains("Security violation"));
-    }
-
-    #[test]
-    fn test_result_with_concurrent_write() {
-        let err: Result<()> = Err(MemoryError::ConcurrentWrite("conflict".to_string()));
-        assert!(err.is_err());
-        let msg = err.unwrap_err().to_string();
-        assert!(msg.contains("Concurrent write conflict"));
     }
 }

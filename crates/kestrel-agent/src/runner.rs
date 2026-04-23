@@ -246,7 +246,11 @@ impl AgentRunner {
         let mut is_first = true;
 
         loop {
-            let timeout = if is_first { first_chunk_timeout } else { idle_timeout };
+            let timeout = if is_first {
+                first_chunk_timeout
+            } else {
+                idle_timeout
+            };
             let chunk_result = tokio::time::timeout(timeout, stream.next()).await;
             is_first = false;
 

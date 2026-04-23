@@ -425,7 +425,10 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
                             Some(Arc::new(tiered))
                         }
                         Err(e) => {
-                            tracing::warn!("WarmStore L2 init failed, falling back to L1 only: {}", e);
+                            tracing::warn!(
+                                "WarmStore L2 init failed, falling back to L1 only: {}",
+                                e
+                            );
                             info!("Memory store initialized (HotStore L1 only)");
                             Some(l1)
                         }

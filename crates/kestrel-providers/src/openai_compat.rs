@@ -169,11 +169,8 @@ impl OpenAiCompatProvider {
                     }
                 }
 
-                let chunk_result = tokio::time::timeout(
-                    std::time::Duration::from_secs(30),
-                    stream.next(),
-                )
-                .await;
+                let chunk_result =
+                    tokio::time::timeout(std::time::Duration::from_secs(30), stream.next()).await;
 
                 let chunk_result = match chunk_result {
                     Ok(Some(r)) => r,

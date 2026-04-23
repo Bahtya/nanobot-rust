@@ -97,7 +97,10 @@ mod tests {
         assert_eq!(config.max_entries, 1000);
         assert_eq!(config.memory_char_budget, 2200);
         assert_eq!(config.memory_char_budget_overflow, 1375);
-        assert!(config.tantivy_store_path.to_string_lossy().contains(".kestrel"));
+        assert!(config
+            .tantivy_store_path
+            .to_string_lossy()
+            .contains(".kestrel"));
     }
 
     #[test]

@@ -42,10 +42,7 @@ pub fn register_all_with_config(registry: &ToolRegistry, config: BuiltinsConfig)
 }
 
 /// Register memory tools that require a memory store.
-pub fn register_memory_tools(
-    registry: &ToolRegistry,
-    store: Arc<dyn MemoryStore>,
-) {
+pub fn register_memory_tools(registry: &ToolRegistry, store: Arc<dyn MemoryStore>) {
     registry.register(memory::StoreMemoryTool::new(store.clone()));
     registry.register(memory::RecallMemoryTool::new(store));
 }

@@ -84,7 +84,7 @@ impl TantivyStore {
         // Register jieba tokenizer for CJK support
         index
             .tokenizers()
-            .register(MEMORY_TOKENIZER, JiebaTokenizer {});
+            .register(MEMORY_TOKENIZER, JiebaTokenizer::new());
 
         let reader = index
             .reader_builder()
@@ -183,13 +183,10 @@ impl TantivyStore {
         // Text search via QueryParser (uses jieba tokenizer on content field)
         if let Some(ref text) = query.text {
             if !text.is_empty() {
-                let parser = QueryParser::for_index(
-                    &self.index,
-                    vec![self.content_field],
-                );
-                let parsed = parser.parse_query(text).map_err(|e| {
-                    MemoryError::SearchEngine(format!("query parse error: {e}"))
-                })?;
+                let parser = QueryParser::for_index(&self.index, vec![self.content_field]);
+                let parsed = parser
+                    .parse_query(text)
+                    .map_err(|e| MemoryError::SearchEngine(format!("query parse error: {e}")))?;
                 clauses.push((Occur::Must, parsed));
             }
         }
@@ -278,7 +275,7 @@ impl MemoryStore for TantivyStore {
         let searcher = self.reader.searcher();
 
         let top_docs = searcher
-            .search(&query, TopDocs::with_limit(1).order_by_score())
+            .search(&query, &TopDocs::with_limit(1).order_by_score())
             .map_err(tantivy_err)?;
 
         if let Some((_score, doc_address)) = top_docs.first() {
@@ -307,7 +304,10 @@ impl MemoryStore for TantivyStore {
         let searcher = self.reader.searcher();
 
         let top_docs = searcher
-            .search(&tantivy_query, TopDocs::with_limit(query.limit).order_by_score())
+            .search(
+                &tantivy_query,
+                &TopDocs::with_limit(query.limit).order_by_score(),
+            )
             .map_err(tantivy_err)?;
 
         let mut results = Vec::with_capacity(top_docs.len());
@@ -402,9 +402,7 @@ fn parse_category(s: &str) -> Result<MemoryCategory> {
         "error_lesson" => Ok(MemoryCategory::ErrorLesson),
         "workflow_pattern" => Ok(MemoryCategory::WorkflowPattern),
         "critical" => Ok(MemoryCategory::Critical),
-        _ => Err(MemoryError::SearchEngine(format!(
-            "unknown category: {s}"
-        ))),
+        _ => Err(MemoryError::SearchEngine(format!("unknown category: {s}"))),
     }
 }
 
@@ -491,11 +489,17 @@ mod tests {
     async fn test_text_search() {
         let (store, _dir) = make_test_store().await;
         store
-            .store(MemoryEntry::new("Rust programming language", MemoryCategory::Fact))
+            .store(MemoryEntry::new(
+                "Rust programming language",
+                MemoryCategory::Fact,
+            ))
             .await
             .unwrap();
         store
-            .store(MemoryEntry::new("Python data science", MemoryCategory::Fact))
+            .store(MemoryEntry::new(
+                "Python data science",
+                MemoryCategory::Fact,
+            ))
             .await
             .unwrap();
 
@@ -511,11 +515,17 @@ mod tests {
     async fn test_chinese_text_search() {
         let (store, _dir) = make_test_store().await;
         store
-            .store(MemoryEntry::new("用户喜欢使用 Rust 编程语言", MemoryCategory::Fact))
+            .store(MemoryEntry::new(
+                "用户喜欢使用 Rust 编程语言",
+                MemoryCategory::Fact,
+            ))
             .await
             .unwrap();
         store
-            .store(MemoryEntry::new("项目部署到 Kubernetes 集群", MemoryCategory::Environment))
+            .store(MemoryEntry::new(
+                "项目部署到 Kubernetes 集群",
+                MemoryCategory::Environment,
+            ))
             .await
             .unwrap();
 
@@ -531,7 +541,10 @@ mod tests {
     async fn test_mixed_chinese_english_search() {
         let (store, _dir) = make_test_store().await;
         store
-            .store(MemoryEntry::new("使用 Rust 实现 WebAssembly 模块", MemoryCategory::Fact))
+            .store(MemoryEntry::new(
+                "使用 Rust 实现 WebAssembly 模块",
+                MemoryCategory::Fact,
+            ))
             .await
             .unwrap();
 
@@ -572,15 +585,11 @@ mod tests {
     async fn test_search_by_confidence() {
         let (store, _dir) = make_test_store().await;
         store
-            .store(
-                MemoryEntry::new("high confidence", MemoryCategory::Fact).with_confidence(0.9),
-            )
+            .store(MemoryEntry::new("high confidence", MemoryCategory::Fact).with_confidence(0.9))
             .await
             .unwrap();
         store
-            .store(
-                MemoryEntry::new("low confidence", MemoryCategory::Fact).with_confidence(0.3),
-            )
+            .store(MemoryEntry::new("low confidence", MemoryCategory::Fact).with_confidence(0.3))
             .await
             .unwrap();
 

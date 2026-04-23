@@ -196,8 +196,8 @@ mod tests {
 
     #[test]
     fn test_entry_serde_roundtrip() {
-        let entry = MemoryEntry::new("serde test", MemoryCategory::UserProfile)
-            .with_confidence(0.85);
+        let entry =
+            MemoryEntry::new("serde test", MemoryCategory::UserProfile).with_confidence(0.85);
 
         let json = serde_json::to_string(&entry).unwrap();
         let back: MemoryEntry = serde_json::from_str(&json).unwrap();

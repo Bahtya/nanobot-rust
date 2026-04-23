@@ -1696,8 +1696,8 @@ mod tests {
     // ── Memory integration tests ────────────────────────────────
 
     use kestrel_memory::types::ScoredEntry;
-    use kestrel_memory::TantivyStore;
     use kestrel_memory::MemoryError;
+    use kestrel_memory::TantivyStore;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     /// Mock memory store for deterministic testing.

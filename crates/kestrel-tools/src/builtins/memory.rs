@@ -186,9 +186,7 @@ impl Tool for RecallMemoryTool {
             None => None,
         };
 
-        let mut query = MemoryQuery::new()
-            .with_text(&query_text)
-            .with_limit(limit);
+        let mut query = MemoryQuery::new().with_text(&query_text).with_limit(limit);
 
         if let Some(cat) = category {
             query = query.with_category(cat);

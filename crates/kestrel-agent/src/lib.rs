@@ -25,7 +25,7 @@ pub use heartbeat::{
     SessionStoreHealthCheck,
 };
 pub use hook::{AgentHook, CompositeHook};
-pub use loop_mod::{AgentLoop, HeartbeatHandle};
+pub use loop_mod::{AgentLoop, AuditCallback, AuditLogEntry, HeartbeatHandle};
 pub use notes::{
     extract_compaction_notes, NoteCompactionConfig, NoteFormat, NotesManager, NotesStore,
 };

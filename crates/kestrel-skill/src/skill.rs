@@ -190,9 +190,21 @@ impl Skill for CompiledSkill {
     }
 
     async fn execute(&self, _args: serde_json::Value) -> SkillResult<SkillOutput> {
-        Ok(SkillOutput::PromptOnly {
+        let skill_name = &self.manifest.name;
+        let start = std::time::Instant::now();
+        tracing::info!(skill_name = %skill_name, "Skill started");
+
+        let result = Ok(SkillOutput::PromptOnly {
             segment: self.build_prompt(),
-        })
+        });
+
+        tracing::info!(
+            skill_name = %skill_name,
+            duration_ms = start.elapsed().as_millis() as u64,
+            "Skill completed"
+        );
+
+        result
     }
 
     fn update_confidence(&mut self, event: ConfidenceEvent) {

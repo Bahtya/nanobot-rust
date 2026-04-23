@@ -12,6 +12,8 @@
 //! All public APIs are gated on `cfg(target_family = "unix")`.
 
 #[cfg(target_family = "unix")]
+pub mod audit;
+#[cfg(target_family = "unix")]
 pub mod daemonize;
 #[cfg(target_family = "unix")]
 pub mod logging;

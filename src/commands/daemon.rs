@@ -94,7 +94,11 @@ fn do_start(config: &Config) -> Result<DaemonHandles> {
     let pid_file = kestrel_daemon::pid_file::PidFile::create(pid_file_path)?;
 
     // Setup file logging in the daemon process
-    let log_guard = kestrel_daemon::logging::setup_file_logging(log_dir, &config.daemon.log_level)?;
+    let log_guard = kestrel_daemon::logging::setup_file_logging(
+        log_dir,
+        &config.daemon.log_level,
+        &config.daemon.log_format,
+    )?;
     tracing::info!("Daemon started (pid={})", std::process::id());
 
     Ok(DaemonHandles {

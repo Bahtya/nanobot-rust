@@ -757,6 +757,14 @@ pub struct DaemonConfig {
     /// Log level for daemon file logging (trace, debug, info, warn, error).
     #[serde(default = "default_daemon_log_level")]
     pub log_level: String,
+
+    /// Number of days to retain log files before auto-cleanup.
+    #[serde(default = "default_daemon_log_retain_days")]
+    pub log_retain_days: u64,
+
+    /// Log output format: `"text"` (human-readable) or `"json"` (structured).
+    #[serde(default = "default_daemon_log_format")]
+    pub log_format: String,
 }
 
 fn default_daemon_pid_file() -> String {
@@ -789,6 +797,14 @@ fn default_daemon_log_level() -> String {
     "info".to_string()
 }
 
+const fn default_daemon_log_retain_days() -> u64 {
+    30
+}
+
+fn default_daemon_log_format() -> String {
+    "text".to_string()
+}
+
 impl Default for DaemonConfig {
     fn default() -> Self {
         Self {
@@ -797,6 +813,8 @@ impl Default for DaemonConfig {
             working_directory: default_daemon_working_directory(),
             grace_period_secs: default_daemon_grace_period(),
             log_level: default_daemon_log_level(),
+            log_retain_days: default_daemon_log_retain_days(),
+            log_format: default_daemon_log_format(),
         }
     }
 }
@@ -1195,6 +1213,8 @@ cron:
         assert!(dc.log_dir.contains("logs"));
         assert_eq!(dc.working_directory, "/");
         assert_eq!(dc.grace_period_secs, 30);
+        assert_eq!(dc.log_retain_days, 30);
+        assert_eq!(dc.log_format, "text");
     }
 
     #[test]
@@ -1205,12 +1225,16 @@ daemon:
   log_dir: /var/log/kestrel
   working_directory: /opt
   grace_period_secs: 60
+  log_retain_days: 7
+  log_format: json
 "#;
         let config: Config = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.daemon.pid_file, "/var/run/kestrel.pid");
         assert_eq!(config.daemon.log_dir, "/var/log/kestrel");
         assert_eq!(config.daemon.working_directory, "/opt");
         assert_eq!(config.daemon.grace_period_secs, 60);
+        assert_eq!(config.daemon.log_retain_days, 7);
+        assert_eq!(config.daemon.log_format, "json");
     }
 
     #[test]
@@ -1222,6 +1246,8 @@ daemon:
         assert_eq!(parsed.log_dir, dc.log_dir);
         assert_eq!(parsed.working_directory, dc.working_directory);
         assert_eq!(parsed.grace_period_secs, dc.grace_period_secs);
+        assert_eq!(parsed.log_retain_days, dc.log_retain_days);
+        assert_eq!(parsed.log_format, dc.log_format);
     }
 
     #[test]

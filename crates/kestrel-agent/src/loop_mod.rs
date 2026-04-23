@@ -81,25 +81,6 @@ pub struct AuditLogEntry {
     pub duration_ms: Option<u64>,
 }
 
-/// Callback for recording audit events during agent execution.
-pub type AuditCallback = Arc<dyn Fn(AuditLogEntry) + Send + Sync>;
-
-/// A single audit log entry passed to the audit callback.
-pub struct AuditLogEntry {
-    /// Event type (e.g. "message_received", "message_completed", "error").
-    pub event_type: String,
-    /// Human-readable message.
-    pub message: String,
-    /// Optional trace ID for correlation.
-    pub trace_id: Option<String>,
-    /// Optional session key.
-    pub session_key: Option<String>,
-    /// Optional channel name.
-    pub channel: Option<String>,
-    /// Optional duration in milliseconds.
-    pub duration_ms: Option<u64>,
-}
-
 /// The main agent loop that processes messages from the bus.
 pub struct AgentLoop {
     config: Arc<Config>,

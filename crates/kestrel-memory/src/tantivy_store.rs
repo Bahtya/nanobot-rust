@@ -104,7 +104,9 @@ impl TantivyStore {
         let jieba_analyzer = TextAnalyzer::builder(JiebaTokenizer::new())
             .filter(LowerCaser)
             .build();
-        index.tokenizers().register(MEMORY_TOKENIZER, jieba_analyzer);
+        index
+            .tokenizers()
+            .register(MEMORY_TOKENIZER, jieba_analyzer);
 
         let reader = index
             .reader_builder()
@@ -708,9 +710,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
-        assert!(results.iter().all(|r| r.entry.category == MemoryCategory::ErrorLesson));
         assert!(results
             .iter()
-            .any(|r| r.entry.content.contains("module")));
+            .all(|r| r.entry.category == MemoryCategory::ErrorLesson));
+        assert!(results.iter().any(|r| r.entry.content.contains("module")));
     }
 }

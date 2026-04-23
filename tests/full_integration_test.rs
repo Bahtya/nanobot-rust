@@ -668,11 +668,13 @@ async fn test_cron_fires_event() {
 /// unhealthy snapshot and event emission.
 #[tokio::test]
 async fn test_heartbeat_health_check() {
+    let tmp_dir = tempfile::tempdir().unwrap();
     let config = make_test_config();
     let bus = MessageBus::new();
     let mut event_rx = bus.subscribe_events();
 
-    let mut heartbeat = kestrel_heartbeat::HeartbeatService::new(config);
+    let mut heartbeat =
+        kestrel_heartbeat::HeartbeatService::with_data_dir(config, tmp_dir.path().to_path_buf());
     heartbeat.set_bus(bus);
 
     // Register a failing health check
@@ -731,11 +733,13 @@ async fn test_heartbeat_health_check() {
 /// Test 5b: Heartbeat with healthy and unhealthy checks.
 #[tokio::test]
 async fn test_heartbeat_mixed_checks() {
+    let tmp_dir = tempfile::tempdir().unwrap();
     let config = make_test_config();
     let bus = MessageBus::new();
     let mut event_rx = bus.subscribe_events();
 
-    let mut heartbeat = kestrel_heartbeat::HeartbeatService::new(config);
+    let mut heartbeat =
+        kestrel_heartbeat::HeartbeatService::with_data_dir(config, tmp_dir.path().to_path_buf());
     heartbeat.set_bus(bus);
 
     struct HealthyCheck;

@@ -40,7 +40,7 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             artifact: kestrel-x86_64-linux
-          - target: aarch64-unknown-linux-gnu
+          - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
             artifact: kestrel-aarch64-linux
           - target: x86_64-apple-darwin
@@ -63,24 +63,14 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install protobuf
 
-      - name: Install cross-compilation tools (aarch64-linux)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+      - name: Install musl cross-compilation tools (aarch64-linux)
+        if: matrix.target == 'aarch64-unknown-linux-musl'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-          echo '[target.aarch64-unknown-linux-gnu]' >> ~/.cargo/config.toml
-          echo 'linker = "aarch64-linux-gnu-gcc"' >> ~/.cargo/config.toml
-          # Build OpenSSL for aarch64
-          OPENSSL_V=3.0.16
-          curl -sL https://www.openssl.org/source/openssl-${OPENSSL_V}.tar.gz | tar xz
-          cd openssl-${OPENSSL_V}
-          ./Configure linux-aarch64 --prefix=/opt/openssl-aarch64 \
-            --cross-compile-prefix=aarch64-linux-gnu- shared > /dev/null
-          make -j$(nproc) > /dev/null 2>&1
-          sudo make install > /dev/null
-          cd ..
-          echo "OPENSSL_DIR=/opt/openssl-aarch64" >> "$GITHUB_ENV"
-          echo "OPENSSL_STATIC=1" >> "$GITHUB_ENV"
+          curl -sL https://musl.cc/aarch64-linux-musl-cross.tgz | sudo tar xz -C /opt
+          echo '/opt/aarch64-linux-musl-cross/bin' >> "$GITHUB_PATH"
+          mkdir -p ~/.cargo
+          echo '[target.aarch64-unknown-linux-musl]' >> ~/.cargo/config.toml
+          echo 'linker = "aarch64-linux-musl-gcc"' >> ~/.cargo/config.toml
 
       - uses: actions/cache@v4
         with:

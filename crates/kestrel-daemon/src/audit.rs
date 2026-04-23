@@ -104,8 +104,7 @@ mod tests {
 
         append_audit_event(log_dir, &event);
 
-        let content =
-            std::fs::read_to_string(tmp.path().join("kestrel.audit.jsonl")).unwrap();
+        let content = std::fs::read_to_string(tmp.path().join("kestrel.audit.jsonl")).unwrap();
         assert!(content.contains("message_received"));
         assert!(content.contains("trace-123"));
         assert!(content.contains("telegram"));
@@ -140,8 +139,7 @@ mod tests {
             ),
         );
 
-        let content =
-            std::fs::read_to_string(tmp.path().join("kestrel.audit.jsonl")).unwrap();
+        let content = std::fs::read_to_string(tmp.path().join("kestrel.audit.jsonl")).unwrap();
         let lines: Vec<&str> = content.trim().lines().collect();
         assert_eq!(lines.len(), 2);
         assert!(lines[0].contains("first"));

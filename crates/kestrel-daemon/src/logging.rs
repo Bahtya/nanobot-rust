@@ -80,8 +80,8 @@ pub fn cleanup_old_logs(log_dir: &str, retain_days: u64) {
         return;
     };
 
-    let cutoff = std::time::SystemTime::now()
-        - std::time::Duration::from_secs(retain_days * 24 * 60 * 60);
+    let cutoff =
+        std::time::SystemTime::now() - std::time::Duration::from_secs(retain_days * 24 * 60 * 60);
 
     for entry in entries.flatten() {
         let path = entry.path();
@@ -173,9 +173,10 @@ mod tests {
         // Create an "old" file by setting mtime to 60 days ago
         let old_file = log_dir.join("kestrel.log.2025-01-01");
         std::fs::write(&old_file, "old log").unwrap();
-        let old_time = std::time::SystemTime::now()
-            - std::time::Duration::from_secs(60 * 24 * 60 * 60);
-        let ft = filetime::set_file_mtime(&old_file, filetime::FileTime::from_system_time(old_time));
+        let old_time =
+            std::time::SystemTime::now() - std::time::Duration::from_secs(60 * 24 * 60 * 60);
+        let ft =
+            filetime::set_file_mtime(&old_file, filetime::FileTime::from_system_time(old_time));
 
         // Create a recent file that should be kept
         let recent_file = log_dir.join("kestrel.log.2099-01-01");

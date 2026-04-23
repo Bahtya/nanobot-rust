@@ -399,7 +399,7 @@ impl HealthCheck for ChannelHealthCheck {
 mod tests {
     use super::*;
     use crate::types::HealthCheck;
-    use kestrel_memory::HotStore;
+    use kestrel_memory::TantivyStore;
 
     // ─── ProviderHealthCheck tests ────────────────────────────────
 
@@ -681,15 +681,15 @@ mod tests {
 
     // ─── MemoryStoreHealthCheck tests ─────────────────────────────
 
-    async fn make_test_hot_store() -> HotStore {
+    async fn make_test_tantivy_store() -> TantivyStore {
         let dir = tempfile::tempdir().unwrap();
         let config = kestrel_memory::MemoryConfig::for_test(dir.path());
-        HotStore::new(&config).await.unwrap()
+        TantivyStore::new(&config).await.unwrap()
     }
 
     #[tokio::test]
     async fn test_memory_check_healthy() {
-        let store = make_test_hot_store().await;
+        let store = make_test_tantivy_store().await;
         let check = MemoryStoreHealthCheck::new(Arc::new(store));
         let result = check.report_health().await;
         assert_eq!(result.status, CheckStatus::Healthy);
@@ -699,7 +699,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_memory_check_custom_timeout() {
-        let store = make_test_hot_store().await;
+        let store = make_test_tantivy_store().await;
         let check =
             MemoryStoreHealthCheck::new(Arc::new(store)).with_timeout(Duration::from_secs(10));
         assert_eq!(check.timeout, Duration::from_secs(10));
@@ -804,7 +804,7 @@ mod tests {
         let bus = MessageBus::new();
         svc.register_check(Arc::new(BusHealthCheck::new(bus)));
 
-        let store = make_test_hot_store().await;
+        let store = make_test_tantivy_store().await;
         svc.register_check(Arc::new(MemoryStoreHealthCheck::new(Arc::new(store))));
 
         let channel_statuses = Arc::new(parking_lot::RwLock::new(vec![(

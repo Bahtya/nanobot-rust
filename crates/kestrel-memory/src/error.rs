@@ -39,9 +39,9 @@ pub enum MemoryError {
     #[error("Configuration error: {0}")]
     Config(String),
 
-    /// A LanceDB error occurred.
-    #[error("LanceDB error: {0}")]
-    LanceDb(String),
+    /// A search engine error occurred.
+    #[error("Search engine error: {0}")]
+    SearchEngine(String),
 
     /// A security violation was detected in a memory entry.
     #[error("Security violation: {0}")]
@@ -80,8 +80,8 @@ mod tests {
         let err = MemoryError::Config("bad config".to_string());
         assert!(err.to_string().contains("bad config"));
 
-        let err = MemoryError::LanceDb("table not found".to_string());
-        assert!(err.to_string().contains("table not found"));
+        let err = MemoryError::SearchEngine("index not found".to_string());
+        assert!(err.to_string().contains("index not found"));
     }
 
     #[test]

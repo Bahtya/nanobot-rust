@@ -1,11 +1,11 @@
 //! Memory tools: `store_memory` and `recall_memory`.
 //!
 //! These tools let the LLM actively store and retrieve memories via the
-//! [`MemoryStore`] trait. An [`EmbeddingGenerator`] is used to produce
-//! vectors automatically, so the LLM only deals with plain text.
+//! [`MemoryStore`] trait. Full-text search is handled by tantivy with jieba
+//! CJK tokenization — no embedding vectors needed.
 
 use async_trait::async_trait;
-use kestrel_memory::{EmbeddingGenerator, MemoryCategory, MemoryEntry, MemoryQuery, MemoryStore};
+use kestrel_memory::{MemoryCategory, MemoryEntry, MemoryQuery, MemoryStore};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
@@ -16,16 +16,15 @@ use crate::trait_def::{Tool, ToolError};
 /// Tool for storing a memory entry that the LLM can later recall.
 ///
 /// The LLM supplies the content, category, and optional confidence.
-/// An embedding vector is generated automatically from the content text.
+/// The content is indexed by tantivy with jieba CJK tokenization.
 pub struct StoreMemoryTool {
     store: Arc<dyn MemoryStore>,
-    embedding: Arc<dyn EmbeddingGenerator>,
 }
 
 impl StoreMemoryTool {
-    /// Create a new store_memory tool backed by the given store and embedding generator.
-    pub fn new(store: Arc<dyn MemoryStore>, embedding: Arc<dyn EmbeddingGenerator>) -> Self {
-        Self { store, embedding }
+    /// Create a new store_memory tool backed by the given store.
+    pub fn new(store: Arc<dyn MemoryStore>) -> Self {
+        Self { store }
     }
 }
 
@@ -97,15 +96,7 @@ impl Tool for StoreMemoryTool {
             _ => 1.0,
         };
 
-        let embedding_vec = self
-            .embedding
-            .generate(&content)
-            .await
-            .map_err(|e| ToolError::Execution(format!("embedding generation failed: {e}")))?;
-
-        let entry = MemoryEntry::new(content, category)
-            .with_confidence(confidence)
-            .with_embedding(embedding_vec);
+        let entry = MemoryEntry::new(content, category).with_confidence(confidence);
 
         let id = entry.id.clone();
         self.store
@@ -125,17 +116,16 @@ impl Tool for StoreMemoryTool {
 
 /// Tool for searching and recalling stored memories.
 ///
-/// The LLM supplies a text query. An embedding is generated and used
-/// for semantic search, falling back to text substring matching.
+/// The LLM supplies a text query which is tokenized by jieba for CJK support
+/// and searched via BM25 full-text ranking.
 pub struct RecallMemoryTool {
     store: Arc<dyn MemoryStore>,
-    embedding: Arc<dyn EmbeddingGenerator>,
 }
 
 impl RecallMemoryTool {
-    /// Create a new recall_memory tool backed by the given store and embedding generator.
-    pub fn new(store: Arc<dyn MemoryStore>, embedding: Arc<dyn EmbeddingGenerator>) -> Self {
-        Self { store, embedding }
+    /// Create a new recall_memory tool backed by the given store.
+    pub fn new(store: Arc<dyn MemoryStore>) -> Self {
+        Self { store }
     }
 }
 
@@ -196,14 +186,8 @@ impl Tool for RecallMemoryTool {
             None => None,
         };
 
-        let embedding_vec = self
-            .embedding
-            .generate(&query_text)
-            .await
-            .map_err(|e| ToolError::Execution(format!("embedding generation failed: {e}")))?;
-
         let mut query = MemoryQuery::new()
-            .with_embedding(embedding_vec)
+            .with_text(&query_text)
             .with_limit(limit);
 
         if let Some(cat) = category {
@@ -258,7 +242,7 @@ fn parse_category(s: &str) -> Result<MemoryCategory, ToolError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kestrel_memory::{HashEmbedding, HotStore, MemoryConfig};
+    use kestrel_memory::{MemoryConfig, TantivyStore};
 
     async fn make_tools() -> (
         Arc<dyn MemoryStore>,
@@ -268,10 +252,9 @@ mod tests {
     ) {
         let dir = tempfile::tempdir().unwrap();
         let config = MemoryConfig::for_test(dir.path());
-        let store: Arc<dyn MemoryStore> = Arc::new(HotStore::new(&config).await.unwrap());
-        let embedding: Arc<dyn EmbeddingGenerator> = Arc::new(HashEmbedding::default_dim());
-        let store_tool = StoreMemoryTool::new(store.clone(), embedding.clone());
-        let recall_tool = RecallMemoryTool::new(store.clone(), embedding.clone());
+        let store: Arc<dyn MemoryStore> = Arc::new(TantivyStore::new(&config).await.unwrap());
+        let store_tool = StoreMemoryTool::new(store.clone());
+        let recall_tool = RecallMemoryTool::new(store.clone());
         (store, store_tool, recall_tool, dir)
     }
 
@@ -485,10 +468,9 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let (store, store_tool, _, _) = rt.block_on(async {
             let config = MemoryConfig::for_test(dir.path());
-            let store: Arc<dyn MemoryStore> = Arc::new(HotStore::new(&config).await.unwrap());
-            let embedding: Arc<dyn EmbeddingGenerator> = Arc::new(HashEmbedding::default_dim());
-            let store_tool = StoreMemoryTool::new(store.clone(), embedding.clone());
-            let recall_tool = RecallMemoryTool::new(store.clone(), embedding);
+            let store: Arc<dyn MemoryStore> = Arc::new(TantivyStore::new(&config).await.unwrap());
+            let store_tool = StoreMemoryTool::new(store.clone());
+            let recall_tool = RecallMemoryTool::new(store.clone());
             (store, store_tool, recall_tool, dir)
         });
 
@@ -506,10 +488,9 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let (_, _, recall_tool, _) = rt.block_on(async {
             let config = MemoryConfig::for_test(dir.path());
-            let store: Arc<dyn MemoryStore> = Arc::new(HotStore::new(&config).await.unwrap());
-            let embedding: Arc<dyn EmbeddingGenerator> = Arc::new(HashEmbedding::default_dim());
-            let store_tool = StoreMemoryTool::new(store.clone(), embedding.clone());
-            let recall_tool = RecallMemoryTool::new(store.clone(), embedding);
+            let store: Arc<dyn MemoryStore> = Arc::new(TantivyStore::new(&config).await.unwrap());
+            let store_tool = StoreMemoryTool::new(store.clone());
+            let recall_tool = RecallMemoryTool::new(store.clone());
             (store, store_tool, recall_tool, dir)
         });
 

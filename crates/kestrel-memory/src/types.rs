@@ -54,7 +54,7 @@ impl std::fmt::Display for MemoryCategory {
     }
 }
 
-/// A single memory entry with metadata and optional embedding vector.
+/// A single memory entry with metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryEntry {
     /// Unique identifier (UUID v4).
@@ -71,9 +71,6 @@ pub struct MemoryEntry {
     pub updated_at: DateTime<Utc>,
     /// Number of times this entry has been accessed via recall.
     pub access_count: u32,
-    /// Optional embedding vector for semantic search.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub embedding: Option<Vec<f32>>,
 }
 
 impl MemoryEntry {
@@ -88,19 +85,12 @@ impl MemoryEntry {
             created_at: now,
             updated_at: now,
             access_count: 0,
-            embedding: None,
         }
     }
 
     /// Set the confidence score (clamped to 0.0–1.0).
     pub fn with_confidence(mut self, confidence: f64) -> Self {
         self.confidence = confidence.clamp(0.0, 1.0);
-        self
-    }
-
-    /// Set the embedding vector.
-    pub fn with_embedding(mut self, embedding: Vec<f32>) -> Self {
-        self.embedding = Some(embedding);
         self
     }
 
@@ -123,14 +113,12 @@ pub struct ScoredEntry {
 /// Query parameters for searching memories.
 #[derive(Debug, Clone, Default)]
 pub struct MemoryQuery {
-    /// Full-text search pattern (case-insensitive word-boundary match).
+    /// Full-text search pattern (tokenized by jieba for CJK + Latin).
     pub text: Option<String>,
     /// Filter by category.
     pub category: Option<MemoryCategory>,
     /// Filter by minimum confidence (0.0–1.0).
     pub min_confidence: Option<f64>,
-    /// Semantic search embedding vector for KNN search.
-    pub embedding: Option<Vec<f32>>,
     /// Maximum number of results to return.
     pub limit: usize,
 }
@@ -162,12 +150,6 @@ impl MemoryQuery {
         self
     }
 
-    /// Set the embedding vector for semantic search.
-    pub fn with_embedding(mut self, embedding: Vec<f32>) -> Self {
-        self.embedding = Some(embedding);
-        self
-    }
-
     /// Set maximum number of results.
     pub fn with_limit(mut self, limit: usize) -> Self {
         self.limit = limit;
@@ -187,7 +169,6 @@ mod tests {
         assert_eq!(entry.category, MemoryCategory::Fact);
         assert_eq!(entry.confidence, 1.0);
         assert_eq!(entry.access_count, 0);
-        assert!(entry.embedding.is_none());
         assert_eq!(entry.created_at, entry.updated_at);
     }
 
@@ -204,12 +185,6 @@ mod tests {
     }
 
     #[test]
-    fn test_entry_with_embedding() {
-        let entry = MemoryEntry::new("x", MemoryCategory::Fact).with_embedding(vec![0.1, 0.2, 0.3]);
-        assert_eq!(entry.embedding.as_deref(), Some([0.1, 0.2, 0.3].as_slice()));
-    }
-
-    #[test]
     fn test_entry_touch() {
         let mut entry = MemoryEntry::new("x", MemoryCategory::Fact);
         assert_eq!(entry.access_count, 0);
@@ -222,8 +197,7 @@ mod tests {
     #[test]
     fn test_entry_serde_roundtrip() {
         let entry = MemoryEntry::new("serde test", MemoryCategory::UserProfile)
-            .with_confidence(0.85)
-            .with_embedding(vec![1.0, 2.0, 3.0]);
+            .with_confidence(0.85);
 
         let json = serde_json::to_string(&entry).unwrap();
         let back: MemoryEntry = serde_json::from_str(&json).unwrap();
@@ -231,7 +205,6 @@ mod tests {
         assert_eq!(entry.content, back.content);
         assert_eq!(entry.category, back.category);
         assert!((entry.confidence - back.confidence).abs() < f64::EPSILON);
-        assert_eq!(entry.embedding, back.embedding);
     }
 
     #[test]
@@ -269,16 +242,11 @@ mod tests {
             .with_text("rust")
             .with_category(MemoryCategory::Fact)
             .with_min_confidence(0.5)
-            .with_embedding(vec![0.1, 0.2])
             .with_limit(5);
 
         assert_eq!(query.text.as_deref(), Some("rust"));
         assert_eq!(query.category, Some(MemoryCategory::Fact));
         assert_eq!(query.min_confidence, Some(0.5));
-        assert_eq!(
-            query.embedding.as_deref(),
-            Some([0.1_f32, 0.2_f32].as_slice())
-        );
         assert_eq!(query.limit, 5);
     }
 

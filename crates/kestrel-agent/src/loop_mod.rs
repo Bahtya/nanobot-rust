@@ -1696,7 +1696,7 @@ mod tests {
     // ── Memory integration tests ────────────────────────────────
 
     use kestrel_memory::types::ScoredEntry;
-    use kestrel_memory::HotStore;
+    use kestrel_memory::TantivyStore;
     use kestrel_memory::MemoryError;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -2096,7 +2096,7 @@ mod tests {
     async fn test_recall_with_real_hotstore() {
         let dir = tempfile::tempdir().unwrap();
         let config = kestrel_memory::MemoryConfig::for_test(dir.path());
-        let store = HotStore::new(&config).await.unwrap();
+        let store = TantivyStore::new(&config).await.unwrap();
 
         // Pre-populate
         store
@@ -2333,7 +2333,7 @@ mod tests {
     async fn test_store_with_real_hotstore() {
         let dir = tempfile::tempdir().unwrap();
         let config = kestrel_memory::MemoryConfig::for_test(dir.path());
-        let store = HotStore::new(&config).await.unwrap();
+        let store = TantivyStore::new(&config).await.unwrap();
 
         let al = make_agent_loop().with_memory_store(Arc::new(store));
 

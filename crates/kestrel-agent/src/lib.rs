@@ -66,7 +66,7 @@ mod tests {
     async fn test_unified_memory_uses_kestrel_memory_trait() {
         let dir = tempfile::tempdir().unwrap();
         let config = MemoryConfig::for_test(dir.path());
-        let store = kestrel_memory::HotStore::new(&config).await.unwrap();
+        let store = kestrel_memory::TantivyStore::new(&config).await.unwrap();
 
         // Store a memory entry
         let entry =

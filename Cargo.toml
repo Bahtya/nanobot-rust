@@ -77,10 +77,10 @@ dirs = "5"
 lru = "0.16"
 fs4 = "0.13"
 
-# Vector database
-lancedb = "0.27"
-arrow-array = "57"
-arrow-schema = "57"
+# Full-text search
+tantivy = "0.26"
+tantivy-jieba = "0.19"
+jieba-rs = "0.9"
 
 # ─── Main binary package ────────────────────────────────────
 

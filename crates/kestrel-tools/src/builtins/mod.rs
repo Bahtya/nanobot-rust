@@ -10,7 +10,7 @@ pub mod spawn;
 pub mod web;
 
 use crate::registry::ToolRegistry;
-use kestrel_memory::{EmbeddingGenerator, MemoryStore};
+use kestrel_memory::MemoryStore;
 use std::sync::Arc;
 
 /// Configuration applied when registering built-in tools.
@@ -41,17 +41,13 @@ pub fn register_all_with_config(registry: &ToolRegistry, config: BuiltinsConfig)
     registry.register(spawn::SpawnTool::new());
 }
 
-/// Register memory tools that require a memory store and embedding generator.
+/// Register memory tools that require a memory store.
 pub fn register_memory_tools(
     registry: &ToolRegistry,
     store: Arc<dyn MemoryStore>,
-    embedding: Arc<dyn EmbeddingGenerator>,
 ) {
-    registry.register(memory::StoreMemoryTool::new(
-        store.clone(),
-        embedding.clone(),
-    ));
-    registry.register(memory::RecallMemoryTool::new(store, embedding));
+    registry.register(memory::StoreMemoryTool::new(store.clone()));
+    registry.register(memory::RecallMemoryTool::new(store));
 }
 
 #[cfg(test)]
@@ -113,17 +109,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_register_memory_tools() {
-        use kestrel_memory::{HashEmbedding, HotStore, MemoryConfig};
+        use kestrel_memory::{MemoryConfig, TantivyStore};
 
         let registry = ToolRegistry::new();
         register_all(&registry);
 
         let dir = tempfile::tempdir().unwrap();
         let config = MemoryConfig::for_test(dir.path());
-        let store: Arc<dyn MemoryStore> = Arc::new(HotStore::new(&config).await.unwrap());
-        let embedding: Arc<dyn EmbeddingGenerator> = Arc::new(HashEmbedding::default_dim());
+        let store: Arc<dyn MemoryStore> = Arc::new(TantivyStore::new(&config).await.unwrap());
 
-        register_memory_tools(&registry, store, embedding);
+        register_memory_tools(&registry, store);
 
         assert!(
             registry.get("store_memory").is_some(),

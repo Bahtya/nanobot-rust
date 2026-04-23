@@ -194,6 +194,10 @@ pub fn fill_defaults(config: &mut Config) -> Vec<String> {
         config.agent.tool_timeout = 120;
         filled.push("agent.tool_timeout".to_string());
     }
+    if config.agent.message_timeout == 0 {
+        config.agent.message_timeout = 90;
+        filled.push("agent.message_timeout".to_string());
+    }
 
     // Dream section
     if config.dream.interval_secs == 0 {

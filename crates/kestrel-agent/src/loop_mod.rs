@@ -169,7 +169,7 @@ impl AgentLoop {
                     *self.agent_activity.write() = Some(chrono::Local::now());
 
                     let result = tokio::time::timeout(
-                        std::time::Duration::from_secs(90),
+                        std::time::Duration::from_secs(self.config.agent.message_timeout),
                         self.process_message(msg),
                     )
                     .await;
@@ -177,7 +177,27 @@ impl AgentLoop {
                     match result {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => error!("Error processing message: {}", e),
-                        Err(_) => error!("Message processing timed out after 90s"),
+                        Err(_) => {
+                            let timeout_secs = self.config.agent.message_timeout;
+                            error!("Message processing timed out after {}s", timeout_secs);
+
+                            let timeout_reply = OutboundMessage {
+                                channel: msg.channel.clone(),
+                                chat_id: msg.chat_id.clone(),
+                                content: format!(
+                                    "⏳ Processing your message took too long ({}s limit). \
+                                     Please try again later.",
+                                    timeout_secs
+                                ),
+                                reply_to: msg.message_id.clone(),
+                                trace_id: msg.trace_id.clone(),
+                                media: vec![],
+                                metadata: Default::default(),
+                            };
+                            if let Err(e) = self.bus.publish_outbound(timeout_reply).await {
+                                error!("Failed to send timeout reply: {}", e);
+                            }
+                        }
                     }
                 }
                 None => {

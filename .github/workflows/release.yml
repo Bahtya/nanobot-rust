@@ -63,14 +63,19 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install protobuf
 
-      - name: Install musl cross-compilation tools (aarch64-linux)
+      - name: Install zig for musl cross-compilation (aarch64-linux)
         if: matrix.target == 'aarch64-unknown-linux-musl'
         run: |
-          curl -sL https://musl.cc/aarch64-linux-musl-cross.tgz | sudo tar xz -C /opt
-          echo '/opt/aarch64-linux-musl-cross/bin' >> "$GITHUB_PATH"
+          # zig natively supports cross-compiling to musl targets, no external toolchain needed
+          curl -sL "https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz" | sudo tar xJ -C /opt
+          sudo ln -sf /opt/zig-linux-x86_64-0.13.0/zig /usr/local/bin/zig
+          # Create wrapper scripts for cargo
+          echo '#!/bin/sh' > /usr/local/bin/aarch64-zig-cc
+          echo 'exec /opt/zig-linux-x86_64-0.13.0/zig cc -target aarch64-linux-musl "$@"' >> /usr/local/bin/aarch64-zig-cc
+          chmod +x /usr/local/bin/aarch64-zig-cc
           mkdir -p ~/.cargo
           echo '[target.aarch64-unknown-linux-musl]' >> ~/.cargo/config.toml
-          echo 'linker = "aarch64-linux-musl-gcc"' >> ~/.cargo/config.toml
+          echo 'linker = "aarch64-zig-cc"' >> ~/.cargo/config.toml
 
       - uses: actions/cache@v4
         with:

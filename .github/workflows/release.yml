@@ -63,34 +63,11 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install protobuf
 
-      - name: Install zig for musl cross-compilation (aarch64-linux)
+      - name: Install cross for musl cross-compilation (aarch64-linux)
         if: matrix.target == 'aarch64-unknown-linux-musl'
         run: |
-          # zig natively supports cross-compiling to musl targets, no external toolchain needed
-          curl -sL "https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz" | sudo tar xJ -C /opt
-          sudo ln -sf /opt/zig-linux-x86_64-0.13.0/zig /usr/local/bin/zig
-          # Wrapper: cc crate passes --target=aarch64-unknown-linux-musl but zig expects aarch64-linux-musl
-          cat > /usr/local/bin/aarch64-zig-cc << 'WRAPPER'
-          #!/bin/sh
-          # Normalize target triple: aarch64-unknown-linux-musl -> aarch64-linux-musl
-          ARGS=""
-          for arg in "$@"; do
-            case "$arg" in
-              *unknown-linux-musl)
-                clean=$(echo "$arg" | sed 's/-unknown//')
-                ARGS="$ARGS $clean"
-                ;;
-              *)
-                ARGS="$ARGS $arg"
-                ;;
-            esac
-          done
-          exec /opt/zig-linux-x86_64-0.13.0/zig cc $ARGS
-          WRAPPER
-          chmod +x /usr/local/bin/aarch64-zig-cc
-          mkdir -p ~/.cargo
-          echo '[target.aarch64-unknown-linux-musl]' >> ~/.cargo/config.toml
-          echo 'linker = "aarch64-zig-cc"' >> ~/.cargo/config.toml
+          cargo install cargo-binstall
+          cargo binstall cross --version 0.2.5 --no-confirm
 
       - uses: actions/cache@v4
         with:
@@ -102,14 +79,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-${{ matrix.target }}-
 
-      - run: cargo build --release --target ${{ matrix.target }}
+      - name: Build
+        run: ${{ matrix.target == 'aarch64-unknown-linux-musl' && 'cross' || 'cargo' }} build --release --target ${{ matrix.target }}
         env:
-          # `lance-linalg` compiles AVX512 C kernels through the `cc` crate on x86_64.
-          # Rust target-feature flags do not reach that C build, so disable AVX512 here
-          # for the macOS Intel target to avoid missing AVX512 symbols at link time.
           CFLAGS_x86_64_apple_darwin: ${{ matrix.target == 'x86_64-apple-darwin' && '-march=haswell' || '' }}
-          # zig cross-compiler for musl targets (cc crate needs CC env var)
-          CC_aarch64_unknown_linux_musl: ${{ matrix.target == 'aarch64-unknown-linux-musl' && 'aarch64-zig-cc' || '' }}
 
       - name: Package binary
         run: |

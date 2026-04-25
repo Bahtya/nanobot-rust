@@ -72,7 +72,7 @@ async fn test_health_check_with_heartbeat_wiring() {
     let session_manager = SessionManager::new(tmp.path().to_path_buf()).unwrap();
 
     let mut providers = ProviderRegistry::new();
-    providers.register("mock", MockProvider);
+    providers.register("mock", MockProvider::simple("ok"));
     providers.set_default("mock");
 
     let tools = ToolRegistry::new();

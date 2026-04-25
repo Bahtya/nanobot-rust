@@ -1765,35 +1765,59 @@ mod tests {
     }
 
     #[test]
-    fn test_agent_max_tokens_zero() {
-        let mut config = make_valid_config();
-        config.agent.max_tokens = 0;
-        let report = validate(&config);
-        assert!(!report.is_valid());
-        assert!(report.errors().iter().any(|e| e.path == "agent.max_tokens"));
+    fn test_agent_max_tokens_boundary() {
+        let cases: &[(usize, bool, bool)] = &[
+            // (value, has_error, has_warning)
+            (0, true, false),
+            (200_000, false, true),
+            (4096, false, false),
+        ];
+        for &(value, has_error, has_warning) in cases {
+            let mut config = make_valid_config();
+            config.agent.max_tokens = value;
+            let report = validate(&config);
+            assert_eq!(
+                report.errors().iter().any(|e| e.path == "agent.max_tokens"),
+                has_error,
+                "max_tokens={}: error expectation failed",
+                value
+            );
+            assert_eq!(
+                report.warnings().iter().any(|w| w.path == "agent.max_tokens"),
+                has_warning,
+                "max_tokens={}: warning expectation failed",
+                value
+            );
+        }
     }
 
     #[test]
-    fn test_agent_max_tokens_very_large() {
-        let mut config = make_valid_config();
-        config.agent.max_tokens = 200_000;
-        let report = validate(&config);
-        assert!(report
-            .warnings()
-            .iter()
-            .any(|w| w.path == "agent.max_tokens"));
-    }
-
-    #[test]
-    fn test_agent_max_iterations_zero() {
-        let mut config = make_valid_config();
-        config.agent.max_iterations = 0;
-        let report = validate(&config);
-        assert!(!report.is_valid());
-        assert!(report
-            .errors()
-            .iter()
-            .any(|e| e.path == "agent.max_iterations"));
+    fn test_agent_max_iterations_boundary() {
+        let cases: &[(usize, bool, bool)] = &[
+            // (value, has_error, has_warning)
+            (0, true, false),
+            (50, false, false),
+            (500, false, false),
+            (501, false, true),
+            (1000, false, true),
+        ];
+        for &(value, has_error, has_warning) in cases {
+            let mut config = make_valid_config();
+            config.agent.max_iterations = value;
+            let report = validate(&config);
+            assert_eq!(
+                report.errors().iter().any(|e| e.path == "agent.max_iterations"),
+                has_error,
+                "max_iterations={}: error expectation failed",
+                value
+            );
+            assert_eq!(
+                report.warnings().iter().any(|w| w.path == "agent.max_iterations"),
+                has_warning,
+                "max_iterations={}: warning expectation failed",
+                value
+            );
+        }
     }
 
     #[test]
@@ -2434,57 +2458,43 @@ mod tests {
     // -------------------------------------------------------------------
 
     #[test]
-    fn test_email_port_zero_warns() {
-        let mut config = make_valid_config();
-        config.channels.email = Some(EmailConfig {
-            imap_host: Some("imap.example.com".to_string()),
-            smtp_host: Some("smtp.example.com".to_string()),
-            username: Some("user@example.com".to_string()),
-            password: None,
-            port: 0,
-            enabled: true,
-        });
-        let report = validate(&config);
-        assert!(report
-            .warnings()
-            .iter()
-            .any(|w| w.path == "channels.email.port" && w.message.contains("0")));
-    }
-
-    #[test]
-    fn test_email_port_nonstandard_warns() {
-        let mut config = make_valid_config();
-        config.channels.email = Some(EmailConfig {
-            imap_host: Some("imap.example.com".to_string()),
-            smtp_host: Some("smtp.example.com".to_string()),
-            username: Some("user@example.com".to_string()),
-            password: None,
-            port: 8080,
-            enabled: true,
-        });
-        let report = validate(&config);
-        assert!(report
-            .warnings()
-            .iter()
-            .any(|w| w.path == "channels.email.port" && w.message.contains("non-standard")));
-    }
-
-    #[test]
-    fn test_email_port_standard_ok() {
-        let mut config = make_valid_config();
-        config.channels.email = Some(EmailConfig {
-            imap_host: Some("imap.example.com".to_string()),
-            smtp_host: Some("smtp.example.com".to_string()),
-            username: Some("user@example.com".to_string()),
-            password: None,
-            port: 587,
-            enabled: true,
-        });
-        let report = validate(&config);
-        assert!(report
-            .warnings()
-            .iter()
-            .all(|w| w.path != "channels.email.port"));
+    fn test_email_port_values() {
+        let cases: &[(u16, Option<&str>)] = &[
+            // (port, expected_warning_substring or None for no warning)
+            (0, Some("0")),
+            (8080, Some("non-standard")),
+            (587, None),
+            (993, None),
+        ];
+        for &(port, expected_warn) in cases {
+            let mut config = make_valid_config();
+            config.channels.email = Some(EmailConfig {
+                imap_host: Some("imap.example.com".to_string()),
+                smtp_host: Some("smtp.example.com".to_string()),
+                username: Some("user@example.com".to_string()),
+                password: None,
+                port,
+                enabled: true,
+            });
+            let report = validate(&config);
+            match expected_warn {
+                Some(warn_substr) => {
+                    assert!(
+                        report.warnings().iter().any(|w| w.path == "channels.email.port" && w.message.contains(warn_substr)),
+                        "port={}: expected warning containing {:?}",
+                        port, warn_substr
+                    );
+                }
+                None => {
+                    assert!(
+                        report.warnings().iter().all(|w| w.path != "channels.email.port"),
+                        "port={}: expected no port warning, got: {:?}",
+                        port,
+                        report.warnings().iter().filter(|w| w.path == "channels.email.port").collect::<Vec<_>>()
+                    );
+                }
+            }
+        }
     }
 
     // -------------------------------------------------------------------
@@ -2577,19 +2587,8 @@ mod tests {
     // New: Agent max_iterations upper bound
     // -------------------------------------------------------------------
 
-    #[test]
-    fn test_agent_max_iterations_very_large() {
-        let mut config = make_valid_config();
-        config.agent.max_iterations = 1000;
-        let report = validate(&config);
-        assert!(report
-            .warnings()
-            .iter()
-            .any(|w| w.path == "agent.max_iterations" && w.message.contains("very high")));
-    }
-
     // -------------------------------------------------------------------
-    // New: API allowed_origins format
+    // API allowed_origins format
     // -------------------------------------------------------------------
 
     #[test]
@@ -2833,29 +2832,6 @@ channels:
     }
 
     #[test]
-    fn test_agent_max_iterations_boundary() {
-        let mut config = make_valid_config();
-        config.agent.max_iterations = 500;
-        let report = validate(&config);
-        assert!(report.is_valid());
-        assert!(report
-            .warnings()
-            .iter()
-            .all(|w| w.path != "agent.max_iterations"));
-    }
-
-    #[test]
-    fn test_agent_max_iterations_just_above_boundary() {
-        let mut config = make_valid_config();
-        config.agent.max_iterations = 501;
-        let report = validate(&config);
-        assert!(report
-            .warnings()
-            .iter()
-            .any(|w| w.path == "agent.max_iterations" && w.message.contains("very high")));
-    }
-
-    #[test]
     fn test_heartbeat_boundary_valid() {
         let mut config = make_valid_config();
         config.heartbeat.enabled = true;
@@ -3062,25 +3038,6 @@ channels:
             .errors()
             .iter()
             .any(|e| e.path == "channels.qq.app_id"));
-    }
-
-    #[test]
-    fn test_email_port_boundary_valid() {
-        let mut config = make_valid_config();
-        config.channels.email = Some(EmailConfig {
-            imap_host: Some("imap.example.com".to_string()),
-            smtp_host: Some("smtp.example.com".to_string()),
-            username: Some("user".to_string()),
-            password: None,
-            port: 1,
-            enabled: true,
-        });
-        let report = validate(&config);
-        // port=1 is in range [1, 65535] but non-standard
-        assert!(report
-            .warnings()
-            .iter()
-            .any(|w| w.path == "channels.email.port" && w.message.contains("non-standard")));
     }
 
     #[test]
@@ -3325,98 +3282,41 @@ channels:
     // -------------------------------------------------------------------
 
     #[test]
-    fn test_telegram_proxy_http_valid() {
-        let mut config = make_valid_config();
-        config.channels.telegram = Some(TelegramConfig {
-            token: "123456:ABC-DEF".to_string(),
-            enabled: true,
-            allowed_users: vec![],
-            admin_users: vec![],
-            streaming: false,
-            proxy: Some("http://proxy.example.com:8080".to_string()),
-        });
-        let report = validate(&config);
-        assert!(report.is_valid(), "Unexpected errors: {}", report);
-    }
-
-    #[test]
-    fn test_telegram_proxy_socks5_valid() {
-        let mut config = make_valid_config();
-        config.channels.telegram = Some(TelegramConfig {
-            token: "123456:ABC-DEF".to_string(),
-            enabled: true,
-            allowed_users: vec![],
-            admin_users: vec![],
-            streaming: false,
-            proxy: Some("socks5://proxy.example.com:1080".to_string()),
-        });
-        let report = validate(&config);
-        assert!(report.is_valid(), "Unexpected errors: {}", report);
-    }
-
-    #[test]
-    fn test_telegram_proxy_socks5h_valid() {
-        let mut config = make_valid_config();
-        config.channels.telegram = Some(TelegramConfig {
-            token: "123456:ABC-DEF".to_string(),
-            enabled: true,
-            allowed_users: vec![],
-            admin_users: vec![],
-            streaming: false,
-            proxy: Some("socks5h://proxy.example.com:1080".to_string()),
-        });
-        let report = validate(&config);
-        assert!(report.is_valid(), "Unexpected errors: {}", report);
-    }
-
-    #[test]
-    fn test_telegram_proxy_https_valid() {
-        let mut config = make_valid_config();
-        config.channels.telegram = Some(TelegramConfig {
-            token: "123456:ABC-DEF".to_string(),
-            enabled: true,
-            allowed_users: vec![],
-            admin_users: vec![],
-            streaming: false,
-            proxy: Some("https://proxy.example.com:8443".to_string()),
-        });
-        let report = validate(&config);
-        assert!(report.is_valid(), "Unexpected errors: {}", report);
-    }
-
-    #[test]
-    fn test_telegram_proxy_invalid_scheme() {
-        let mut config = make_valid_config();
-        config.channels.telegram = Some(TelegramConfig {
-            token: "123456:ABC-DEF".to_string(),
-            enabled: true,
-            allowed_users: vec![],
-            admin_users: vec![],
-            streaming: false,
-            proxy: Some("ftp://proxy.example.com:21".to_string()),
-        });
-        let report = validate(&config);
-        assert!(!report.is_valid());
-        assert!(report
-            .errors()
-            .iter()
-            .any(|e| e.path == "channels.telegram.proxy"
-                && e.message.contains("Unsupported proxy scheme")));
-    }
-
-    #[test]
-    fn test_telegram_proxy_empty_ok() {
-        let mut config = make_valid_config();
-        config.channels.telegram = Some(TelegramConfig {
-            token: "123456:ABC-DEF".to_string(),
-            enabled: true,
-            allowed_users: vec![],
-            admin_users: vec![],
-            streaming: false,
-            proxy: Some(String::new()), // empty string = no proxy
-        });
-        let report = validate(&config);
-        assert!(report.is_valid(), "Unexpected errors: {}", report);
+    fn test_telegram_proxy_schemes() {
+        let cases: &[(&str, bool, Option<&str>)] = &[
+            // (proxy_value, expected_valid, expected_error_substring)
+            ("http://proxy.example.com:8080", true, None),
+            ("socks5://proxy.example.com:1080", true, None),
+            ("socks5h://proxy.example.com:1080", true, None),
+            ("https://proxy.example.com:8443", true, None),
+            ("socks5://user:pass@proxy.example.com:1080", true, None),
+            ("", true, None),   // empty string = no proxy
+            ("ftp://proxy.example.com:21", false, Some("Unsupported proxy scheme")),
+        ];
+        for &(proxy, expected_valid, expected_err) in cases {
+            let mut config = make_valid_config();
+            config.channels.telegram = Some(TelegramConfig {
+                token: "123456:ABC-DEF".to_string(),
+                enabled: true,
+                allowed_users: vec![],
+                admin_users: vec![],
+                streaming: false,
+                proxy: if proxy.is_empty() { Some(String::new()) } else { Some(proxy.to_string()) },
+            });
+            let report = validate(&config);
+            assert_eq!(
+                report.is_valid(), expected_valid,
+                "proxy={:?}: expected valid={}, got {}",
+                proxy, expected_valid, report
+            );
+            if let (false, Some(err_sub)) = (expected_valid, expected_err) {
+                assert!(
+                    report.errors().iter().any(|e| e.path == "channels.telegram.proxy" && e.message.contains(err_sub)),
+                    "proxy={:?}: expected error containing {:?}",
+                    proxy, err_sub
+                );
+            }
+        }
     }
 
     #[test]
@@ -3429,21 +3329,6 @@ channels:
             admin_users: vec![],
             streaming: false,
             proxy: None,
-        });
-        let report = validate(&config);
-        assert!(report.is_valid(), "Unexpected errors: {}", report);
-    }
-
-    #[test]
-    fn test_telegram_proxy_with_auth_valid() {
-        let mut config = make_valid_config();
-        config.channels.telegram = Some(TelegramConfig {
-            token: "123456:ABC-DEF".to_string(),
-            enabled: true,
-            allowed_users: vec![],
-            admin_users: vec![],
-            streaming: false,
-            proxy: Some("socks5://user:pass@proxy.example.com:1080".to_string()),
         });
         let report = validate(&config);
         assert!(report.is_valid(), "Unexpected errors: {}", report);

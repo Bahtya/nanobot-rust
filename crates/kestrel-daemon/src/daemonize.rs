@@ -67,13 +67,18 @@ pub fn daemonize(working_dir: &str, log_file: Option<&str>) -> Result<()> {
     // Set working directory: on Termux, chdir("/") fails or points to an
     // unreadable area — fall back to home directory instead.
     let resolved_dir = if working_dir == "/" && kestrel_config::platform::is_termux() {
-        let home = dirs::home_dir()
+        let home = kestrel_config::paths::get_kestrel_home().unwrap_or_else(|_| {
+            std::path::PathBuf::from("/data/data/com.termux/files/home/.kestrel")
+        });
+        let parent = home
+            .parent()
+            .map(|p| p.to_path_buf())
             .unwrap_or_else(|| std::path::PathBuf::from("/data/data/com.termux/files/home"));
         eprintln!(
             "Termux detected: using {} as working directory instead of /",
-            home.display()
+            parent.display()
         );
-        home.to_string_lossy().to_string()
+        parent.to_string_lossy().to_string()
     } else {
         working_dir.to_string()
     };

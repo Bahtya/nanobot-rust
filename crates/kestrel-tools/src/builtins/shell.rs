@@ -196,18 +196,25 @@ where
 }
 
 fn build_command(command: &str, dangerous: bool, max_memory_kib: u64) -> Command {
-    let mut cmd = Command::new("sh");
+    let shell = kestrel_config::platform::get_shell_path();
+    let mut cmd = Command::new(&shell);
     cmd.kill_on_drop(true);
     if dangerous {
         cmd.arg("-c").arg(command);
     } else {
         #[cfg(unix)]
         {
-            cmd.arg("-c")
-                .arg("ulimit -v \"$1\"; exec /bin/sh -c \"$2\"")
-                .arg("sh")
-                .arg(max_memory_kib.to_string())
-                .arg(command);
+            // ulimit -v may not be supported or behave differently on
+            // Android/Termux (Bionic libc lacks RLIMIT_AS in some versions).
+            if kestrel_config::platform::is_android() {
+                cmd.arg("-c").arg(command);
+            } else {
+                cmd.arg("-c")
+                    .arg(format!("ulimit -v \"$1\"; exec {} -c \"$2\"", shell))
+                    .arg("sh")
+                    .arg(max_memory_kib.to_string())
+                    .arg(command);
+            }
         }
         #[cfg(not(unix))]
         {
@@ -524,6 +531,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn test_build_command_applies_memory_limit_when_sandboxed() {
+        // Only test ulimit on non-Android (CI/dev environments)
+        if kestrel_config::platform::is_android() {
+            return;
+        }
         let cmd = build_command("echo hi", false, 4096);
         let debug = format!("{cmd:?}");
         assert!(debug.contains("ulimit -v"));

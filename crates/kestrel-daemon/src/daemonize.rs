@@ -4,8 +4,11 @@
 //! 1. First fork — parent exits, child continues
 //! 2. `setsid()` — create new session
 //! 3. Second fork — ensure process is not a session leader
-//! 4. `chdir("/")` + `umask(0)` — detach from filesystem
+//! 4. `chdir` + `umask(0)` — detach from filesystem
 //! 5. Redirect stdin/stdout/stderr to `/dev/null`
+//!
+//! On Termux/Android, falls back to the user's home directory instead of `/`
+//! for the working directory, since the root filesystem may not be writable.
 //!
 //! **Critical**: Must run BEFORE the tokio runtime starts, because `fork()`
 //! only duplicates the calling thread — all other threads (including tokio's)
@@ -22,6 +25,9 @@ use std::os::unix::io::AsRawFd;
 /// After this function returns, the caller is running as a background daemon
 /// with no controlling terminal, `cwd` set to `working_dir`, and stdio
 /// redirected to `/dev/null`.
+///
+/// On Termux, if `working_dir` is `/`, it is replaced with the user's home
+/// directory since the root filesystem is not writable on Android.
 ///
 /// # Arguments
 ///
@@ -58,8 +64,20 @@ pub fn daemonize(working_dir: &str, log_file: Option<&str>) -> Result<()> {
         ForkResult::Child => {}
     }
 
-    // Set working directory and umask
-    chdir(working_dir).context("chdir to working_dir")?;
+    // Set working directory: on Termux, chdir("/") fails or points to an
+    // unreadable area — fall back to home directory instead.
+    let resolved_dir = if working_dir == "/" && kestrel_config::platform::is_termux() {
+        let home = dirs::home_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("/data/data/com.termux/files/home"));
+        eprintln!(
+            "Termux detected: using {} as working directory instead of /",
+            home.display()
+        );
+        home.to_string_lossy().to_string()
+    } else {
+        working_dir.to_string()
+    };
+    chdir(&*resolved_dir).context("chdir to working_dir")?;
     umask(Mode::from_bits(0o022).unwrap());
 
     // Redirect stdio to /dev/null (or log file for stderr)
@@ -120,5 +138,13 @@ mod tests {
         // Verify the redirect_stdio function is accessible and has the right signature.
         // We don't call it here because it modifies global fds.
         let _: fn(Option<&str>) -> Result<()> = redirect_stdio;
+    }
+
+    #[test]
+    fn test_is_termux_detection() {
+        // Without env vars, should not detect Termux
+        std::env::remove_var("TERMUX_VERSION");
+        std::env::remove_var("PREFIX");
+        assert!(!kestrel_config::platform::is_termux());
     }
 }

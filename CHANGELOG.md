@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-27
+
+### Added
+
+- Termux/Android runtime support with DNS and TLS compatibility (#163, #164, #167, #168, #170)
+- Tantivy-jieba full-text search replacing LanceDB for memory store (#160)
+
+### Changed
+
+- Switched to rustls-tls with webpki-roots for cross-platform TLS (#167)
+- Switched to hickory-dns resolver for musl/Android Termux compatibility (#164)
+- Consolidated test code with shared mocks and parameterized tests (#165)
+- CI: cross (Docker-based) for aarch64-musl build, static linking via musl
+
+### Fixed
+
+- DNS resolver fallback for Android/Termux compatibility (#168)
+- Embedding generation for learning insights with aligned dimensions (#156)
+- Cargo.lock sync for hickory-dns packages (#166)
+
+## [0.3.0] - 2026-04-25
+
+### Added
+
+- LanceDB → tantivy-jieba migration for full-text memory search (#160)
+- Word-boundary text search precision with `\b` regex patterns (#122)
+
+### Changed
+
+- CI: zig-based musl cross-compilation for aarch64-linux
+- Switched reqwest TLS backend from native-tls to rustls
+
 ## [0.2.5] - 2026-04-24
 
 ### Fixed
@@ -126,7 +158,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed cargo fmt after PR merges
 - Removed legacy memory.rs, unified on kestrel-memory crate
 
-[Unreleased]: https://github.com/Bahtya/kestrel-agent/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/Bahtya/kestrel-agent/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Bahtya/kestrel-agent/compare/v0.3.3...v0.4.0
+[0.3.0]: https://github.com/Bahtya/kestrel-agent/compare/v0.2.5...v0.3.0
+[0.2.5]: https://github.com/Bahtya/kestrel-agent/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/Bahtya/kestrel-agent/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/Bahtya/kestrel-agent/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/Bahtya/kestrel-agent/compare/v0.2.1...v0.2.2

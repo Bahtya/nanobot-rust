@@ -323,12 +323,15 @@ impl DiscordChannel {
                     .ok()
             });
 
+        let dns = kestrel_core::dns::build_dns_resolver();
+
         match proxy_url {
             Some(ref url) if url.starts_with("socks5") => {
                 info!("Discord HTTP client using SOCKS5 proxy: {}", url);
                 let proxy =
                     reqwest::Proxy::all(url).expect("Failed to create SOCKS5 proxy from config");
                 reqwest::Client::builder()
+                    .dns_resolver(dns)
                     .proxy(proxy)
                     .build()
                     .expect("Failed to build HTTP client with SOCKS5 proxy")
@@ -340,6 +343,7 @@ impl DiscordChannel {
                 let https_proxy =
                     reqwest::Proxy::https(url).expect("Failed to create HTTPS proxy from config");
                 reqwest::Client::builder()
+                    .dns_resolver(dns)
                     .proxy(http_proxy)
                     .proxy(https_proxy)
                     .build()
@@ -350,11 +354,17 @@ impl DiscordChannel {
                     "Discord HTTP client: unsupported proxy scheme in '{}', falling back to direct",
                     url
                 );
-                reqwest::Client::new()
+                reqwest::Client::builder()
+                    .dns_resolver(dns)
+                    .build()
+                    .expect("Failed to build HTTP client")
             }
             None => {
                 info!("Discord HTTP client: no proxy configured (direct connection)");
-                reqwest::Client::new()
+                reqwest::Client::builder()
+                    .dns_resolver(dns)
+                    .build()
+                    .expect("Failed to build HTTP client")
             }
         }
     }

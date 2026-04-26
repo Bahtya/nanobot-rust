@@ -3,6 +3,7 @@
 //! Shared types, error definitions, and constants for the kestrel project.
 
 pub mod constants;
+pub mod dns;
 pub mod error;
 pub mod types;
 

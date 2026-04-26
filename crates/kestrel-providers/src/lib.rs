@@ -27,7 +27,9 @@ pub use retry::{CircuitBreaker, CircuitBreakerConfig, RetryConfig, RetryPolicy};
 /// By default, reqwest reads `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` from the environment.
 /// When `no_proxy` is true, all proxy env vars are ignored (for domestic APIs like ZAI).
 pub(crate) fn build_client(no_proxy: bool) -> anyhow::Result<reqwest::Client> {
-    let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(30));
+    let mut builder = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .dns_resolver(kestrel_core::dns::build_dns_resolver());
     if no_proxy {
         builder = builder.no_proxy();
     }

@@ -6,6 +6,7 @@
 pub mod loader;
 pub mod migration;
 pub mod paths;
+pub mod platform;
 pub mod python_migrate;
 pub mod python_schema;
 pub mod schema;

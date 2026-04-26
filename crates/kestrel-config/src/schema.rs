@@ -776,25 +776,40 @@ pub struct DaemonConfig {
 }
 
 fn default_daemon_pid_file() -> String {
-    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
+    let fallback = if crate::platform::is_termux() {
+        std::path::PathBuf::from(crate::platform::TERMUX_HOME_FALLBACK)
+    } else {
+        std::path::PathBuf::from("/tmp")
+    };
+    let home = dirs::home_dir().unwrap_or(fallback);
     home.join(".kestrel")
         .join("kestrel.pid")
-        .to_str()
-        .unwrap_or("/tmp/kestrel.pid")
+        .to_string_lossy()
         .to_string()
 }
 
 fn default_daemon_log_dir() -> String {
-    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
+    let fallback = if crate::platform::is_termux() {
+        std::path::PathBuf::from(crate::platform::TERMUX_HOME_FALLBACK)
+    } else {
+        std::path::PathBuf::from("/tmp")
+    };
+    let home = dirs::home_dir().unwrap_or(fallback);
     home.join(".kestrel")
         .join("logs")
-        .to_str()
-        .unwrap_or("/tmp/kestrel-logs")
+        .to_string_lossy()
         .to_string()
 }
 
 fn default_daemon_working_directory() -> String {
-    "/".to_string()
+    if crate::platform::is_termux() {
+        dirs::home_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from(crate::platform::TERMUX_HOME_FALLBACK))
+            .to_string_lossy()
+            .to_string()
+    } else {
+        "/".to_string()
+    }
 }
 
 const fn default_daemon_grace_period() -> u64 {

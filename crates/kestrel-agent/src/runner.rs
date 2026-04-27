@@ -13,6 +13,7 @@ use kestrel_tools::ToolRegistry;
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 /// Callback for emitting events during agent execution.
@@ -32,6 +33,9 @@ pub struct AgentRunner {
     session_key: Option<String>,
     /// Full-chain trace ID propagated from the originating inbound message.
     trace_id: Option<String>,
+    /// Cancellation token — when cancelled, the runner exits at the next
+    /// iteration boundary with a graceful "interrupted" result.
+    cancel_token: Option<CancellationToken>,
 }
 
 impl AgentRunner {
@@ -49,6 +53,7 @@ impl AgentRunner {
             mutating_guard: Arc::new(Mutex::new(())),
             session_key: None,
             trace_id: None,
+            cancel_token: None,
         }
     }
 
@@ -73,6 +78,12 @@ impl AgentRunner {
     /// Set the trace ID for full-chain correlation.
     pub fn with_trace_id(mut self, id: impl Into<String>) -> Self {
         self.trace_id = Some(id.into());
+        self
+    }
+
+    /// Set a cancellation token for interrupting the agent loop.
+    pub fn with_cancel_token(mut self, token: CancellationToken) -> Self {
+        self.cancel_token = Some(token);
         self
     }
 
@@ -129,6 +140,20 @@ impl AgentRunner {
         let use_streaming = self.stream_tx.is_some();
 
         for iteration in 0..max_iterations {
+            // Check cancellation at iteration boundary
+            if let Some(ref token) = self.cancel_token {
+                if token.is_cancelled() {
+                    info!("Agent run cancelled at iteration {}", iteration);
+                    return Ok(RunResult {
+                        content: "(stopped)".to_string(),
+                        usage: total_usage,
+                        tool_calls_made,
+                        iterations_used: iteration,
+                        hit_limit: false,
+                    });
+                }
+            }
+
             debug!("Agent iteration {}/{}", iteration + 1, max_iterations);
 
             let request = CompletionRequest {

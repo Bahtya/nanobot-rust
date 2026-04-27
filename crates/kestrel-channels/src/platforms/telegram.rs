@@ -554,6 +554,8 @@ pub struct TelegramChannel {
     online_notify: bool,
     notify_chat_id: Option<String>,
     online_message_template: String,
+    /// Optional bus event sender for emitting interrupt events on /stop.
+    event_tx: Option<tokio::sync::broadcast::Sender<kestrel_bus::events::AgentEvent>>,
 }
 
 impl TelegramChannel {
@@ -663,6 +665,7 @@ impl TelegramChannel {
             online_notify: false,
             notify_chat_id: None,
             online_message_template: String::new(),
+            event_tx: None,
         }
     }
 
@@ -703,6 +706,7 @@ impl TelegramChannel {
             online_notify: notifications.online_notify,
             notify_chat_id: notifications.notify_chat_id.clone(),
             online_message_template: notifications.online_message.clone(),
+            event_tx: None,
         }
     }
 
@@ -726,7 +730,16 @@ impl TelegramChannel {
             online_notify: false,
             notify_chat_id: None,
             online_message_template: String::new(),
+            event_tx: None,
         }
+    }
+
+    /// Set the bus event sender for emitting interrupt events.
+    pub fn set_event_tx(
+        &mut self,
+        tx: tokio::sync::broadcast::Sender<kestrel_bus::events::AgentEvent>,
+    ) {
+        self.event_tx = Some(tx);
     }
 
     /// Create with config-driven notification settings and a custom base URL.
@@ -835,6 +848,10 @@ impl TelegramChannel {
             BotCommand {
                 command: "reset".to_string(),
                 description: "Reset current session".to_string(),
+            },
+            BotCommand {
+                command: "stop".to_string(),
+                description: "Stop current agent run".to_string(),
             },
             BotCommand {
                 command: "menu".to_string(),
@@ -952,6 +969,7 @@ impl TelegramChannel {
         running: Arc<AtomicBool>,
         router: Arc<tokio::sync::Mutex<CallbackRouter>>,
         proxy_config: Option<String>,
+        event_tx_opt: Option<tokio::sync::broadcast::Sender<kestrel_bus::events::AgentEvent>>,
     ) {
         let base_url = format!("https://api.telegram.org/bot{}", token);
         let mut offset: Option<i64> = None;
@@ -1069,6 +1087,27 @@ impl TelegramChannel {
                         let response = crate::commands::handle_reset(&session_key);
                         Self::send_direct_reply(&client, &base_url, msg.chat.id, &response, None)
                             .await;
+                        Self::send_read_receipt(&client, &base_url, msg.chat.id, msg.message_id)
+                            .await;
+                    } else if crate::commands::matches_command(text, "stop") {
+                        // /stop interrupts a running agent for this session.
+                        let session_key = format!("telegram:{}", msg.chat.id);
+                        if let Some(ref event_tx) = event_tx_opt {
+                            let _ = event_tx.send(
+                                kestrel_bus::events::AgentEvent::InterruptRequested {
+                                    session_key: session_key.clone(),
+                                    trace_id: None,
+                                },
+                            );
+                        }
+                        Self::send_direct_reply(
+                            &client,
+                            &base_url,
+                            msg.chat.id,
+                            "Stopping...",
+                            None,
+                        )
+                        .await;
                         Self::send_read_receipt(&client, &base_url, msg.chat.id, msg.message_id)
                             .await;
                     } else if let Some(dispatch) = crate::commands::try_handle_command(text).await {
@@ -1719,9 +1758,19 @@ impl BaseChannel for TelegramChannel {
             let running = self.running.clone();
             let router = self.router.clone();
             let proxy_config = self.proxy_config.clone();
+            let event_tx_opt = self.event_tx.clone();
 
             tokio::spawn(async move {
-                Self::poll_loop(client, token, handler, running, router, proxy_config).await;
+                Self::poll_loop(
+                    client,
+                    token,
+                    handler,
+                    running,
+                    router,
+                    proxy_config,
+                    event_tx_opt,
+                )
+                .await;
             });
 
             info!("Telegram channel connected — polling started");
@@ -1953,6 +2002,147 @@ impl BaseChannel for TelegramChannel {
 
     fn set_message_handler(&mut self, handler: tokio::sync::mpsc::Sender<InboundMessage>) {
         self.message_handler = Some(handler);
+    }
+
+    async fn edit_message(
+        &self,
+        chat_id: &str,
+        message_id: &str,
+        content: &str,
+    ) -> Result<SendResult> {
+        debug!("Editing message {} in chat {}", message_id, chat_id);
+
+        let chat_id_num: i64 = match chat_id.parse() {
+            Ok(n) => n,
+            Err(_) => {
+                return Ok(SendResult {
+                    success: false,
+                    message_id: None,
+                    error: Some(format!("invalid chat_id: {chat_id}")),
+                    retryable: false,
+                });
+            }
+        };
+
+        let message_id_num: i64 = match message_id.parse() {
+            Ok(n) => n,
+            Err(_) => {
+                return Ok(SendResult {
+                    success: false,
+                    message_id: None,
+                    error: Some(format!("invalid message_id: {message_id}")),
+                    retryable: false,
+                });
+            }
+        };
+
+        let (text, parse_mode) = Self::prepare_outbound_text(content);
+
+        let body = EditMessageTextBody {
+            chat_id: chat_id_num,
+            message_id: message_id_num,
+            text,
+            parse_mode,
+            reply_markup: None,
+        };
+
+        let url = self.api_url("editMessageText");
+        let resp = match self.client.post(&url).json(&body).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                return Ok(SendResult {
+                    success: false,
+                    message_id: None,
+                    error: Some(format!("HTTP request failed: {e}")),
+                    retryable: true,
+                });
+            }
+        };
+
+        let tg_resp: TgResponse<TgSentMessage> = match resp.json().await {
+            Ok(r) => r,
+            Err(e) => {
+                return Ok(SendResult {
+                    success: false,
+                    message_id: None,
+                    error: Some(format!("failed to parse response: {e}")),
+                    retryable: false,
+                });
+            }
+        };
+
+        if tg_resp.ok {
+            Ok(SendResult {
+                success: true,
+                message_id: Some(message_id.to_string()),
+                error: None,
+                retryable: false,
+            })
+        } else {
+            let err = tg_resp.description.unwrap_or_default();
+            // "message is not modified" is not a real failure — content unchanged
+            if err.contains("not modified") {
+                Ok(SendResult {
+                    success: true,
+                    message_id: Some(message_id.to_string()),
+                    error: None,
+                    retryable: false,
+                })
+            } else {
+                let is_flood = err.to_lowercase().contains("flood")
+                    || err.to_lowercase().contains("retry after");
+                Ok(SendResult {
+                    success: false,
+                    message_id: None,
+                    error: Some(err),
+                    retryable: is_flood,
+                })
+            }
+        }
+    }
+
+    async fn delete_message(&self, chat_id: &str, message_id: &str) -> Result<bool> {
+        debug!("Deleting message {} in chat {}", message_id, chat_id);
+
+        let chat_id_num: i64 = match chat_id.parse() {
+            Ok(n) => n,
+            Err(_) => return Ok(false),
+        };
+        let message_id_num: i64 = match message_id.parse() {
+            Ok(n) => n,
+            Err(_) => return Ok(false),
+        };
+
+        #[derive(Debug, Serialize)]
+        struct DeleteMessageBody {
+            chat_id: i64,
+            message_id: i64,
+        }
+
+        let url = self.api_url("deleteMessage");
+        let resp = self
+            .client
+            .post(&url)
+            .json(&DeleteMessageBody {
+                chat_id: chat_id_num,
+                message_id: message_id_num,
+            })
+            .send()
+            .await;
+
+        match resp {
+            Ok(r) => {
+                let tg_resp: TgResponse<serde_json::Value> = match r.json().await {
+                    Ok(parsed) => parsed,
+                    Err(_) => return Ok(false),
+                };
+                Ok(tg_resp.ok)
+            }
+            Err(e) => {
+                debug!("delete_message failed: {e}");
+                Ok(false)
+            }
+        }
     }
 }
 

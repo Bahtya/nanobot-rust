@@ -3,6 +3,7 @@
 //! Agent loop, runner, context building, skills, subagents, and hooks.
 //! Memory operations are provided by the [`kestrel_memory`] crate.
 
+pub mod cancel_registry;
 pub mod compaction;
 pub mod context;
 pub mod context_budget;
@@ -14,6 +15,7 @@ pub mod runner;
 pub mod skills;
 pub mod subagent;
 
+pub use cancel_registry::CancelRegistry;
 pub use compaction::{compact_session, CompactionConfig, CompactionResult, CompactionStrategy};
 pub use context::ContextBuilder;
 pub use context_budget::{

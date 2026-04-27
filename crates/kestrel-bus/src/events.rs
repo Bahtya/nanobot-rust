@@ -223,6 +223,15 @@ pub enum AgentEvent {
         /// Human-readable detail message.
         message: String,
     },
+
+    /// Request to interrupt a running agent for a session.
+    /// Emitted when a user sends /stop while an agent run is in progress.
+    InterruptRequested {
+        /// Session to interrupt.
+        session_key: String,
+        /// Trace ID for correlation.
+        trace_id: Option<String>,
+    },
 }
 
 #[cfg(test)]

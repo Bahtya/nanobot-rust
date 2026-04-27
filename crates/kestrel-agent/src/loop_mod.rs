@@ -6,6 +6,7 @@
 //! loop spawns a background [`HeartbeatService`] that periodically checks
 //! all component health.
 
+use crate::cancel_registry::CancelRegistry;
 use crate::compaction::{compact_session, CompactionConfig};
 use crate::context::ContextBuilder;
 use crate::heartbeat::{
@@ -34,6 +35,7 @@ use kestrel_tools::ToolRegistry;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn, Instrument};
 
 const REFLECTION_MAX_RETRIES: u32 = 2;
@@ -111,6 +113,9 @@ pub struct AgentLoop {
     audit_callback: Option<AuditCallback>,
     /// Consecutive reflection failure count for escalating log level.
     consecutive_reflection_failures: Arc<std::sync::atomic::AtomicU32>,
+    /// Active cancellation tokens, keyed by session_key.
+    /// Shared with channel adapters so they can cancel running agents on /stop.
+    cancel_registry: CancelRegistry,
 }
 
 impl AgentLoop {
@@ -141,6 +146,7 @@ impl AgentLoop {
             prompt_assembler: None,
             audit_callback: None,
             consecutive_reflection_failures: Arc::new(std::sync::atomic::AtomicU32::new(0)),
+            cancel_registry: CancelRegistry::new(),
         }
     }
 
@@ -155,6 +161,27 @@ impl AgentLoop {
         drop(running);
 
         info!("Agent loop started");
+
+        // Spawn a background listener for interrupt events.
+        // This runs independently of the main message processing loop
+        // so /stop can cancel a running agent even while process_message is busy.
+        {
+            let cancel_registry = self.cancel_registry.clone();
+            let mut event_rx = self.bus.subscribe_events();
+            let running = self.running.clone();
+            tokio::spawn(async move {
+                while *running.read().await {
+                    match event_rx.recv().await {
+                        Ok(AgentEvent::InterruptRequested { session_key, .. }) => {
+                            cancel_registry.cancel(&session_key);
+                        }
+                        Ok(_) => {}
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    }
+                }
+            });
+        }
 
         // Start heartbeat service if enabled
         let heartbeat_handle = if self.config.heartbeat.enabled {
@@ -176,6 +203,31 @@ impl AgentLoop {
                 Some(msg) => {
                     // Record activity for heartbeat tracking
                     *self.agent_activity.write() = Some(chrono::Local::now());
+
+                    // Handle /stop: cancel the running agent for this session
+                    // without queuing behind the current process_message call.
+                    if msg.content.trim().eq_ignore_ascii_case("/stop") {
+                        let session_key = msg.session_key();
+                        let cancelled = self.cancel_session(&session_key);
+                        let reply = if cancelled {
+                            "Stopped.".to_string()
+                        } else {
+                            "Nothing to stop.".to_string()
+                        };
+                        let stop_reply = OutboundMessage {
+                            channel: msg.channel,
+                            chat_id: msg.chat_id,
+                            content: reply,
+                            reply_to: msg.message_id,
+                            trace_id: msg.trace_id,
+                            media: vec![],
+                            metadata: Default::default(),
+                        };
+                        if let Err(e) = self.bus.publish_outbound(stop_reply).await {
+                            error!("Failed to send /stop reply: {}", e);
+                        }
+                        continue;
+                    }
 
                     // Extract fields before msg is moved into process_message,
                     // so the timeout branch can still build a reply.
@@ -360,6 +412,12 @@ impl AgentLoop {
             // Run agent with events wired through
             let messages = session.to_messages();
             let run_start = std::time::Instant::now();
+
+            // Create a cancellation token for this session
+            let cancel_token = CancellationToken::new();
+            self.cancel_registry
+                .insert(session_key.clone(), cancel_token.clone());
+
             let result = {
                 // Build a runner with event callback for this session
                 let event_bus = bus_for_stream.clone();
@@ -372,7 +430,8 @@ impl AgentLoop {
                     self.tool_registry.clone(),
                 )
                 .with_session_key(&session_key_for_runner)
-                .with_trace_id(trace_id_for_runner.clone().unwrap_or_default());
+                .with_trace_id(trace_id_for_runner.clone().unwrap_or_default())
+                .with_cancel_token(cancel_token.clone());
 
                 if self.config.agent.streaming {
                     runner_with_events =
@@ -414,6 +473,9 @@ impl AgentLoop {
 
                 runner_with_events.run(system_prompt, messages).await
             };
+
+            // Clean up the cancellation token for this session
+            self.cancel_registry.remove(&session_key);
 
             match result {
                 Ok(result) => {
@@ -482,24 +544,29 @@ impl AgentLoop {
                         }
                     }
 
-                    // Send outbound message
+                    // Send outbound message (unless the run was cancelled —
+                    // the /stop handler already sent a reply).
+                    let was_cancelled = result.content == "(stopped)";
                     let user_msg = msg.content.clone();
                     let result_content = result.content.clone();
                     let tool_calls = result.tool_calls_made;
                     let iterations = result.iterations_used;
-                    let success = !result.hit_limit;
-                    let outbound = OutboundMessage {
-                        channel: msg.channel.clone(),
-                        chat_id: msg.chat_id.clone(),
-                        content: result.content,
-                        reply_to: msg.message_id.clone(),
-                        trace_id: msg.trace_id.clone(),
-                        media: vec![],
-                        metadata: Default::default(),
-                    };
+                    let success = !result.hit_limit && !was_cancelled;
 
-                    if let Err(e) = self.bus.publish_outbound(outbound).await {
-                        error!("Failed to publish outbound message: {}", e);
+                    if !was_cancelled {
+                        let outbound = OutboundMessage {
+                            channel: msg.channel.clone(),
+                            chat_id: msg.chat_id.clone(),
+                            content: result.content,
+                            reply_to: msg.message_id.clone(),
+                            trace_id: msg.trace_id.clone(),
+                            media: vec![],
+                            metadata: Default::default(),
+                        };
+
+                        if let Err(e) = self.bus.publish_outbound(outbound).await {
+                            error!("Failed to publish outbound message: {}", e);
+                        }
                     }
 
                     // Post-task LLM reflection runs in the background after the
@@ -769,6 +836,18 @@ impl AgentLoop {
     pub async fn stop(&self) {
         info!("Stopping agent loop");
         *self.running.write().await = false;
+    }
+
+    /// Request cancellation of the running agent for a session.
+    ///
+    /// Returns true if a running agent was found and cancelled.
+    pub fn cancel_session(&self, session_key: &str) -> bool {
+        self.cancel_registry.cancel(session_key)
+    }
+
+    /// Get the shared cancel registry (for wiring into channel adapters).
+    pub fn cancel_registry(&self) -> CancelRegistry {
+        self.cancel_registry.clone()
     }
 
     /// Get a reference to the hooks for adding new hooks.

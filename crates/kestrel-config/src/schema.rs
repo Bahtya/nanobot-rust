@@ -512,6 +512,45 @@ fn default_max_msg_size() -> u64 {
     1048576
 }
 
+/// Streaming display configuration for progressive message editing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct StreamDisplayConfig {
+    /// Minimum seconds between Telegram message edits.
+    #[serde(default = "default_edit_interval")]
+    pub edit_interval_secs: f64,
+
+    /// Minimum characters to buffer before triggering an edit.
+    #[serde(default = "default_buffer_threshold")]
+    pub buffer_threshold: usize,
+
+    /// Cursor appended to the message during active streaming.
+    #[serde(default = "default_stream_cursor")]
+    pub cursor: String,
+}
+
+fn default_edit_interval() -> f64 {
+    1.5
+}
+
+fn default_buffer_threshold() -> usize {
+    40
+}
+
+fn default_stream_cursor() -> String {
+    " ▌".to_string()
+}
+
+impl Default for StreamDisplayConfig {
+    fn default() -> Self {
+        Self {
+            edit_interval_secs: default_edit_interval(),
+            buffer_threshold: default_buffer_threshold(),
+            cursor: default_stream_cursor(),
+        }
+    }
+}
+
 /// Agent default settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -543,6 +582,10 @@ pub struct AgentDefaults {
     /// Whether to enable streaming.
     #[serde(default = "default_true")]
     pub streaming: bool,
+
+    /// Streaming display configuration (rate-limiting, cursor, etc.).
+    #[serde(default)]
+    pub stream_display: StreamDisplayConfig,
 
     /// Tool execution timeout in seconds.
     #[serde(default = "default_tool_timeout")]
@@ -578,6 +621,7 @@ impl Default for AgentDefaults {
             workspace: None,
             system_prompt: None,
             streaming: true,
+            stream_display: StreamDisplayConfig::default(),
             tool_timeout: default_tool_timeout(),
             connect_timeout: default_connect_timeout(),
             first_byte_timeout: default_first_byte_timeout(),

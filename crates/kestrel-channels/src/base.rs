@@ -82,6 +82,30 @@ pub trait BaseChannel: Send + Sync {
         Ok(())
     }
 
+    /// Edit an existing message's text content.
+    ///
+    /// Default returns unsupported — platforms that support editing should override.
+    async fn edit_message(
+        &self,
+        _chat_id: &str,
+        _message_id: &str,
+        _content: &str,
+    ) -> Result<SendResult> {
+        Ok(SendResult {
+            success: false,
+            message_id: None,
+            error: Some("edit_message not supported".to_string()),
+            retryable: false,
+        })
+    }
+
+    /// Delete a message.
+    ///
+    /// Default returns false — platforms that support deletion should override.
+    async fn delete_message(&self, _chat_id: &str, _message_id: &str) -> Result<bool> {
+        Ok(false)
+    }
+
     /// Send an image.
     async fn send_image(
         &self,

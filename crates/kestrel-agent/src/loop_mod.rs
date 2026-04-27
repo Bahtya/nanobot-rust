@@ -510,6 +510,19 @@ impl AgentLoop {
                                     trace_id: trace_id_for_runner.clone(),
                                 });
                             }
+                            AgentEvent::ToolResult {
+                                session_key,
+                                tool_name,
+                                duration_ms,
+                                ..
+                            } => {
+                                event_bus.emit_event(AgentEvent::ToolResult {
+                                    session_key: session_key.clone(),
+                                    tool_name: tool_name.clone(),
+                                    duration_ms: *duration_ms,
+                                    trace_id: trace_id_for_runner.clone(),
+                                });
+                            }
                             _ => {}
                         }
                     }));

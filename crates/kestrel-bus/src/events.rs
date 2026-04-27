@@ -140,6 +140,14 @@ pub enum AgentEvent {
         trace_id: Option<String>,
     },
 
+    /// Tool execution completed.
+    ToolResult {
+        session_key: String,
+        tool_name: String,
+        duration_ms: u64,
+        trace_id: Option<String>,
+    },
+
     /// Agent completed processing.
     Completed {
         session_key: String,

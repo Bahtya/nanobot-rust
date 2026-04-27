@@ -443,11 +443,58 @@ impl AgentRunner {
             handles.push(handle);
         }
 
-        let mut results = Vec::new();
-        for handle in handles {
-            match handle.await {
-                Ok((result, duration)) => results.push((result, duration)),
-                Err(e) => results.push((format!("Tool execution failed: {}", e), 0)),
+        // Emit a progress indicator so Telegram doesn't go silent while tools run.
+        self.emit_stream_chunk(
+            format!("\n\u{1f527} Executing {} tool(s)...\n", tool_calls.len()),
+            false,
+        );
+
+        let total = handles.len();
+        let mut results: Vec<(String, u64)> = Vec::with_capacity(total);
+        let overall_start = std::time::Instant::now();
+        let heartbeat_interval = std::time::Duration::from_secs(10);
+
+        for (i, handle) in handles.into_iter().enumerate() {
+            // Poll this handle with a heartbeat timeout loop.
+            let mut h = handle;
+            loop {
+                match tokio::time::timeout(heartbeat_interval, &mut h).await {
+                    Ok(join_res) => {
+                        match join_res {
+                            Ok((result, duration)) => {
+                                self.emit_event(AgentEvent::ToolResult {
+                                    session_key: self.session_key.clone().unwrap_or_default(),
+                                    tool_name: tool_calls[i].function.name.clone(),
+                                    duration_ms: duration,
+                                    trace_id: self.trace_id.clone(),
+                                });
+                                results.push((result, duration));
+                            }
+                            Err(e) => {
+                                self.emit_event(AgentEvent::ToolResult {
+                                    session_key: self.session_key.clone().unwrap_or_default(),
+                                    tool_name: tool_calls[i].function.name.clone(),
+                                    duration_ms: 0,
+                                    trace_id: self.trace_id.clone(),
+                                });
+                                results.push((format!("Tool execution failed: {}", e), 0));
+                            }
+                        }
+                        break;
+                    }
+                    Err(_) => {
+                        // Timeout — emit heartbeat and keep waiting on the same handle.
+                        let elapsed = overall_start.elapsed().as_secs();
+                        let remaining = total - i;
+                        self.emit_stream_chunk(
+                            format!(
+                                "\n\u{23f3} Still running... ({}s elapsed, {} pending)\n",
+                                elapsed, remaining
+                            ),
+                            false,
+                        );
+                    }
+                }
             }
         }
 

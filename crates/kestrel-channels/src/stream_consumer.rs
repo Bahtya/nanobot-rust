@@ -128,6 +128,7 @@ impl StreamConsumer {
             // Check for tool call events (segment break)
             let mut tool_break = false;
             let mut tool_name_opt = None;
+            let mut completed_tools: Vec<(String, u64)> = Vec::new();
             loop {
                 match self.event_rx.try_recv() {
                     Ok(AgentEvent::ToolCall {
@@ -138,8 +139,35 @@ impl StreamConsumer {
                         tool_break = true;
                         tool_name_opt = Some(tool_name);
                     }
+                    Ok(AgentEvent::ToolResult {
+                        session_key,
+                        tool_name,
+                        duration_ms,
+                        ..
+                    }) if session_key == self.session_key => {
+                        completed_tools.push((tool_name, duration_ms));
+                    }
                     _ => break,
                 }
+            }
+
+            // Batch-render completed tools into a single message.
+            if !completed_tools.is_empty() {
+                let mut lines = Vec::with_capacity(completed_tools.len());
+                for (name, duration_ms) in &completed_tools {
+                    let duration_str = if *duration_ms >= 1000 {
+                        format!("{:.1}s", *duration_ms as f64 / 1000.0)
+                    } else {
+                        format!("{}ms", duration_ms)
+                    };
+                    lines.push(format!("\u{2705} `{}` done ({})", name, duration_str));
+                }
+                let reply_to = self.message_id.as_deref();
+                let done_msg = lines.join("\n");
+                let _ = self
+                    .channel
+                    .send_message(&self.chat_id, &done_msg, reply_to)
+                    .await;
             }
 
             let elapsed = self.last_edit_time.elapsed().as_secs_f64();

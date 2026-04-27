@@ -197,7 +197,7 @@ impl StreamConsumer {
                     Ok(r) if r.success => {
                         self.last_sent_text = text.to_string();
                         self.flood_strikes = 0;
-                        return true;
+                        true
                     }
                     Ok(r) => {
                         let is_flood = r
@@ -229,16 +229,16 @@ impl StreamConsumer {
                             self.flood_strikes
                         );
                         self.edit_supported = false;
-                        return false;
+                        false
                     }
                     Err(e) => {
                         warn!("Edit message error: {e}");
                         self.edit_supported = false;
-                        return false;
+                        false
                     }
                 }
             } else {
-                return false;
+                false
             }
         } else {
             // First message — send new

@@ -1793,71 +1793,42 @@ impl BaseChannel for TelegramChannel {
     ) -> Result<SendResult> {
         debug!("Sending Telegram message to chat {}", chat_id);
 
-        let chat_id_num: i64 = match chat_id.parse() {
-            Ok(n) => n,
-            Err(_) => {
-                return Ok(SendResult {
-                    success: false,
-                    message_id: None,
-                    error: Some(format!("invalid chat_id: {chat_id}")),
-                    retryable: false,
-                });
-            }
-        };
-
-        let reply_to_id = reply_to.and_then(|r| r.parse::<i64>().ok());
+        // Defensive split: if content exceeds 4096 chars after markdown
+        // conversion, split on newline boundaries and send multiple messages.
         let (text, parse_mode) = Self::prepare_outbound_text(content);
-
-        let body = SendMessageBody {
-            chat_id: chat_id_num,
-            text,
-            parse_mode,
-            reply_to_message_id: reply_to_id,
-            reply_markup: None,
-        };
-
-        let url = self.api_url("sendMessage");
-        let resp = match self.client.post(&url).json(&body).send().await {
-            Ok(r) => r,
-            Err(e) => {
-                return Ok(SendResult {
-                    success: false,
-                    message_id: None,
-                    error: Some(format!("HTTP request failed: {e}")),
-                    retryable: true,
-                });
-            }
-        };
-
-        let tg_resp: TgResponse<TgSentMessage> = match resp.json().await {
-            Ok(r) => r,
-            Err(e) => {
-                return Ok(SendResult {
-                    success: false,
-                    message_id: None,
-                    error: Some(format!("failed to parse response: {e}")),
-                    retryable: false,
-                });
-            }
-        };
-
-        if tg_resp.ok {
-            let msg_id = tg_resp.result.map(|m| m.message_id.to_string());
-
-            Ok(SendResult {
-                success: true,
-                message_id: msg_id,
-                error: None,
-                retryable: false,
-            })
-        } else {
-            Ok(SendResult {
-                success: false,
-                message_id: None,
-                error: tg_resp.description,
-                retryable: false,
-            })
+        if text.len() <= 4096 {
+            return self
+                .send_single_message(chat_id, &text, parse_mode, reply_to)
+                .await;
         }
+
+        // Split original content (pre-conversion) and send each chunk.
+        let chunks = crate::split_message(content, 4096);
+        let mut last_result: Option<SendResult> = None;
+        let mut first = true;
+        for chunk in &chunks {
+            let reply = if first {
+                first = false;
+                reply_to
+            } else {
+                None
+            };
+            let (chunk_text, chunk_parse_mode) = Self::prepare_outbound_text(chunk);
+            let result = self
+                .send_single_message(chat_id, &chunk_text, chunk_parse_mode, reply)
+                .await?;
+            if !result.success {
+                return Ok(result);
+            }
+            last_result = Some(result);
+        }
+
+        Ok(last_result.unwrap_or(SendResult {
+            success: true,
+            message_id: None,
+            error: None,
+            retryable: false,
+        }))
     }
 
     async fn send_typing(&self, chat_id: &str, _trace_id: Option<&str>) -> Result<()> {
@@ -2078,6 +2049,78 @@ impl BaseChannel for TelegramChannel {
 }
 
 impl TelegramChannel {
+    /// Send a single Telegram message (no splitting).
+    async fn send_single_message(
+        &self,
+        chat_id: &str,
+        text: &str,
+        parse_mode: Option<String>,
+        reply_to: Option<&str>,
+    ) -> Result<SendResult> {
+        let chat_id_num: i64 = match chat_id.parse() {
+            Ok(n) => n,
+            Err(_) => {
+                return Ok(SendResult {
+                    success: false,
+                    message_id: None,
+                    error: Some(format!("invalid chat_id: {chat_id}")),
+                    retryable: false,
+                });
+            }
+        };
+
+        let reply_to_id = reply_to.and_then(|r| r.parse::<i64>().ok());
+        let body = SendMessageBody {
+            chat_id: chat_id_num,
+            text: text.to_string(),
+            parse_mode,
+            reply_to_message_id: reply_to_id,
+            reply_markup: None,
+        };
+
+        let url = self.api_url("sendMessage");
+        let resp = match self.client.post(&url).json(&body).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                return Ok(SendResult {
+                    success: false,
+                    message_id: None,
+                    error: Some(format!("HTTP request failed: {e}")),
+                    retryable: true,
+                });
+            }
+        };
+
+        let tg_resp: TgResponse<TgSentMessage> = match resp.json().await {
+            Ok(r) => r,
+            Err(e) => {
+                return Ok(SendResult {
+                    success: false,
+                    message_id: None,
+                    error: Some(format!("failed to parse response: {e}")),
+                    retryable: false,
+                });
+            }
+        };
+
+        if tg_resp.ok {
+            let msg_id = tg_resp.result.map(|m| m.message_id.to_string());
+            Ok(SendResult {
+                success: true,
+                message_id: msg_id,
+                error: None,
+                retryable: false,
+            })
+        } else {
+            Ok(SendResult {
+                success: false,
+                message_id: None,
+                error: tg_resp.description,
+                retryable: false,
+            })
+        }
+    }
+
     /// Edit the text of a previously sent message.
     ///
     /// Optionally attach or update an inline keyboard via `reply_markup`.

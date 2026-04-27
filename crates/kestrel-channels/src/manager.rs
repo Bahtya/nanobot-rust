@@ -3,6 +3,7 @@
 use crate::base::BaseChannel;
 use crate::platforms::websocket;
 use crate::registry::ChannelRegistry;
+use crate::split_message;
 use anyhow::Result;
 use dashmap::DashMap;
 use kestrel_bus::events::{AgentEvent, OutboundMessage, StreamChunk};
@@ -90,25 +91,35 @@ impl ChannelManager {
         match self.running_channels.get(&channel_name) {
             Some(channel) => {
                 let channel = channel.lock().await;
-                match channel
-                    .send_message_with_trace(
-                        &msg.chat_id,
-                        &msg.content,
-                        msg.reply_to.as_deref(),
-                        msg.trace_id.as_deref(),
-                    )
-                    .await
-                {
-                    Ok(result) => {
-                        if !result.success {
-                            error!(
-                                "Failed to send message to {} via {}: {:?}",
-                                msg.chat_id, channel_name, result.error
-                            );
+                let chunks = split_message(&msg.content, 4096);
+                let mut first = true;
+                for chunk in chunks {
+                    let reply = if first {
+                        first = false;
+                        msg.reply_to.as_deref()
+                    } else {
+                        None
+                    };
+                    match channel
+                        .send_message_with_trace(
+                            &msg.chat_id,
+                            &chunk,
+                            reply,
+                            msg.trace_id.as_deref(),
+                        )
+                        .await
+                    {
+                        Ok(result) => {
+                            if !result.success {
+                                error!(
+                                    "Failed to send message to {} via {}: {:?}",
+                                    msg.chat_id, channel_name, result.error
+                                );
+                            }
                         }
-                    }
-                    Err(e) => {
-                        error!("Error sending message via {}: {}", channel_name, e);
+                        Err(e) => {
+                            error!("Error sending message via {}: {}", channel_name, e);
+                        }
                     }
                 }
             }

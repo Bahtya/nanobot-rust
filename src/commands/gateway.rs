@@ -946,29 +946,30 @@ mod tests {
             .get("greeting")
             .await
             .expect("greeting should exist");
-        let guard = skill.read();
-        let m = guard.manifest();
+        {
+            let guard = skill.read();
+            let m = guard.manifest();
 
-        // Verify bundled manifest fields are preserved (not re-derived)
-        assert_eq!(m.category, "social");
-        assert!(
-            m.triggers.contains(&"hello".to_string()),
-            "triggers should include 'hello': {:?}",
-            m.triggers
-        );
-        assert!(
-            m.triggers.contains(&"hi".to_string()),
-            "triggers should include 'hi': {:?}",
-            m.triggers
-        );
-        assert!(
-            m.triggers.contains(&"hey".to_string()),
-            "triggers should include 'hey': {:?}",
-            m.triggers
-        );
+            // Verify bundled manifest fields are preserved (not re-derived)
+            assert_eq!(m.category, "social");
+            assert!(
+                m.triggers.contains(&"hello".to_string()),
+                "triggers should include 'hello': {:?}",
+                m.triggers
+            );
+            assert!(
+                m.triggers.contains(&"hi".to_string()),
+                "triggers should include 'hi': {:?}",
+                m.triggers
+            );
+            assert!(
+                m.triggers.contains(&"hey".to_string()),
+                "triggers should include 'hey': {:?}",
+                m.triggers
+            );
+        }
 
         // Verify matching works with bundled triggers
-        drop(guard);
         assert_eq!(registry.match_skills("hello").await.len(), 1);
         assert_eq!(registry.match_skills("hey").await.len(), 1);
 

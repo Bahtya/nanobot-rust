@@ -184,6 +184,10 @@ impl StreamConsumer {
                     let chunk = self.accumulated[..split_at].to_string();
                     let ok = self.send_or_edit(&chunk, false).await;
                     if !ok {
+                        warn!(
+                            "Stream chunk split-and-send failed ({} bytes remaining), dropping rest",
+                            self.accumulated.len()
+                        );
                         break;
                     }
                     self.accumulated = self.accumulated[split_at..]

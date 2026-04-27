@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-04-28
+
+### Fixed
+
+- `stream_consumer::find_partial_tag_suffix` panic on multi-byte UTF-8 tags (e.g., emoji 🧠) due to byte-index slicing instead of char boundary (#181)
+
 ## [0.4.2] - 2026-04-28
 
 ### Fixed

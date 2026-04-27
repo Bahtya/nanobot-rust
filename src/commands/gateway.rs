@@ -397,6 +397,17 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
 
     // ── Channel manager (wrapped in Arc for shared access) ────
     let channel_registry = ChannelRegistry::new_with_config(&config);
+    let telegram_stream_channel = if config
+        .channels
+        .telegram
+        .as_ref()
+        .map(|c| c.enabled)
+        .unwrap_or(false)
+    {
+        channel_registry.create_channel("telegram").ok()
+    } else {
+        None
+    };
     let channel_manager = Arc::new(ChannelManager::new(channel_registry, bus.clone()));
 
     // ── Skill registry ───────────────────────────────────────
@@ -481,6 +492,12 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
         // Wire prompt assembler for dynamic system prompt construction
         al = al.with_prompt_assembler(PromptAssembler::new());
         info!("Prompt assembler wired into agent loop");
+
+        // Wire Telegram channel for streaming display
+        if let Some(tg) = telegram_stream_channel {
+            al = al.with_telegram_channel(Arc::from(tg));
+            info!("Telegram streaming channel wired into agent loop");
+        }
 
         al
     };

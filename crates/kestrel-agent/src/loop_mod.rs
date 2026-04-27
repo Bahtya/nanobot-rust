@@ -517,13 +517,13 @@ impl AgentLoop {
 
                                 // Send tool progress message to Telegram
                                 if let Some(ref channel) = channel_for_tool_display {
+                                    let ch = channel.clone();
+                                    let cid = chat_id_for_tool.clone();
                                     let progress =
                                         format!("Using `{}` tool...", tool_name);
-                                    let _ = channel.send_message(
-                                        &chat_id_for_tool,
-                                        &progress,
-                                        None,
-                                    ).await;
+                                    tokio::spawn(async move {
+                                        let _ = ch.send_message(&cid, &progress, None).await;
+                                    });
                                 }
                             }
                             _ => {}

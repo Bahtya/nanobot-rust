@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-04-27
+
+### Added
+
+- Telegram streaming via progressive `editMessageText` with real-time token display (#172)
+- `CancelRegistry` for shared session cancellation across agent loop and channel adapters (#173, #175)
+- Event-driven `StreamConsumer` with internal `AgentEvent` handling for tool-call segment breaks (#175)
+- `/stop` command for interrupting running agent runs (#172, #175)
+- Tool-call progress messages displayed between streaming segments (#172)
+- Think-block filtering (`<think>`, `<reasoning>`, `<thought>`) for cleaner display (#172)
+- Adaptive flood control backoff for Telegram edit rate-limiting (#172)
+- Smart message splitting at newline boundaries for messages >4096 chars (#172)
+- `StreamingConfig` with `edit_interval`, `buffer_threshold`, `cursor`, and `fresh_final_after_seconds` (#172)
+
+### Changed
+
+- `BaseChannel` trait extended with `edit_message()` and `delete_message()` methods (#172, #173)
+- `/stop` interception moved to pre-process for immediate response even during busy agent runs (#175)
+- StreamConsumer now handles tool-call segment breaks internally, eliminating redundant `tokio::spawn` code (#175)
+
 ## [0.4.0] - 2026-04-27
 
 ### Added

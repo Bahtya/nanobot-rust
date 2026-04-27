@@ -1,7 +1,14 @@
 //! Constants for the kestrel project.
 
-/// Current version of kestrel.
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// Current version of kestrel, combining Cargo version with git build info.
+pub const VERSION: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    " (",
+    env!("GIT_HASH"),
+    " ",
+    env!("GIT_DATE"),
+    ")"
+);
 
 /// Default maximum iterations for the agent loop.
 pub const DEFAULT_MAX_ITERATIONS: usize = 50;

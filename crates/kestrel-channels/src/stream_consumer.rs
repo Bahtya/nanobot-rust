@@ -409,7 +409,10 @@ fn max_tag_len(tags: &[&str]) -> usize {
 fn find_partial_tag_suffix(text: &str, tags: &[&str]) -> usize {
     let mut held = 0;
     for tag in tags {
-        for i in 1..=tag.len().min(text.len()) {
+        for (i, _) in tag.char_indices() {
+            if i == 0 || i > text.len() {
+                continue;
+            }
             if text.ends_with(&tag[..i]) && i > held {
                 held = i;
             }

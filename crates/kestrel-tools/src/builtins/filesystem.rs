@@ -134,15 +134,21 @@ impl Tool for WriteFileTool {
         }
 
         if append {
-            tokio::fs::OpenOptions::new()
+            let mut file = tokio::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
                 .open(path)
                 .await
-                .map_err(|e| ToolError::Execution(format!("Failed to open file: {}", e)))?
-                .write_all(content.as_bytes())
+                .map_err(|e| ToolError::Execution(format!("Failed to open file: {}", e)))?;
+            file.write_all(content.as_bytes())
                 .await
                 .map_err(|e| ToolError::Execution(format!("Failed to write: {}", e)))?;
+            file.flush()
+                .await
+                .map_err(|e| ToolError::Execution(format!("Failed to flush: {}", e)))?;
+            file.sync_all()
+                .await
+                .map_err(|e| ToolError::Execution(format!("Failed to sync: {}", e)))?;
         } else {
             tokio::fs::write(path, content)
                 .await

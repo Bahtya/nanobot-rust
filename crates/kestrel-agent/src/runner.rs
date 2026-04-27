@@ -445,10 +445,7 @@ impl AgentRunner {
 
         // Emit a progress indicator so Telegram doesn't go silent while tools run.
         self.emit_stream_chunk(
-            format!(
-                "\n\u{1f527} Executing {} tool(s)...\n",
-                tool_calls.len()
-            ),
+            format!("\n\u{1f527} Executing {} tool(s)...\n", tool_calls.len()),
             false,
         );
 

@@ -587,6 +587,52 @@ impl Default for AgentDefaults {
     }
 }
 
+/// Streaming display configuration for real-time message editing.
+///
+/// Controls how streamed tokens are rate-limited and displayed on chat platforms.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct StreamingConfig {
+    /// Minimum seconds between successive edit-message calls.
+    #[serde(default = "default_edit_interval")]
+    pub edit_interval: f64,
+
+    /// Minimum accumulated characters before triggering an edit.
+    #[serde(default = "default_buffer_threshold")]
+    pub buffer_threshold: usize,
+
+    /// Cursor string appended during active streaming (e.g. " ▉").
+    #[serde(default = "default_cursor")]
+    pub cursor: String,
+
+    /// When >0, the final edit is sent as a fresh message if the original
+    /// preview has been visible for at least this many seconds.
+    /// Default 0 = always edit in place.
+    #[serde(default)]
+    pub fresh_final_after_seconds: f64,
+}
+
+impl Default for StreamingConfig {
+    fn default() -> Self {
+        Self {
+            edit_interval: default_edit_interval(),
+            buffer_threshold: default_buffer_threshold(),
+            cursor: default_cursor(),
+            fresh_final_after_seconds: 0.0,
+        }
+    }
+}
+
+fn default_edit_interval() -> f64 {
+    1.0
+}
+fn default_buffer_threshold() -> usize {
+    40
+}
+fn default_cursor() -> String {
+    " ▉".to_string()
+}
+
 /// Dream (memory consolidation) configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

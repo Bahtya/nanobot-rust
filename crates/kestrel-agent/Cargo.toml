@@ -10,12 +10,14 @@ kestrel-bus = { path = "../kestrel-bus" }
 kestrel-session = { path = "../kestrel-session" }
 kestrel-providers = { path = "../kestrel-providers" }
 kestrel-tools = { path = "../kestrel-tools" }
+kestrel-channels = { path = "../kestrel-channels" }
 kestrel-memory = { path = "../kestrel-memory" }
 kestrel-cron = { path = "../kestrel-cron" }
 kestrel-heartbeat = { path = "../kestrel-heartbeat" }
 kestrel-skill = { path = "../kestrel-skill" }
 kestrel-learning = { path = "../kestrel-learning" }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -17,8 +17,12 @@ use crate::notes::NotesManager;
 use crate::runner::AgentRunner;
 use crate::subagent::SubAgentManager;
 use anyhow::Result;
+use dashmap::DashMap;
 use kestrel_bus::events::{AgentEvent, InboundMessage, OutboundMessage, StreamChunk};
 use kestrel_bus::MessageBus;
+use kestrel_channels::stream_consumer::StreamConsumer;
+use kestrel_channels::BaseChannel;
+use kestrel_config::schema::StreamingConfig;
 use kestrel_config::Config;
 use kestrel_core::{Message, MessageRole};
 use kestrel_heartbeat::HeartbeatService;
@@ -111,6 +115,14 @@ pub struct AgentLoop {
     audit_callback: Option<AuditCallback>,
     /// Consecutive reflection failure count for escalating log level.
     consecutive_reflection_failures: Arc<std::sync::atomic::AtomicU32>,
+    /// Channel registry for accessing platform adapters during streaming.
+    channel_registry: Option<Arc<kestrel_channels::ChannelRegistry>>,
+    /// Live Telegram channel for streaming support.
+    telegram_channel: Option<Arc<dyn BaseChannel>>,
+    /// Active cancellation tokens per session_key (for /stop support).
+    active_sessions: Arc<DashMap<String, tokio_util::sync::CancellationToken>>,
+    /// Pending messages queued while session is busy.
+    pending_messages: Arc<DashMap<String, InboundMessage>>,
 }
 
 impl AgentLoop {
@@ -141,6 +153,10 @@ impl AgentLoop {
             prompt_assembler: None,
             audit_callback: None,
             consecutive_reflection_failures: Arc::new(std::sync::atomic::AtomicU32::new(0)),
+            channel_registry: None,
+            telegram_channel: None,
+            active_sessions: Arc::new(DashMap::new()),
+            pending_messages: Arc::new(DashMap::new()),
         }
     }
 
@@ -244,6 +260,55 @@ impl AgentLoop {
 
         async move {
             let session_key = msg.session_key();
+
+            // Handle /stop command: cancel active agent run
+            let content_trimmed = msg.content.trim().to_lowercase();
+            if content_trimmed == "/stop" {
+                if self.cancel_session(&session_key) {
+                    let reply = OutboundMessage {
+                        channel: msg.channel.clone(),
+                        chat_id: msg.chat_id.clone(),
+                        content: "Stopped.".to_string(),
+                        reply_to: msg.message_id.clone(),
+                        trace_id: msg.trace_id.clone(),
+                        media: vec![],
+                        metadata: Default::default(),
+                    };
+                    if let Err(e) = self.bus.publish_outbound(reply).await {
+                        error!("Failed to send /stop reply: {e}");
+                    }
+
+                    // Drain any pending message
+                    if let Some((_, pending)) = self.pending_messages.remove(&session_key) {
+                        let _ = self.process_message(pending).await;
+                    }
+                    return Ok(());
+                } else {
+                    let reply = OutboundMessage {
+                        channel: msg.channel.clone(),
+                        chat_id: msg.chat_id.clone(),
+                        content: "Nothing to stop.".to_string(),
+                        reply_to: msg.message_id.clone(),
+                        trace_id: msg.trace_id.clone(),
+                        media: vec![],
+                        metadata: Default::default(),
+                    };
+                    if let Err(e) = self.bus.publish_outbound(reply).await {
+                        error!("Failed to send /stop reply: {e}");
+                    }
+                    return Ok(());
+                }
+            }
+
+            // If session is busy, queue the message
+            if self.is_session_active(&session_key) {
+                self.pending_messages.insert(session_key.clone(), msg.clone());
+                info!(
+                    "Session {} is busy, queued message",
+                    session_key
+                );
+                return Ok(());
+            }
 
             // Audit log: message content at debug level for traceability
             let content_preview = truncate_str(&msg.content, 100);
@@ -357,6 +422,30 @@ impl AgentLoop {
             // Set up event callback for this session
             let bus_for_stream = self.bus.clone();
 
+            // Create cancellation token for this session
+            let cancel_token = tokio_util::sync::CancellationToken::new();
+            self.active_sessions
+                .insert(session_key.clone(), cancel_token.clone());
+
+            // Determine streaming mode: agent-level streaming + channel support
+            let is_telegram = msg.channel == kestrel_core::Platform::Telegram;
+            let channel_streaming = is_telegram
+                && self
+                    .config
+                    .channels
+                    .telegram
+                    .as_ref()
+                    .map(|c| c.streaming)
+                    .unwrap_or(false);
+            let use_streaming = self.config.agent.streaming;
+
+            // Optionally spawn a StreamConsumer for Telegram streaming display
+            let stream_consumer_handle = if channel_streaming && use_streaming {
+                self.spawn_stream_consumer(&msg.chat_id)
+            } else {
+                None
+            };
+
             // Run agent with events wired through
             let messages = session.to_messages();
             let run_start = std::time::Instant::now();
@@ -365,6 +454,8 @@ impl AgentLoop {
                 let event_bus = bus_for_stream.clone();
                 let session_key_for_runner = session_key.clone();
                 let trace_id_for_runner = msg.trace_id.clone();
+                let channel_for_tool_display = self.telegram_channel.clone();
+                let chat_id_for_tool = msg.chat_id.clone();
 
                 let mut runner_with_events = AgentRunner::new(
                     self.config.clone(),
@@ -372,9 +463,10 @@ impl AgentLoop {
                     self.tool_registry.clone(),
                 )
                 .with_session_key(&session_key_for_runner)
-                .with_trace_id(trace_id_for_runner.clone().unwrap_or_default());
+                .with_trace_id(trace_id_for_runner.clone().unwrap_or_default())
+                .with_cancel_token(cancel_token.clone());
 
-                if self.config.agent.streaming {
+                if use_streaming {
                     runner_with_events =
                         runner_with_events.with_stream_tx(event_bus.subscribe_stream_tx());
                 }
@@ -407,12 +499,39 @@ impl AgentLoop {
                                     iteration: *iteration,
                                     trace_id: trace_id_for_runner.clone(),
                                 });
+
+                                // Send tool progress message to Telegram
+                                if let Some(ref channel) = channel_for_tool_display {
+                                    let progress =
+                                        format!("Using `{}` tool...", tool_name);
+                                    let _ = channel.send_message(
+                                        &chat_id_for_tool,
+                                        &progress,
+                                        None,
+                                    ).await;
+                                }
                             }
                             _ => {}
                         }
                     }));
 
                 runner_with_events.run(system_prompt, messages).await
+            };
+
+            // Clean up active session
+            self.active_sessions.remove(&session_key);
+
+            // Wait for stream consumer to finish and get the delivered message id
+            let stream_delivered_msg_id = if let Some(handle) = stream_consumer_handle {
+                match handle.await {
+                    Ok((_text, msg_id)) => msg_id,
+                    Err(e) => {
+                        warn!("Stream consumer task error: {e}");
+                        None
+                    }
+                }
+            } else {
+                None
             };
 
             match result {
@@ -491,15 +610,18 @@ impl AgentLoop {
                     let outbound = OutboundMessage {
                         channel: msg.channel.clone(),
                         chat_id: msg.chat_id.clone(),
-                        content: result.content,
+                        content: result.content.clone(),
                         reply_to: msg.message_id.clone(),
                         trace_id: msg.trace_id.clone(),
                         media: vec![],
                         metadata: Default::default(),
                     };
 
-                    if let Err(e) = self.bus.publish_outbound(outbound).await {
-                        error!("Failed to publish outbound message: {}", e);
+                    // Skip outbound if stream consumer already delivered the response
+                    if stream_delivered_msg_id.is_none() {
+                        if let Err(e) = self.bus.publish_outbound(outbound).await {
+                            error!("Failed to publish outbound message: {}", e);
+                        }
                     }
 
                     // Post-task LLM reflection runs in the background after the
@@ -628,6 +750,11 @@ impl AgentLoop {
                         })
                         .await;
                 }
+            }
+
+            // Drain pending messages for this session
+            if let Some((_, pending)) = self.pending_messages.remove(&session_key) {
+                let _ = self.process_message(pending).await;
             }
 
             Ok(())
@@ -763,6 +890,23 @@ impl AgentLoop {
         if let Some(cb) = &self.audit_callback {
             cb(entry);
         }
+    }
+
+    /// Spawn a StreamConsumer task for progressive Telegram message editing.
+    ///
+    /// Returns a JoinHandle that resolves to (final_text, message_id) when done.
+    fn spawn_stream_consumer(
+        &self,
+        chat_id: &str,
+    ) -> Option<tokio::task::JoinHandle<(String, Option<String>)>> {
+        let channel = self.telegram_channel.clone()?;
+        let stream_rx = self.bus.subscribe_stream();
+        let cfg = StreamingConfig::default();
+
+        let consumer = StreamConsumer::new(channel, chat_id.to_string(), cfg, stream_rx);
+        let handle = tokio::spawn(async move { consumer.run().await });
+
+        Some(handle)
     }
 
     /// Stop the agent loop.
@@ -1001,6 +1145,43 @@ impl AgentLoop {
     /// Get the sub-agent manager, if one has been attached.
     pub fn subagent_manager(&self) -> Option<&Arc<SubAgentManager>> {
         self.subagent_manager.as_ref()
+    }
+
+    /// Attach a channel registry for streaming support.
+    ///
+    /// When set, the agent loop can access platform adapters to perform
+    /// progressive message editing during streaming.
+    pub fn with_channel_registry(
+        mut self,
+        registry: Arc<kestrel_channels::ChannelRegistry>,
+    ) -> Self {
+        self.channel_registry = Some(registry);
+        self
+    }
+
+    /// Attach a live Telegram channel for streaming display.
+    pub fn with_telegram_channel(mut self, channel: Arc<dyn BaseChannel>) -> Self {
+        self.telegram_channel = Some(channel);
+        self
+    }
+
+    /// Cancel a running agent for the given session key.
+    ///
+    /// Used by /stop command to interrupt an in-progress agent run.
+    /// Returns true if a session was found and cancelled.
+    pub fn cancel_session(&self, session_key: &str) -> bool {
+        if let Some((_, token)) = self.active_sessions.remove(session_key) {
+            token.cancel();
+            info!("Cancelled agent run for session {}", session_key);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Check if a session currently has an active agent run.
+    pub fn is_session_active(&self, session_key: &str) -> bool {
+        self.active_sessions.contains_key(session_key)
     }
 }
 

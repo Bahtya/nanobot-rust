@@ -90,6 +90,30 @@ pub trait BaseChannel: Send + Sync {
         caption: Option<&str>,
     ) -> Result<SendResult>;
 
+    /// Edit an existing message's content.
+    ///
+    /// Default no-op — platforms that don't support editing can ignore this.
+    async fn edit_message(
+        &self,
+        _chat_id: &str,
+        _message_id: &str,
+        _content: &str,
+    ) -> Result<SendResult> {
+        Ok(SendResult {
+            success: false,
+            message_id: None,
+            error: Some("edit_message not supported".to_string()),
+            retryable: false,
+        })
+    }
+
+    /// Delete a message.
+    ///
+    /// Default no-op — platforms that don't support deletion can ignore this.
+    async fn delete_message(&self, _chat_id: &str, _message_id: &str) -> Result<bool> {
+        Ok(false)
+    }
+
     /// Set the message handler for inbound messages.
     fn set_message_handler(&mut self, handler: tokio::sync::mpsc::Sender<InboundMessage>);
 }

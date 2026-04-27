@@ -7,6 +7,7 @@ pub mod commands;
 pub mod manager;
 pub mod platforms;
 pub mod registry;
+pub mod stream_consumer;
 
 pub use base::BaseChannel;
 pub use commands::{
@@ -21,6 +22,7 @@ pub use platforms::telegram::{
 };
 pub use platforms::websocket::{run_ws_stream_consumer, WebSocketChannel};
 pub use registry::ChannelRegistry;
+pub use stream_consumer::{split_message, StreamConsumer};
 
 #[cfg(test)]
 pub(crate) mod test_support {

@@ -840,6 +840,10 @@ impl TelegramChannel {
                 command: "menu".to_string(),
                 description: "Open the menu".to_string(),
             },
+            BotCommand {
+                command: "stop".to_string(),
+                description: "Stop current generation".to_string(),
+            },
         ]
     }
 
@@ -1954,6 +1958,82 @@ impl BaseChannel for TelegramChannel {
     fn set_message_handler(&mut self, handler: tokio::sync::mpsc::Sender<InboundMessage>) {
         self.message_handler = Some(handler);
     }
+
+    async fn edit_message(
+        &self,
+        chat_id: &str,
+        message_id: &str,
+        content: &str,
+    ) -> Result<SendResult> {
+        let result = self
+            .edit_message_text(chat_id, message_id, content, None)
+            .await?;
+
+        // "message is not modified" is not a real failure — content unchanged.
+        if !result.success {
+            if let Some(ref err) = result.error {
+                if err.contains("not modified") {
+                    return Ok(SendResult {
+                        success: true,
+                        message_id: Some(message_id.to_string()),
+                        error: None,
+                        retryable: false,
+                    });
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
+    async fn delete_message(&self, chat_id: &str, message_id: &str) -> Result<bool> {
+        debug!(
+            "Deleting Telegram message {} in chat {}",
+            message_id, chat_id
+        );
+
+        let chat_id_num: i64 = match chat_id.parse() {
+            Ok(n) => n,
+            Err(_) => return Ok(false),
+        };
+        let message_id_num: i64 = match message_id.parse() {
+            Ok(n) => n,
+            Err(_) => return Ok(false),
+        };
+
+        #[derive(Debug, Serialize)]
+        struct DeleteMessageBody {
+            chat_id: i64,
+            message_id: i64,
+        }
+
+        let url = self.api_url("deleteMessage");
+        let resp = match self
+            .client
+            .post(&url)
+            .json(&DeleteMessageBody {
+                chat_id: chat_id_num,
+                message_id: message_id_num,
+            })
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(_) => return Ok(false),
+        };
+
+        #[derive(Debug, Deserialize)]
+        struct TgBoolResult {
+            #[allow(dead_code)]
+            ok: bool,
+        }
+        let tg_resp: TgResponse<TgBoolResult> = match resp.json().await {
+            Ok(r) => r,
+            Err(_) => return Ok(false),
+        };
+
+        Ok(tg_resp.ok)
+    }
 }
 
 impl TelegramChannel {
@@ -2038,10 +2118,22 @@ impl TelegramChannel {
                 retryable: false,
             })
         } else {
+            let err = tg_resp.description.unwrap_or_default();
+
+            // Flood control: retryable error
+            if err.contains("FLOOD_WAIT") || err.contains("retry after") {
+                return Ok(SendResult {
+                    success: false,
+                    message_id: None,
+                    error: Some(err),
+                    retryable: true,
+                });
+            }
+
             Ok(SendResult {
                 success: false,
                 message_id: None,
-                error: tg_resp.description,
+                error: Some(err),
                 retryable: false,
             })
         }

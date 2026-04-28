@@ -272,6 +272,9 @@ pub struct WebSocketChannel {
     auth_required: bool,
     /// Expected auth token (if auth is required).
     auth_token: Option<String>,
+    /// Pre-bound TCP listener for zero-port-contention tests.
+    #[cfg(test)]
+    pre_bound_listener: Option<TcpListener>,
 }
 
 impl WebSocketChannel {
@@ -285,6 +288,8 @@ impl WebSocketChannel {
             clients: Arc::new(DashMap::new()),
             auth_required: false,
             auth_token: None,
+            #[cfg(test)]
+            pre_bound_listener: None,
         }
     }
 
@@ -298,6 +303,8 @@ impl WebSocketChannel {
             clients: Arc::new(DashMap::new()),
             auth_required: false,
             auth_token: None,
+            #[cfg(test)]
+            pre_bound_listener: None,
         }
     }
 
@@ -315,6 +322,8 @@ impl WebSocketChannel {
             clients: Arc::new(DashMap::new()),
             auth_required,
             auth_token: token,
+            #[cfg(test)]
+            pre_bound_listener: None,
         }
     }
 
@@ -822,6 +831,12 @@ impl BaseChannel for WebSocketChannel {
 
     /// Bind the TCP listener and start the WebSocket accept loop.
     async fn connect(&mut self) -> Result<bool> {
+        #[cfg(test)]
+        let listener = match self.pre_bound_listener.take() {
+            Some(l) => l,
+            None => TcpListener::bind(&self.listen_addr).await?,
+        };
+        #[cfg(not(test))]
         let listener = TcpListener::bind(&self.listen_addr).await?;
         info!("WebSocket channel bound to {}", self.listen_addr);
 
@@ -1258,29 +1273,25 @@ mod tests {
     // Live WebSocket tests (bind to random port)
     // -----------------------------------------------------------------------
 
-    /// Helper: bind a WebSocket server on a random port and return the address.
-    async fn get_random_addr() -> String {
+    /// Helper: create a server channel bound to a random port (zero-contention).
+    async fn setup_server() -> (WebSocketChannel, String, mpsc::Receiver<InboundMessage>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap().to_string();
-        drop(listener);
-        addr
-    }
-
-    /// Helper: create a server channel bound to a random port.
-    async fn setup_server() -> (WebSocketChannel, String, mpsc::Receiver<InboundMessage>) {
-        let addr = get_random_addr().await;
         let mut channel = WebSocketChannel::with_addr(addr.clone());
+        channel.pre_bound_listener = Some(listener);
         let (tx, rx) = mpsc::channel(100);
         channel.set_message_handler(tx);
         (channel, addr, rx)
     }
 
-    /// Helper: create an auth-enabled server.
+    /// Helper: create an auth-enabled server (zero-contention).
     async fn setup_auth_server(
         token: &str,
     ) -> (WebSocketChannel, String, mpsc::Receiver<InboundMessage>) {
-        let addr = get_random_addr().await;
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
         let mut channel = WebSocketChannel::with_auth(addr.clone(), true, Some(token.to_string()));
+        channel.pre_bound_listener = Some(listener);
         let (tx, rx) = mpsc::channel(100);
         channel.set_message_handler(tx);
         (channel, addr, rx)

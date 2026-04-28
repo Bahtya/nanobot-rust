@@ -12,6 +12,7 @@ use kestrel_bus::MessageBus;
 use kestrel_channels::platforms::websocket::WsEnvelope;
 use kestrel_channels::BaseChannel;
 use kestrel_channels::WebSocketChannel;
+use serial_test::serial;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 /// Helper: bind a random port and return the address.
@@ -44,6 +45,7 @@ async fn drain_text(
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
+#[serial]
 async fn test_full_cycle_no_auth() {
     let bus = Arc::new(MessageBus::new());
     let addr = random_addr().await;
@@ -125,6 +127,7 @@ async fn test_full_cycle_no_auth() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
+#[serial]
 async fn test_full_cycle_with_auth() {
     let bus = Arc::new(MessageBus::new());
     let addr = random_addr().await;
@@ -194,6 +197,7 @@ async fn test_full_cycle_with_auth() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
+#[serial]
 async fn test_streaming_end_to_end() {
     let bus = Arc::new(MessageBus::new());
 
@@ -273,6 +277,7 @@ async fn test_streaming_end_to_end() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
+#[serial]
 async fn test_multiple_clients_individual_sessions() {
     let bus = Arc::new(MessageBus::new());
     let addr = random_addr().await;
@@ -347,6 +352,7 @@ async fn test_multiple_clients_individual_sessions() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
+#[serial]
 async fn test_trace_id_from_envelope_to_inbound_message() {
     let bus = Arc::new(MessageBus::new());
     let addr = random_addr().await;
@@ -388,6 +394,7 @@ async fn test_trace_id_from_envelope_to_inbound_message() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_trace_id_auto_generated_when_missing() {
     let bus = Arc::new(MessageBus::new());
     let addr = random_addr().await;
@@ -430,6 +437,7 @@ async fn test_trace_id_auto_generated_when_missing() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_welcome_contains_session_trace_id() {
     let addr = random_addr().await;
     let mut channel = WebSocketChannel::with_addr(addr.clone());
@@ -458,6 +466,7 @@ async fn test_welcome_contains_session_trace_id() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_outbound_message_carries_trace_id() {
     let bus = Arc::new(MessageBus::new());
     let addr = random_addr().await;
@@ -499,6 +508,7 @@ async fn test_outbound_message_carries_trace_id() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_trace_id_round_trip_full_chain() {
     let bus = Arc::new(MessageBus::new());
     let addr = random_addr().await;
@@ -562,6 +572,7 @@ async fn test_trace_id_round_trip_full_chain() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
+#[serial]
 async fn test_inbound_metadata_contains_ws_ids() {
     let bus = Arc::new(MessageBus::new());
     let addr = random_addr().await;
@@ -612,6 +623,7 @@ async fn test_inbound_metadata_contains_ws_ids() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
+#[serial]
 async fn test_streaming_chunk_carries_trace_id() {
     let bus = Arc::new(MessageBus::new());
     let clients: Arc<dashmap::DashMap<String, tokio::sync::mpsc::UnboundedSender<String>>> =

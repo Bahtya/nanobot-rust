@@ -1042,6 +1042,7 @@ mod tests {
     use super::*;
     use futures::{SinkExt, StreamExt};
     use kestrel_bus::events::StreamChunk;
+    use serial_test::serial;
     use tokio_tungstenite::tungstenite::Message as WsMessage;
 
     // -----------------------------------------------------------------------
@@ -1304,6 +1305,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_connect_starts_server() {
         let (mut channel, _addr, _rx) = setup_server().await;
         let result = channel.connect().await.unwrap();
@@ -1315,6 +1317,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_welcome_message_on_connect() {
         let (mut channel, addr, _rx) = setup_server().await;
         channel.connect().await.unwrap();
@@ -1333,6 +1336,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_client_connect_and_track() {
         let (mut channel, addr, _rx) = setup_server().await;
         channel.connect().await.unwrap();
@@ -1341,13 +1345,14 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert_eq!(channel.client_count(), 1);
 
         channel.disconnect().await.unwrap();
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_send_envelope_message_to_client() {
         let (mut channel, addr, _rx) = setup_server().await;
         channel.connect().await.unwrap();
@@ -1356,7 +1361,7 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let _welcome = drain_next_text(&mut ws).await;
 
         let client_id: String = channel
@@ -1381,6 +1386,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_backward_compat_legacy_inbound() {
         let (mut channel, addr, mut rx) = setup_server().await;
         channel.connect().await.unwrap();
@@ -1389,7 +1395,7 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let _welcome = drain_next_text(&mut ws).await;
 
         let legacy_msg = r#"{"role":"user","content":"legacy hello"}"#;
@@ -1406,6 +1412,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_envelope_inbound_message() {
         let (mut channel, addr, mut rx) = setup_server().await;
         channel.connect().await.unwrap();
@@ -1414,7 +1421,7 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let _welcome = drain_next_text(&mut ws).await;
 
         let envelope = WsEnvelope::message("envelope hello");
@@ -1433,6 +1440,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_legacy_inbound_has_no_message_id() {
         let (mut channel, addr, mut rx) = setup_server().await;
         channel.connect().await.unwrap();
@@ -1441,7 +1449,7 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let _welcome = drain_next_text(&mut ws).await;
 
         let legacy_msg = r#"{"role":"user","content":"legacy"}"#;
@@ -1458,6 +1466,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_ping_pong() {
         let (mut channel, addr, _rx) = setup_server().await;
         channel.connect().await.unwrap();
@@ -1466,7 +1475,7 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let _welcome = drain_next_text(&mut ws).await;
 
         let ping_json = r#"{"type":"ping","id":"ping-1"}"#;
@@ -1480,6 +1489,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_send_message_to_disconnected_client() {
         let (mut channel, addr, _rx) = setup_server().await;
         channel.connect().await.unwrap();
@@ -1504,6 +1514,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_send_image_to_client() {
         let (mut channel, addr, _rx) = setup_server().await;
         channel.connect().await.unwrap();
@@ -1512,7 +1523,7 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let _welcome = drain_next_text(&mut ws).await;
 
         let client_id: String = channel
@@ -1537,6 +1548,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_multiple_clients() {
         let (mut channel, addr, _rx) = setup_server().await;
         channel.connect().await.unwrap();
@@ -1598,6 +1610,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[tokio::test]
+    #[serial]
     async fn test_auth_required_message_auth_succeeds() {
         let (mut channel, addr, mut rx) = setup_auth_server("secret123").await;
         channel.connect().await.unwrap();
@@ -1606,7 +1619,7 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         // Send auth message with correct token.
         let auth_json = r#"{"type":"auth","token":"secret123"}"#;
@@ -1633,6 +1646,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_auth_required_wrong_token_rejected() {
         let (mut channel, addr, _rx) = setup_auth_server("secret123").await;
         channel.connect().await.unwrap();
@@ -1641,7 +1655,7 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         // Send auth with wrong token.
         let auth_json = r#"{"type":"auth","token":"wrong"}"#;
@@ -1656,6 +1670,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_auth_required_no_auth_message_rejected() {
         let (mut channel, addr, _rx) = setup_auth_server("secret123").await;
         channel.connect().await.unwrap();
@@ -1664,7 +1679,7 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         // Send a regular message without auth.
         let msg_json = r#"{"type":"message","content":"hello"}"#;
@@ -1679,6 +1694,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_auth_not_required_no_auth_needed() {
         let (mut channel, addr, mut rx) = setup_server().await;
         channel.connect().await.unwrap();
@@ -1687,7 +1703,7 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         // Welcome should arrive immediately (no auth required).
         let parsed = drain_next_text(&mut ws).await;
@@ -1709,6 +1725,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_auth_required_legacy_message_rejected() {
         let (mut channel, addr, _rx) = setup_auth_server("secret123").await;
         channel.connect().await.unwrap();
@@ -1717,7 +1734,7 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         // Send legacy format without auth — should be rejected.
         let legacy = r#"{"role":"user","content":"hello"}"#;
@@ -1731,6 +1748,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_auth_required_ping_before_auth_rejected() {
         let (mut channel, addr, _rx) = setup_auth_server("secret123").await;
         channel.connect().await.unwrap();
@@ -1739,7 +1757,7 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         // Send ping before auth — should be rejected.
         let ping = r#"{"type":"ping"}"#;
@@ -1797,7 +1815,7 @@ mod tests {
         });
 
         // Give the consumer time to subscribe to the broadcast channel.
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         // Publish a streaming chunk.
         bus.publish_stream_chunk(StreamChunk {
@@ -1870,7 +1888,7 @@ mod tests {
         });
 
         // Give it a moment to process.
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         running_flag.store(false, Ordering::Relaxed);
         bus.publish_stream_chunk(StreamChunk {
@@ -1887,6 +1905,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[tokio::test]
+    #[serial]
     async fn test_command_help_intercepted_locally() {
         let (mut channel, addr, mut rx) = setup_server().await;
         channel.connect().await.unwrap();
@@ -1895,7 +1914,7 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let _welcome = drain_next_text(&mut ws).await;
 
         // Send /help — should be intercepted locally.
@@ -1913,13 +1932,14 @@ mod tests {
 
         // No message should be forwarded to the bus.
         let bus_result =
-            tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv()).await;
+            tokio::time::timeout(std::time::Duration::from_millis(100), rx.recv()).await;
         assert!(bus_result.is_err(), "command should not reach the bus");
 
         channel.disconnect().await.unwrap();
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_command_status_intercepted_locally() {
         let (mut channel, addr, _rx) = setup_server().await;
         channel.connect().await.unwrap();
@@ -1928,7 +1948,7 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let _welcome = drain_next_text(&mut ws).await;
 
         let envelope = WsEnvelope::message("/status");
@@ -1945,6 +1965,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_command_settings_intercepted_locally() {
         let (mut channel, addr, _rx) = setup_server().await;
         channel.connect().await.unwrap();
@@ -1953,7 +1974,7 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let _welcome = drain_next_text(&mut ws).await;
 
         let envelope = WsEnvelope::message("/settings");
@@ -1973,6 +1994,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_command_reply_includes_trace_id() {
         let (mut channel, addr, _rx) = setup_server().await;
         channel.connect().await.unwrap();
@@ -1981,7 +2003,7 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let _welcome = drain_next_text(&mut ws).await;
 
         let mut envelope = WsEnvelope::message("/help");
@@ -1997,6 +2019,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_normal_message_forwarded_to_bus() {
         let (mut channel, addr, mut rx) = setup_server().await;
         channel.connect().await.unwrap();
@@ -2005,7 +2028,7 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let _welcome = drain_next_text(&mut ws).await;
 
         // Non-command message should reach the bus.

@@ -3637,7 +3637,7 @@ mod tests {
             }
         });
 
-        assert_eq!(router.handler_count(), 4);
+        assert_eq!(router.handler_count(), 3);
         assert!(router.has_handler("confirm"));
         assert!(router.has_handler("cancel"));
         assert!(router.has_handler("page"));
@@ -3952,7 +3952,7 @@ mod tests {
             message_id: "1".into(),
             sender_id: "1".into(),
             callback_query_id: "cb_settings".into(),
-            action: CallbackAction::parse("settings:page:0").unwrap(),
+            action: CallbackAction::parse("settings_view:page:0").unwrap(),
         };
 
         let resp = router.dispatch(ctx).await.unwrap();

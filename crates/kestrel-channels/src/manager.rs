@@ -25,6 +25,8 @@ pub struct ChannelManager {
     ws_clients: Arc<DashMap<String, tokio::sync::mpsc::UnboundedSender<String>>>,
     /// Running flag for the streaming consumer.
     streaming_running: Arc<std::sync::atomic::AtomicBool>,
+    /// Timestamp of last progress message per session (for throttling).
+    last_progress_at: DashMap<String, std::time::Instant>,
 }
 
 /// Extract platform name and chat_id from a session_key.
@@ -51,6 +53,7 @@ impl ChannelManager {
             typing_tasks: DashMap::new(),
             ws_clients: Arc::new(DashMap::new()),
             streaming_running: Arc::new(AtomicBool::new(false)),
+            last_progress_at: DashMap::new(),
         }
     }
 
@@ -255,10 +258,68 @@ impl ChannelManager {
                     AgentEvent::Completed { session_key, .. } => {
                         debug!("Typing stopped for session: {session_key}");
                         self.stop_typing(session_key);
+                        self.last_progress_at.remove(session_key);
                     }
                     AgentEvent::Error { session_key, .. } => {
                         debug!("Typing stopped (error) for session: {session_key}");
                         self.stop_typing(session_key);
+                        self.last_progress_at.remove(session_key);
+                    }
+                    AgentEvent::ToolResult {
+                        session_key,
+                        tool_name,
+                        duration_ms,
+                        trace_id,
+                    } => {
+                        let should_send =
+                            match self.last_progress_at.get(session_key) {
+                                Some(instant) => {
+                                    instant.elapsed()
+                                        >= std::time::Duration::from_secs(10)
+                                }
+                                None => true,
+                            };
+                        if !should_send {
+                            continue;
+                        }
+
+                        let (platform, chat_id) =
+                            match parse_session_key(session_key) {
+                                Some(p) => p,
+                                None => continue,
+                            };
+
+                        let channel =
+                            match self.running_channels.get(platform) {
+                                Some(c) => c.clone(),
+                                None => continue,
+                            };
+
+                        let chat_id_owned = chat_id.to_string();
+                        let sk = session_key.clone();
+                        let trace_id_owned = trace_id.clone();
+                        let tool = tool_name.clone();
+                        let dur = *duration_ms;
+                        let progress_text = format!(
+                            "✓ {} ({:.1}s)",
+                            tool,
+                            dur as f64 / 1000.0
+                        );
+
+                        tokio::spawn(async move {
+                            let ch = channel.lock().await;
+                            let _ = ch
+                                .send_message_with_trace(
+                                    &chat_id_owned,
+                                    &progress_text,
+                                    None,
+                                    trace_id_owned.as_deref(),
+                                )
+                                .await;
+                        });
+
+                        self.last_progress_at
+                            .insert(sk, std::time::Instant::now());
                     }
                     _ => {}
                 },

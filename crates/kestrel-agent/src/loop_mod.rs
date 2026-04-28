@@ -312,11 +312,26 @@ impl AgentLoop {
         async move {
             let session_key = msg.session_key();
 
-            // If session is busy, queue the message
+            // If session is busy, interrupt current run and replan with new message
             if self.is_session_active(&session_key) {
+                self.cancel_session(&session_key);
+
+                let confirmation = OutboundMessage {
+                    channel: msg.channel.clone(),
+                    chat_id: msg.chat_id.clone(),
+                    content: "收到新指令，正在重新规划...".to_string(),
+                    reply_to: msg.message_id.clone(),
+                    trace_id: msg.trace_id.clone(),
+                    media: vec![],
+                    metadata: Default::default(),
+                };
+                if let Err(e) = self.bus.publish_outbound(confirmation).await {
+                    error!("Failed to send interrupt confirmation: {e}");
+                }
+
                 self.pending_messages.insert(session_key.clone(), msg.clone());
                 info!(
-                    "Session {} is busy, queued message",
+                    "Session {} interrupted by new message, queued for re-planning",
                     session_key
                 );
                 return Ok(());
@@ -579,6 +594,9 @@ impl AgentLoop {
                 None
             };
 
+            let was_interrupted = cancel_token.is_cancelled()
+                && self.pending_messages.contains_key(&session_key);
+
             match result {
                 Ok(result) => {
                     let duration_ms = run_start.elapsed().as_millis() as u64;
@@ -601,99 +619,112 @@ impl AgentLoop {
                         duration_ms: Some(duration_ms),
                     });
 
-                    session.add_assistant_message(result.content.clone());
-
-                    // Auto-extract structured notes from the response
-                    let extracted =
-                        NotesManager::extract_notes_from_response(&mut session, &result.content);
-                    if extracted > 0 {
+                    if was_interrupted {
                         info!(
-                            "Auto-extracted {} notes from agent response in session {}",
-                            extracted, session_key
-                        );
-                    }
-
-                    // Compact notes if they exceed the limit
-                    if NotesManager::compact_if_needed(&mut session) {
-                        info!("Notes compacted for session {}", session_key);
-                    }
-
-                    if let Err(e) = self.session_manager.save_session(&session) {
-                        warn!(
                             session_key = %session_key,
-                            "Failed to persist completed session: {e}"
+                            "Agent run interrupted by new message, skipping cancelled response"
                         );
-                    }
+                        if let Err(e) = self.session_manager.save_session(&session) {
+                            warn!(
+                                session_key = %session_key,
+                                "Failed to persist session: {e}"
+                            );
+                        }
+                    } else {
+                        session.add_assistant_message(result.content.clone());
 
-                    // Store conversation memory (non-blocking — failures are logged, not propagated)
-                    self.store_conversation_memory(&msg.content, &result.content)
-                        .await;
+                        // Auto-extract structured notes from the response
+                        let extracted =
+                            NotesManager::extract_notes_from_response(&mut session, &result.content);
+                        if extracted > 0 {
+                            info!(
+                                "Auto-extracted {} notes from agent response in session {}",
+                                extracted, session_key
+                            );
+                        }
 
-                    // Emit ToolSucceeded learning event if tools were used
-                    if result.tool_calls_made > 0 {
-                        if let Some(ref bus) = self.learning_bus {
-                            bus.publish(LearningEvent::ToolSucceeded {
-                                tool: "agent_loop".to_string(),
-                                args_summary: format!(
-                                    "session={}, tool_calls={}, iterations={}",
-                                    session_key, result.tool_calls_made, result.iterations_used
-                                ),
-                                duration_ms: 0,
-                                context_hash: format!("sess:{}", session_key),
-                                timestamp: chrono::Utc::now(),
-                                trace_id: msg.trace_id.clone(),
+                        // Compact notes if they exceed the limit
+                        if NotesManager::compact_if_needed(&mut session) {
+                            info!("Notes compacted for session {}", session_key);
+                        }
+
+                        if let Err(e) = self.session_manager.save_session(&session) {
+                            warn!(
+                                session_key = %session_key,
+                                "Failed to persist completed session: {e}"
+                            );
+                        }
+
+                        // Store conversation memory (non-blocking — failures are logged, not propagated)
+                        self.store_conversation_memory(&msg.content, &result.content)
+                            .await;
+
+                        // Emit ToolSucceeded learning event if tools were used
+                        if result.tool_calls_made > 0 {
+                            if let Some(ref bus) = self.learning_bus {
+                                bus.publish(LearningEvent::ToolSucceeded {
+                                    tool: "agent_loop".to_string(),
+                                    args_summary: format!(
+                                        "session={}, tool_calls={}, iterations={}",
+                                        session_key, result.tool_calls_made, result.iterations_used
+                                    ),
+                                    duration_ms: 0,
+                                    context_hash: format!("sess:{}", session_key),
+                                    timestamp: chrono::Utc::now(),
+                                    trace_id: msg.trace_id.clone(),
+                                });
+                            }
+                        }
+
+                        // Send outbound message
+                        let user_msg = msg.content.clone();
+                        let result_content = result.content.clone();
+                        let tool_calls = result.tool_calls_made;
+                        let iterations = result.iterations_used;
+                        let success = !result.hit_limit;
+                        let outbound = OutboundMessage {
+                            channel: msg.channel.clone(),
+                            chat_id: msg.chat_id.clone(),
+                            content: result.content.clone(),
+                            reply_to: msg.message_id.clone(),
+                            trace_id: msg.trace_id.clone(),
+                            media: vec![],
+                            metadata: Default::default(),
+                        };
+
+                        // Skip outbound if stream consumer already delivered the response
+                        if stream_delivered_msg_id.is_none() {
+                            if let Err(e) = self.bus.publish_outbound(outbound).await {
+                                error!("Failed to publish outbound message: {}", e);
+                            }
+                        }
+
+                        // Post-task LLM reflection runs in the background after the
+                        // outbound response path completes.
+                        if let Some(bus) = self.learning_bus.clone() {
+                            let provider_registry = self.provider_registry.clone();
+                            let config = self.config.clone();
+                            let trace_id = msg.trace_id.clone();
+                            let consecutive_failures = self.consecutive_reflection_failures.clone();
+                            tokio::spawn(async move {
+                                post_task_reflect(ReflectionTask {
+                                    learning_bus: bus,
+                                    provider_registry,
+                                    config,
+                                    user_message: user_msg,
+                                    tool_calls_made: tool_calls,
+                                    iterations_used: iterations,
+                                    success,
+                                    response_preview: result_content,
+                                    trace_id,
+                                    consecutive_failures,
+                                })
+                                .await;
                             });
                         }
                     }
 
-                    // Send outbound message
-                    let user_msg = msg.content.clone();
-                    let result_content = result.content.clone();
-                    let tool_calls = result.tool_calls_made;
-                    let iterations = result.iterations_used;
-                    let success = !result.hit_limit;
-                    let outbound = OutboundMessage {
-                        channel: msg.channel.clone(),
-                        chat_id: msg.chat_id.clone(),
-                        content: result.content.clone(),
-                        reply_to: msg.message_id.clone(),
-                        trace_id: msg.trace_id.clone(),
-                        media: vec![],
-                        metadata: Default::default(),
-                    };
-
-                    // Skip outbound if stream consumer already delivered the response
-                    if stream_delivered_msg_id.is_none() {
-                        if let Err(e) = self.bus.publish_outbound(outbound).await {
-                            error!("Failed to publish outbound message: {}", e);
-                        }
-                    }
-
-                    // Post-task LLM reflection runs in the background after the
-                    // outbound response path completes.
-                    if let Some(bus) = self.learning_bus.clone() {
-                        let provider_registry = self.provider_registry.clone();
-                        let config = self.config.clone();
-                        let trace_id = msg.trace_id.clone();
-                        let consecutive_failures = self.consecutive_reflection_failures.clone();
-                        tokio::spawn(async move {
-                            post_task_reflect(ReflectionTask {
-                                learning_bus: bus,
-                                provider_registry,
-                                config,
-                                user_message: user_msg,
-                                tool_calls_made: tool_calls,
-                                iterations_used: iterations,
-                                success,
-                                response_preview: result_content,
-                                trace_id,
-                                consecutive_failures,
-                            })
-                            .await;
-                        });
-                    }
-
-                    // Emit completed event
+                    // Emit completed event (always, for typing/progress cleanup)
                     let completed_event = AgentEvent::Completed {
                         session_key: session_key.clone(),
                         iterations: result.iterations_used,

@@ -451,17 +451,26 @@ impl AgentLoop {
                     .unwrap_or(false);
             let use_streaming = self.config.agent.streaming;
 
-            // Optionally spawn a StreamConsumer for Telegram streaming display
-            let stream_consumer_handle = if channel_streaming && use_streaming {
-                self.spawn_stream_consumer(&session_key, &msg.chat_id)
-            } else {
-                None
-            };
-
-            // Run agent with events wired through
+            // Run agent with events wired through, with retry for transient stream errors
             let messages = session.to_messages();
             let run_start = std::time::Instant::now();
-            let result = {
+            let max_retries = 3;
+            let mut attempt = 0;
+            let mut stream_consumer_handle: Option<tokio::task::JoinHandle<(String, Option<String>)>> = None;
+
+            let result = 'retry: loop {
+                // (Re-)spawn StreamConsumer on each attempt so stream_rx is fresh
+                if attempt > 0 {
+                    if let Some(handle) = stream_consumer_handle.take() {
+                        handle.abort();
+                    }
+                }
+                stream_consumer_handle = if channel_streaming && use_streaming {
+                    self.spawn_stream_consumer(&session_key, &msg.chat_id)
+                } else {
+                    None
+                };
+
                 // Build a runner with event callback for this session
                 let event_bus = bus_for_stream.clone();
                 let session_key_for_runner = session_key.clone();
@@ -483,7 +492,6 @@ impl AgentLoop {
 
                 let runner_with_events =
                     runner_with_events.with_event_callback(Box::new(move |event: AgentEvent| {
-                        // Re-emit through bus
                         match &event {
                             AgentEvent::StreamingChunk {
                                 session_key,
@@ -527,7 +535,35 @@ impl AgentLoop {
                         }
                     }));
 
-                runner_with_events.run(system_prompt, messages).await
+                match runner_with_events.run(system_prompt.clone(), messages.clone()).await {
+                    Ok(run_result) => {
+                        break 'retry Ok(run_result);
+                    }
+                    Err(e) => {
+                        let err_str = format!("{:#}", e);
+                        let is_transient = err_str.contains("Stream error")
+                            || err_str.contains("connection")
+                            || err_str.contains("timeout")
+                            || err_str.contains("error decoding response body")
+                            || err_str.contains("broken pipe")
+                            || err_str.contains("reset by peer");
+
+                        if is_transient && attempt < max_retries {
+                            let backoff = std::time::Duration::from_secs(1 << (attempt + 1));
+                            warn!(
+                                attempt = attempt + 1,
+                                max_retries,
+                                backoff_ms = backoff.as_millis() as u64,
+                                error = %err_str,
+                                "Transient agent run error, retrying"
+                            );
+                            tokio::time::sleep(backoff).await;
+                            attempt += 1;
+                        } else {
+                            break 'retry Err(e);
+                        }
+                    }
+                }
             };
 
             // Wait for stream consumer to finish and get the delivered message id

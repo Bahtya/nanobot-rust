@@ -1574,7 +1574,7 @@ impl TelegramChannel {
 
     /// Register built-in callback handlers for inline keyboard buttons.
     ///
-    /// Currently handles the `menu`, `settings`, and `history` prefixes.
+    /// Currently handles the `menu`, `settings`, `settings_view`, and `history` prefixes.
     fn register_default_handlers(
         router: &mut CallbackRouter,
         session_keys: &Arc<ParkMutex<Vec<String>>>,
@@ -1601,9 +1601,25 @@ impl TelegramChannel {
             });
         }
 
-        // Settings pagination handler
+        // Settings toggle handler (model switch, streaming toggle)
         if !router.has_handler("settings") {
             router.register("settings", |ctx| {
+                let data = rebuild_callback_data(&ctx);
+                async move {
+                    match crate::commands::handle_callback(&data) {
+                        Some(response) => CallbackResponse::EditMessage {
+                            text: response.text,
+                            keyboard: response.keyboard,
+                        },
+                        None => CallbackResponse::Acknowledged,
+                    }
+                }
+            });
+        }
+
+        // Settings view pagination handler
+        if !router.has_handler("settings_view") {
+            router.register("settings_view", |ctx| {
                 let page: usize = ctx
                     .action
                     .payload
@@ -2423,8 +2439,6 @@ impl TelegramChannel {
 // ---------------------------------------------------------------------------
 
 /// Reconstruct the original callback_data string from a parsed CallbackContext.
-// TODO: Will be used by inline keyboard navigation in production code (currently only in tests).
-#[allow(dead_code)]
 pub(crate) fn rebuild_callback_data(ctx: &CallbackContext) -> String {
     match &ctx.action.payload {
         Some(p) => format!("{}:{}:{}", ctx.action.prefix, ctx.action.action, p),

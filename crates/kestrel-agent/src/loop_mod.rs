@@ -742,7 +742,11 @@ impl AgentLoop {
                         .await;
                 }
                 Err(e) => {
-                    let error_msg = format!("An error occurred while processing your message: {e}. Please try again later.");
+                    let raw_error = format!("{e}");
+                    let sanitized = sanitize_error_for_user(&raw_error);
+                    let error_msg = format!(
+                        "An error occurred while processing your message: {sanitized}. Please try again later."
+                    );
 
                     self.record_audit(AuditLogEntry {
                         event_type: "error".to_string(),
@@ -1533,6 +1537,26 @@ fn truncate_str(s: &str, max_len: usize) -> &str {
         }
         &s[..end]
     }
+}
+
+/// Sanitize an error message for display to end users.
+///
+/// Strips sensitive fields like `user_id` from embedded JSON that may appear
+/// in provider API error responses.
+fn sanitize_error_for_user(error: &str) -> String {
+    let mut result = error.to_string();
+
+    // Redact "user_id":"<value>"
+    while let Some(start) = result.find("\"user_id\":\"") {
+        let val_start = start + "\"user_id\":\"".len();
+        if let Some(end) = result[val_start..].find('"') {
+            result.replace_range(val_start..val_start + end, "[redacted]");
+        } else {
+            break;
+        }
+    }
+
+    result
 }
 
 /// Handle to a running heartbeat service spawned as a background task.
@@ -3000,5 +3024,31 @@ mod tests {
 
         let _ = rx.try_recv();
         assert_eq!(failures.load(std::sync::atomic::Ordering::Relaxed), 0);
+    }
+
+    // -- sanitize_error_for_user tests -----------------------------------------
+
+    #[test]
+    fn test_sanitize_strips_user_id() {
+        let raw = r#"API error (400 Bad Request): {"error":{"message":"Provider returned error"},"user_id":"user_ABC12345"}"#;
+        let sanitized = sanitize_error_for_user(raw);
+        assert!(!sanitized.contains("user_ABC12345"));
+        assert!(sanitized.contains("[redacted]"));
+    }
+
+    #[test]
+    fn test_sanitize_no_user_id() {
+        let raw = "Some generic error without user_id";
+        let sanitized = sanitize_error_for_user(raw);
+        assert_eq!(sanitized, raw);
+    }
+
+    #[test]
+    fn test_sanitize_multiple_user_ids() {
+        let raw = r#"err "user_id":"id1" more "user_id":"id2" end"#;
+        let sanitized = sanitize_error_for_user(raw);
+        assert!(!sanitized.contains("id1"));
+        assert!(!sanitized.contains("id2"));
+        assert!(sanitized.contains("[redacted]"));
     }
 }

@@ -588,6 +588,119 @@ fn save_config_to_default(config: &Config) -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------------
+// /settings text-based implementation (for WebSocket and other non-keyboard channels)
+// ---------------------------------------------------------------------------
+
+/// Handle `/settings` for text-only channels (WebSocket, etc.) that lack inline keyboards.
+///
+/// Subcommands:
+/// - `/settings` — show current settings
+/// - `/settings model` — show current model
+/// - `/settings model next` — cycle to next model
+/// - `/settings model <name>` — set model by name
+/// - `/settings streaming` — toggle streaming
+pub fn handle_ws_settings(text: &str) -> String {
+    let args = command_arguments(text);
+
+    if args.is_empty() {
+        let config = match load_config(None) {
+            Ok(c) => c,
+            Err(e) => return format!("Failed to load config: {e}"),
+        };
+        let mut out = String::new();
+        let _ = writeln!(out, "Settings");
+        let _ = writeln!(out, "Model: {}", config.agent.model);
+        let _ = writeln!(
+            out,
+            "Streaming: {}",
+            if config.agent.streaming { "on" } else { "off" }
+        );
+        let _ = writeln!(out, "\nUsage:");
+        let _ = writeln!(out, "/settings model — show current model");
+        let _ = writeln!(out, "/settings model next — cycle to next model");
+        let _ = writeln!(out, "/settings model <name> — set model by name");
+        let _ = writeln!(out, "/settings streaming — toggle streaming");
+        return out;
+    }
+
+    let mut parts = args.splitn(2, char::is_whitespace);
+    let subcommand = parts.next().unwrap_or_default();
+
+    match subcommand.to_ascii_lowercase().as_str() {
+        "model" => {
+            let rest = parts.next().unwrap_or("").trim();
+            if rest.is_empty() {
+                let config = match load_config(None) {
+                    Ok(c) => c,
+                    Err(e) => return format!("Failed to load config: {e}"),
+                };
+                return format!("Current model: {}", config.agent.model);
+            }
+            if rest.eq_ignore_ascii_case("next") {
+                return ws_settings_model_switch();
+            }
+            ws_settings_model_set(rest)
+        }
+        "streaming" => ws_settings_streaming_toggle(),
+        _ => "Usage:\n/settings model [next|<name>]\n/settings streaming".to_string(),
+    }
+}
+
+fn ws_settings_model_switch() -> String {
+    let mut config = match load_config(None) {
+        Ok(c) => c,
+        Err(e) => return format!("Failed to load config: {e}"),
+    };
+
+    let current = config.agent.model.to_lowercase();
+    let idx = MODEL_CYCLE
+        .iter()
+        .position(|m| m.eq_ignore_ascii_case(&current))
+        .map(|i| (i + 1) % MODEL_CYCLE.len())
+        .unwrap_or(0);
+    config.agent.model = MODEL_CYCLE[idx].to_string();
+
+    if let Err(e) = save_config_to_default(&config) {
+        return format!("Failed to save config: {e}");
+    }
+
+    format!("Model switched to: {}", config.agent.model)
+}
+
+fn ws_settings_model_set(name: &str) -> String {
+    let mut config = match load_config(None) {
+        Ok(c) => c,
+        Err(e) => return format!("Failed to load config: {e}"),
+    };
+    let old = config.agent.model.clone();
+    config.agent.model = name.to_string();
+
+    if let Err(e) = save_config_to_default(&config) {
+        return format!("Failed to save config: {e}");
+    }
+
+    format!("Model changed: {} → {}", old, config.agent.model)
+}
+
+fn ws_settings_streaming_toggle() -> String {
+    let mut config = match load_config(None) {
+        Ok(c) => c,
+        Err(e) => return format!("Failed to load config: {e}"),
+    };
+
+    config.agent.streaming = !config.agent.streaming;
+
+    if let Err(e) = save_config_to_default(&config) {
+        return format!("Failed to save config: {e}");
+    }
+
+    format!(
+        "Streaming: {}",
+        if config.agent.streaming { "on" } else { "off" }
+    )
+}
+
+// ---------------------------------------------------------------------------
 // /settings implementation (paginated view — from agent-a)
 // ---------------------------------------------------------------------------
 
@@ -2260,5 +2373,91 @@ agent:
             },
         };
         assert_eq!(rebuild_callback_data(&ctx), "settings:model");
+    }
+
+    // -- /settings text-based (WebSocket) tests ---------------------------------
+
+    #[test]
+    fn test_ws_settings_shows_current() {
+        let yaml = r#"
+providers:
+  openai:
+    api_key: "sk-test"
+"#;
+        let _dir = with_temp_config(yaml);
+        let result = handle_ws_settings("/settings");
+        assert!(result.contains("Settings"));
+        assert!(result.contains("Model:"));
+        assert!(result.contains("Streaming:"));
+        assert!(result.contains("/settings model"));
+        assert!(result.contains("/settings streaming"));
+    }
+
+    #[test]
+    fn test_ws_settings_model_show_current() {
+        let yaml = r#"
+agent:
+  model: "gpt-4o"
+"#;
+        let _dir = with_temp_config(yaml);
+        let result = handle_ws_settings("/settings model");
+        assert!(result.contains("gpt-4o"));
+    }
+
+    #[test]
+    fn test_ws_settings_model_next_cycles() {
+        let dir = tempfile::tempdir().unwrap();
+        let yaml = r#"
+agent:
+  model: "gpt-4o"
+"#;
+        let _env = EnvVarGuard::set("KESTREL_HOME", dir.path());
+        let config_path = dir.path().join("config.yaml");
+        std::fs::write(&config_path, yaml).unwrap();
+
+        let result = handle_ws_settings("/settings model next");
+        assert!(result.contains("Model switched to:"));
+        assert!(!result.contains("gpt-4o") || MODEL_CYCLE.len() == 1);
+    }
+
+    #[test]
+    fn test_ws_settings_model_set_by_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let yaml = r#"
+agent:
+  model: "gpt-4o"
+"#;
+        let _env = EnvVarGuard::set("KESTREL_HOME", dir.path());
+        let config_path = dir.path().join("config.yaml");
+        std::fs::write(&config_path, yaml).unwrap();
+
+        let result = handle_ws_settings("/settings model my-custom-model");
+        assert!(result.contains("gpt-4o"));
+        assert!(result.contains("my-custom-model"));
+    }
+
+    #[test]
+    fn test_ws_settings_streaming_toggle() {
+        let dir = tempfile::tempdir().unwrap();
+        let yaml = r#"
+agent:
+  model: "gpt-4o"
+  streaming: true
+"#;
+        let _env = EnvVarGuard::set("KESTREL_HOME", dir.path());
+        let config_path = dir.path().join("config.yaml");
+        std::fs::write(&config_path, yaml).unwrap();
+
+        let result = handle_ws_settings("/settings streaming");
+        assert!(result.contains("Streaming: off"));
+
+        let result2 = handle_ws_settings("/settings streaming");
+        assert!(result2.contains("Streaming: on"));
+    }
+
+    #[test]
+    fn test_ws_settings_unknown_subcommand() {
+        let result = handle_ws_settings("/settings foobar");
+        assert!(result.contains("Usage"));
     }
 }

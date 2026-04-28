@@ -1175,7 +1175,7 @@ mod tests {
     async fn test_handle_status_and_cancel() {
         let mgr = Arc::new(make_manager_with_delayed(
             "slow result",
-            Duration::from_secs(5),
+            Duration::from_millis(500),
         ));
         let handle = mgr
             .spawn_single("slow-task", "take your time", None, None)
@@ -1325,8 +1325,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_parallel_spawn_timeout() {
-        // Provider takes 2 seconds, but timeout is 100ms
-        let mgr = make_manager_with_delayed("delayed result", Duration::from_secs(2));
+        // Provider takes 200ms, but timeout is 0s
+        let mgr = make_manager_with_delayed("delayed result", Duration::from_millis(200));
 
         let tasks = vec![SubAgentTask {
             id: "slow-task".into(),
@@ -1338,11 +1338,11 @@ mod tests {
 
         // Actually use a very short timeout via direct construction
         let result = tokio::time::timeout(
-            Duration::from_secs(5),
+            Duration::from_millis(500),
             mgr.spawn_parallel(
                 tasks,
                 &ParallelSpawnConfig {
-                    per_task_timeout_secs: 1, // 1s timeout, task takes 2s
+                    per_task_timeout_secs: 0, // 0s timeout, task takes 200ms
                     ..Default::default()
                 },
             ),
@@ -1518,7 +1518,7 @@ mod tests {
             .collect();
 
         let result = tokio::time::timeout(
-            Duration::from_secs(5),
+            Duration::from_millis(500),
             mgr.spawn_parallel(
                 tasks,
                 &ParallelSpawnConfig {
@@ -1690,7 +1690,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_terminate_all() {
-        let mgr = Arc::new(make_manager_with_delayed("slow", Duration::from_secs(10)));
+        let mgr = Arc::new(make_manager_with_delayed("slow", Duration::from_millis(1000)));
 
         // Spawn 3 slow tasks
         let h1 = mgr.spawn_single("t1", "p1", None, None).await.unwrap();
@@ -1719,7 +1719,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         // Spawn a slow task
-        let _slow_mgr = Arc::new(make_manager_with_delayed("slow", Duration::from_secs(10)));
+        let _slow_mgr = Arc::new(make_manager_with_delayed("slow", Duration::from_millis(1000)));
         // Actually, let's just use the same manager with a slow provider approach
         // For simplicity, register a pending task manually
         let _id_slow = mgr.spawn("slow-task", "desc").await;
@@ -1782,7 +1782,7 @@ mod tests {
         let mut reg = ProviderRegistry::new();
         reg.register(
             "mock",
-            SharedMockProvider::simple("result").with_delay(Duration::from_secs(10)),
+            SharedMockProvider::simple("result").with_delay(Duration::from_millis(1000)),
         );
         reg.set_default("mock");
 
@@ -1813,16 +1813,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_spawn_single_timeout() {
-        // Provider takes 5 seconds, timeout is 100ms
-        let mgr = Arc::new(make_manager_with_delayed("slow", Duration::from_secs(5)));
+        // Provider takes 500ms, timeout is 0s
+        let mgr = Arc::new(make_manager_with_delayed("slow", Duration::from_millis(500)));
 
         let handle = mgr
-            .spawn_single("timed-task", "work", None, Some(1))
+            .spawn_single("timed-task", "work", None, Some(0))
             .await
             .unwrap();
 
         // Wait for the timeout to trigger
-        let status = mgr.wait_for(&handle.id, Duration::from_secs(3)).await;
+        let status = mgr.wait_for(&handle.id, Duration::from_millis(300)).await;
         assert!(status.is_some());
         assert!(matches!(status, Some(TaskStatus::Failed(ref msg)) if msg.contains("timed out")));
     }
@@ -1833,7 +1833,7 @@ mod tests {
         let handle = mgr.spawn_single("fast", "p", None, None).await.unwrap();
 
         // Wait for completion
-        let status = mgr.wait_for(&handle.id, Duration::from_secs(2)).await;
+        let status = mgr.wait_for(&handle.id, Duration::from_millis(200)).await;
         assert!(status.is_some());
         assert!(matches!(status, Some(TaskStatus::Completed(_))));
     }

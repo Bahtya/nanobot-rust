@@ -1745,7 +1745,7 @@ mod tests {
 
         al.process_message(msg).await.unwrap();
 
-        let outbound = tokio::time::timeout(std::time::Duration::from_secs(5), outbound_rx.recv())
+        let outbound = tokio::time::timeout(std::time::Duration::from_millis(500), outbound_rx.recv())
             .await
             .unwrap()
             .unwrap();
@@ -2791,7 +2791,7 @@ mod tests {
         })
         .await;
 
-        let event = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+        let event = tokio::time::timeout(std::time::Duration::from_millis(500), rx.recv())
             .await
             .expect("timeout")
             .expect("should receive event");
@@ -2896,7 +2896,7 @@ mod tests {
         })
         .await;
 
-        let event = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+        let event = tokio::time::timeout(std::time::Duration::from_millis(500), rx.recv())
             .await
             .expect("timeout")
             .expect("should receive event");
@@ -2939,7 +2939,7 @@ mod tests {
         })
         .await;
 
-        let event = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
+        let event = tokio::time::timeout(std::time::Duration::from_millis(1000), rx.recv())
             .await
             .expect("timeout")
             .expect("should receive event");

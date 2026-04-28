@@ -350,7 +350,13 @@ impl StreamConsumer {
                 } else {
                     let max_tag = max_tag_len(CLOSE_THINK_TAGS);
                     if remaining.len() > max_tag {
-                        self.think_buffer = remaining[remaining.len() - max_tag..].to_string();
+                        // Use char-boundary-safe floor to avoid splitting
+                        // a multi-byte UTF-8 character when slicing the tail.
+                        let mut cut = remaining.len() - max_tag;
+                        while cut < remaining.len() && !remaining.is_char_boundary(cut) {
+                            cut += 1;
+                        }
+                        self.think_buffer = remaining[cut..].to_string();
                     } else {
                         self.think_buffer = remaining.to_string();
                     }
@@ -367,9 +373,12 @@ impl StreamConsumer {
                     // Check for partial tag at the tail
                     let held_back = find_partial_tag_suffix(remaining, OPEN_THINK_TAGS);
                     if held_back > 0 {
-                        self.accumulated
-                            .push_str(&remaining[..remaining.len() - held_back]);
-                        self.think_buffer = remaining[remaining.len() - held_back..].to_string();
+                        let mut cut = remaining.len() - held_back;
+                        while cut < remaining.len() && !remaining.is_char_boundary(cut) {
+                            cut += 1;
+                        }
+                        self.accumulated.push_str(&remaining[..cut]);
+                        self.think_buffer = remaining[cut..].to_string();
                     } else {
                         self.accumulated.push_str(remaining);
                     }

@@ -3925,6 +3925,7 @@ mod tests {
         TelegramChannel::register_default_handlers(&mut router, &session_keys);
         assert!(router.has_handler("menu"));
         assert!(router.has_handler("settings"));
+        assert!(router.has_handler("settings_view"));
         assert!(router.has_handler("history"));
         assert_eq!(router.handler_count(), 4);
     }

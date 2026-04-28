@@ -1912,8 +1912,8 @@ mod tests {
         assert!(content.contains("/status"));
 
         // No message should be forwarded to the bus.
-        let bus_result = tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv())
-            .await;
+        let bus_result =
+            tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv()).await;
         assert!(bus_result.is_err(), "command should not reach the bus");
 
         channel.disconnect().await.unwrap();

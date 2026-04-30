@@ -1,5 +1,20 @@
 # Changelog
 
+## [v0.6.0] - 2026-04-30
+
+### New Features
+- Interactive setup wizard (`kestrel setup`) for guided first-time configuration (#220, #221)
+- Diagnostic command (`kestrel doctor`) to verify connectivity, config validity, and environment health (#219)
+- GLM Coding Plan (智谱) added as built-in provider with deepseek-coder and glm-4 models (#222)
+- Config import/export with AES-256-GCM encryption for secure backup (#216)
+- Improved Telegram `/models` menu UX — collapse on select, paginate large lists (#218)
+
+### Bug Fixes
+- Fix `provider_field!` macro unused warning in release builds
+- Fix `handle_status()` missing opencode_go provider list
+- Fix token masking for short tokens
+- Various clippy and rustfmt compliance fixes
+
 ## [v0.5.9] - 2026-04-30
 
 ### New Features

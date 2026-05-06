@@ -40,7 +40,7 @@ const ILINK_BASE_URL: &str = "https://ilinkai.weixin.qq.com";
 const WEIXIN_CDN_BASE_URL: &str = "https://novac2c.cdn.weixin.qq.com/c2c";
 const ILINK_APP_ID: &str = "bot";
 const CHANNEL_VERSION: &str = "2.2.0";
-const ILINK_APP_CLIENT_VERSION: u32 = (2 << 16) | (2 << 8) | 0;
+const ILINK_APP_CLIENT_VERSION: u32 = (2 << 16) | (2 << 8);
 
 const EP_GET_UPDATES: &str = "ilink/bot/getupdates";
 const EP_SEND_MESSAGE: &str = "ilink/bot/sendmessage";
@@ -48,8 +48,8 @@ const EP_SEND_TYPING: &str = "ilink/bot/sendtyping";
 const EP_GET_CONFIG: &str = "ilink/bot/getconfig";
 
 const LONG_POLL_TIMEOUT_MS: u64 = 35_000;
-const API_TIMEOUT_MS: u64 = 15_000;
-const CONFIG_TIMEOUT_MS: u64 = 10_000;
+const _API_TIMEOUT_MS: u64 = 15_000;
+const _CONFIG_TIMEOUT_MS: u64 = 10_000;
 
 const MAX_CONSECUTIVE_FAILURES: u32 = 3;
 const RETRY_DELAY_SECONDS: u64 = 2;
@@ -378,21 +378,21 @@ impl ContextTokenStore {
         }
     }
 
-    fn _key(&self, account_id: &str, user_id: &str) -> String {
+    fn make_key(account_id: &str, user_id: &str) -> String {
         format!("{}:{}", account_id, user_id)
     }
 
     fn get(&self, account_id: &str, user_id: &str) -> Option<String> {
         self.cache
             .lock()
-            .get(&self._key(account_id, user_id))
+            .get(&Self::make_key(account_id, user_id))
             .cloned()
     }
 
     fn set(&self, account_id: &str, user_id: &str, token: &str) {
         self.cache
             .lock()
-            .insert(self._key(account_id, user_id), token.to_string());
+            .insert(Self::make_key(account_id, user_id), token.to_string());
     }
 }
 
@@ -417,6 +417,7 @@ impl MessageDedup {
         let mut seen = self.seen.lock();
         let now = std::time::Instant::now();
         // Clean old entries periodically (simple heuristic: every 100 inserts)
+        #[allow(clippy::manual_is_multiple_of)]
         if seen.len() % 100 == 0 {
             let ttl = std::time::Duration::from_secs(self.ttl_seconds);
             seen.retain(|_, t| now.duration_since(*t) < ttl);

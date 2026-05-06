@@ -24,19 +24,21 @@ impl Default for DnsResolver {
 
 impl DnsResolver {
     pub fn new() -> Self {
-        let resolver = TokioResolver::builder_tokio()
-            .map(|mut b| {
+        let resolver = match TokioResolver::builder_tokio() {
+            Ok(mut b) => {
                 b.options_mut().ip_strategy = LookupIpStrategy::Ipv4AndIpv6;
                 b.build()
-            })
-            .unwrap_or_else(|_| {
+            }
+            Err(_) => {
                 let mut b = TokioResolver::builder_with_config(
                     ResolverConfig::default(),
                     Default::default(),
                 );
                 b.options_mut().ip_strategy = LookupIpStrategy::Ipv4AndIpv6;
                 b.build()
-            });
+            }
+        }
+        .expect("failed to build DNS resolver");
         Self {
             inner: Arc::new(resolver),
         }
@@ -48,7 +50,8 @@ impl Resolve for DnsResolver {
         let inner = self.inner.clone();
         Box::pin(async move {
             let lookup = inner.lookup_ip(name.as_str()).await?;
-            let addrs: Addrs = Box::new(lookup.iter().map(|ip| SocketAddr::new(ip, 0)));
+            let ips: Vec<_> = lookup.iter().copied().map(|ip| SocketAddr::new(ip, 0)).collect();
+            let addrs: Addrs = Box::new(ips.into_iter());
             Ok(addrs)
         })
     }

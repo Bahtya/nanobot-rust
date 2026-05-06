@@ -50,7 +50,7 @@ impl Resolve for DnsResolver {
         let inner = self.inner.clone();
         Box::pin(async move {
             let lookup = inner.lookup_ip(name.as_str()).await?;
-            let ips: Vec<_> = lookup.iter().copied().map(|ip| SocketAddr::new(ip, 0)).collect();
+            let ips: Vec<_> = lookup.iter().map(|ip| SocketAddr::new(ip, 0)).collect();
             let addrs: Addrs = Box::new(ips.into_iter());
             Ok(addrs)
         })

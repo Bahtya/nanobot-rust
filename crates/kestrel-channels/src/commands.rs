@@ -1668,6 +1668,19 @@ fn handle_status() -> String {
         };
         channels.push(format!("discord: {}", state));
     }
+    if let Some(ref fs) = config.channels.feishu {
+        let state = if fs.enabled {
+            if std::env::var("FEISHU_APP_ID").is_ok() && std::env::var("FEISHU_APP_SECRET").is_ok()
+            {
+                "connected"
+            } else {
+                "configured (no credentials)"
+            }
+        } else {
+            "disabled"
+        };
+        channels.push(format!("feishu: {}", state));
+    }
     if channels.is_empty() {
         channels.push("(none)".to_string());
     }

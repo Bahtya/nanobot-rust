@@ -44,7 +44,7 @@ thiserror = "2"
 anyhow = "1"
 
 # HTTP
-reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "socks", "rustls-tls-webpki-roots", "hickory-dns"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "socks", "rustls-tls-webpki-roots"] }
 axum = "0.8"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace"] }
@@ -65,7 +65,7 @@ parking_lot = "0.12"
 dashmap = "6"
 
 # DNS
-hickory-resolver = { version = "0.25", features = ["tokio"] }
+hickory-resolver = { version = "0.26", features = ["tokio"] }
 
 # Crypto
 aes-gcm = "0.10"
@@ -135,6 +135,7 @@ base64 = { workspace = true }
 dialoguer = "0.11"
 console = "0.15"
 owo-colors = "4"
+qrcode = { version = "0.14", default-features = false }
 
 [dev-dependencies]
 async-trait = { workspace = true }

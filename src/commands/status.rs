@@ -63,6 +63,7 @@ pub fn run(config: &Config) -> Result<()> {
             "Discord",
             config.channels.discord.as_ref().map(|c| c.enabled),
         ),
+        ("Feishu", config.channels.feishu.as_ref().map(|c| c.enabled)),
         ("Slack", config.channels.slack.as_ref().map(|c| c.enabled)),
         ("Matrix", config.channels.matrix.as_ref().map(|c| c.enabled)),
     ];

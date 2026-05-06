@@ -162,7 +162,8 @@ impl ApiServer {
         let public_routes = Router::new()
             .route("/v1/models", get(list_models))
             .route("/health", get(health))
-            .route("/ready", get(ready));
+            .route("/ready", get(ready))
+            .route("/feishu/webhook", post(feishu_webhook));
 
         let protected_routes = Router::new()
             .route("/v1/chat/completions", post(chat_completions))
@@ -957,6 +958,63 @@ async fn ready(State(state): State<AppState>) -> impl IntoResponse {
                 "reason": "No health checks run yet",
             })),
         ),
+    }
+}
+
+// ─── Feishu Webhook ──────────────────────────────────────────
+
+/// Handle incoming Feishu webhook events.
+///
+/// Feishu sends two types of requests:
+/// - **URL verification**: responds with the challenge token for initial setup.
+/// - **Event callback**: extracts messages and forwards them to the message bus.
+async fn feishu_webhook(
+    State(state): State<AppState>,
+    body: axum::body::Bytes,
+) -> impl IntoResponse {
+    use kestrel_channels::{parse_webhook, WebhookResult};
+
+    match parse_webhook(&body) {
+        Ok(result) => match result {
+            WebhookResult::Challenge(json_str) => {
+                info!("Feishu webhook: URL verification challenge");
+                (
+                    StatusCode::OK,
+                    [(CONTENT_TYPE, "application/json")],
+                    json_str,
+                )
+            }
+            WebhookResult::Messages(messages) => {
+                let tx = state.bus.inbound_sender();
+                for msg in messages {
+                    debug!("Feishu webhook: forwarding message from {}", msg.chat_id);
+                    if let Err(e) = tx.send(msg).await {
+                        warn!("Feishu webhook: failed to forward message: {e}");
+                    }
+                }
+                (
+                    StatusCode::OK,
+                    [(CONTENT_TYPE, "application/json")],
+                    "{}".to_string(),
+                )
+            }
+            WebhookResult::Ignored => {
+                debug!("Feishu webhook: ignored event");
+                (
+                    StatusCode::OK,
+                    [(CONTENT_TYPE, "application/json")],
+                    "{}".to_string(),
+                )
+            }
+        },
+        Err(e) => {
+            warn!("Feishu webhook: parse error: {e}");
+            (
+                StatusCode::BAD_REQUEST,
+                [(CONTENT_TYPE, "application/json")],
+                format!("{{\"error\":\"{e}\"}}"),
+            )
+        }
     }
 }
 

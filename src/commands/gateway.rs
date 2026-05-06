@@ -394,6 +394,16 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
             std::env::set_var("DISCORD_BOT_TOKEN", &dc.token);
         }
     }
+    if let Some(ref fs) = config.channels.feishu {
+        if fs.enabled {
+            if let Some(ref app_id) = fs.app_id {
+                std::env::set_var("FEISHU_APP_ID", app_id);
+            }
+            if let Some(ref app_secret) = fs.app_secret {
+                std::env::set_var("FEISHU_APP_SECRET", app_secret);
+            }
+        }
+    }
 
     // ── Channel manager (wrapped in Arc for shared access) ────
     let channel_registry = ChannelRegistry::new_with_config(&config);
@@ -518,6 +528,11 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
         if let Some(ref ws) = config.channels.websocket {
             if ws.enabled {
                 auto.push("websocket".to_string());
+            }
+        }
+        if let Some(ref fs) = config.channels.feishu {
+            if fs.enabled {
+                auto.push("feishu".to_string());
             }
         }
         if auto.is_empty() {

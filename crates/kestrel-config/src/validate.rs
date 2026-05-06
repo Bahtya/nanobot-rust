@@ -2891,6 +2891,7 @@ token = "${MISSING_BBB}"
             app_id: None,
             app_secret: Some("secret".to_string()),
             enabled: true,
+            proxy: None,
         });
         let report = validate(&config);
         assert!(!report.is_valid());
@@ -2907,6 +2908,7 @@ token = "${MISSING_BBB}"
             app_id: Some("id".to_string()),
             app_secret: None,
             enabled: true,
+            proxy: None,
         });
         let report = validate(&config);
         assert!(!report.is_valid());

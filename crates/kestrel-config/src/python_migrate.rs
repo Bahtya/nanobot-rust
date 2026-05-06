@@ -599,6 +599,7 @@ fn convert_channels(
             app_id: f.app_id.clone(),
             app_secret: f.app_secret.clone(),
             enabled: f.enabled.unwrap_or(true),
+            proxy: None,
         });
         report.add_mapped("channels.feishu (appId → app_id, appSecret → app_secret)");
     }

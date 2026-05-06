@@ -12,6 +12,7 @@ kestrel-agent = { path = "../kestrel-agent" }
 kestrel-providers = { path = "../kestrel-providers" }
 kestrel-tools = { path = "../kestrel-tools" }
 kestrel-heartbeat = { path = "../kestrel-heartbeat" }
+kestrel-channels = { path = "../kestrel-channels" }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 async-trait = { workspace = true }

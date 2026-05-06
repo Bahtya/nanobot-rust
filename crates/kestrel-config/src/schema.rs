@@ -397,6 +397,13 @@ pub struct FeishuConfig {
     /// Whether this channel is enabled.
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// HTTP/SOCKS5 proxy URL for Feishu API requests.
+    ///
+    /// - `"http://host:port"` or `"https://host:port"` → HTTP proxy
+    /// - `"socks5://host:port"` or `"socks5h://host:port"` → SOCKS5 proxy
+    /// - empty or absent → direct connection (no proxy)
+    #[serde(default)]
+    pub proxy: Option<String>,
 }
 
 /// WeCom (Enterprise WeChat) channel configuration.

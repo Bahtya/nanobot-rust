@@ -155,9 +155,17 @@ async fn post_registration(
     Ok(text)
 }
 
-/// Parse a JSON response, returning both the raw string and the typed value.
+/// Parse a JSON response, returning the typed value.
 fn parse_json<T: serde::de::DeserializeOwned>(raw: &str) -> Result<T> {
-    serde_json::from_str(raw).with_context(|| format!("Failed to parse JSON: {}", raw))
+    serde_json::from_str(raw).with_context(|| {
+        // Truncate long responses to avoid leaking sensitive data in logs
+        let preview = if raw.len() > 200 {
+            format!("{}...(truncated)", &raw[..200])
+        } else {
+            raw.to_string()
+        };
+        format!("Failed to parse JSON: {}", preview)
+    })
 }
 
 // ── Step 1: Init ────────────────────────────────────────────────
@@ -180,7 +188,7 @@ async fn init_registration(client: &Client, domain: &str) -> Result<()> {
 struct BeginResult {
     device_code: String,
     qr_url: String,
-    #[expect(dead_code)]
+    #[allow(dead_code)]
     user_code: String,
     interval: u64,
     expire_in: u64,
@@ -407,11 +415,18 @@ fn persist_credentials(result: &RegistrationResult) -> Result<()> {
             .with_context(|| format!("Failed to create config directory: {}", parent.display()))?;
     }
 
+    // Preserve existing proxy config if present
+    let proxy = config
+        .channels
+        .feishu
+        .as_ref()
+        .and_then(|f| f.proxy.clone());
+
     config.channels.feishu = Some(FeishuConfig {
         app_id: Some(result.app_id.clone()),
         app_secret: Some(result.app_secret.clone()),
         enabled: true,
-        proxy: None,
+        proxy,
     });
 
     save_config(&config, &config_path)?;

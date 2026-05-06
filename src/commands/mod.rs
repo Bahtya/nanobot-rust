@@ -10,4 +10,5 @@ pub mod health;
 pub mod heartbeat;
 pub mod serve;
 pub mod setup;
+pub mod setup_feishu;
 pub mod status;

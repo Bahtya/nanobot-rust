@@ -1,19 +1,16 @@
-//! Feishu / Lark automated onboarding via QR scan-to-create (device-code flow).
+//! Feishu / Lark QR scan-to-create onboarding (device-code flow).
 //!
 //! Implements the OAuth 2.0 device-code registration flow:
 //!   1. Init — verify `client_secret` auth is supported
 //!   2. Begin — obtain `device_code`, `qr_url`, polling params
 //!   3. Render QR — display scannable terminal QR code
 //!   4. Poll — wait for user to scan (≤10 min)
-//!   5. Persist — write credentials to `config.toml`
-//!   6. Probe — verify bot connectivity via `/open-apis/bot/v3/info`
+//!   5. Probe — verify bot connectivity via `/open-apis/bot/v3/info`
+//!
+//! Callers use [`run_onboarding`] to get a [`RegistrationResult`]
+//! and persist credentials themselves.
 
 use anyhow::{bail, Context, Result};
-use kestrel_config::{
-    loader::{load_config, save_config},
-    paths::get_config_path,
-    schema::{Config, FeishuConfig},
-};
 use owo_colors::OwoColorize;
 use qrcode::render::unicode;
 use qrcode::QrCode;
@@ -121,7 +118,7 @@ fn build_http_client() -> Result<Client> {
         .context("Failed to build HTTP client")
 }
 
-/// GET/POST JSON from the registration endpoint.
+/// POST JSON from the registration endpoint.
 ///
 /// The registration endpoint returns JSON even on 4xx (e.g. poll returns
 /// `authorization_pending` as a 400). We always parse the body regardless
@@ -343,7 +340,7 @@ async fn poll_registration(
     Ok(None)
 }
 
-// ── Step 6: Probe bot ───────────────────────────────────────────
+// ── Step 5: Probe bot ───────────────────────────────────────────
 
 async fn probe_bot(
     client: &Client,
@@ -397,59 +394,14 @@ async fn probe_bot(
     Some((bot_name, bot_open_id))
 }
 
-// ── Persist credentials ─────────────────────────────────────────
+// ── Public entry point ─────────────────────────────────────────
 
-fn persist_credentials(result: &RegistrationResult) -> Result<()> {
-    let config_path = get_config_path()?;
 
-    // Load existing config or start fresh
-    let mut config = if config_path.exists() {
-        load_config(Some(&config_path))?
-    } else {
-        Config::default()
-    };
-
-    // Ensure parent directory exists
-    if let Some(parent) = config_path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("Failed to create config directory: {}", parent.display()))?;
-    }
-
-    // Preserve existing proxy config if present
-    let proxy = config
-        .channels
-        .feishu
-        .as_ref()
-        .and_then(|f| f.proxy.clone());
-
-    config.channels.feishu = Some(FeishuConfig {
-        app_id: Some(result.app_id.clone()),
-        app_secret: Some(result.app_secret.clone()),
-        enabled: true,
-        proxy,
-    });
-
-    save_config(&config, &config_path)?;
-    Ok(())
-}
-
-// ── Main entry point ────────────────────────────────────────────
-
-/// Run the Feishu / Lark QR scan-to-create onboarding flow.
-pub fn run(initial_domain: &str) -> Result<()> {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("Failed to create tokio runtime")?
-        .block_on(run_inner(initial_domain))
-}
-
-async fn run_inner(initial_domain: &str) -> Result<()> {
-    println!();
-    println!("  {} {}", "▸".cyan(), "Feishu / Lark Setup".bold().cyan());
-    println!("  {}", "─".repeat(45).dimmed());
-    println!();
-
+/// Run the Feishu / Lark QR onboarding flow.
+///
+/// Prints QR code and progress to stdout. Returns the registration result
+/// on success so the caller can persist credentials.
+pub async fn run_onboarding(initial_domain: &str) -> Result<RegistrationResult> {
     let client = build_http_client()?;
 
     // Step 1: Init
@@ -485,15 +437,12 @@ async fn run_inner(initial_domain: &str) -> Result<()> {
         None => {
             println!();
             println!("  {} Registration timed out or was denied.", "!".yellow());
-            println!(
-                "  {} Please run `kestrel setup feishu` again.",
-                "!".yellow()
-            );
+            println!("  {} Run `kestrel setup` again.", "!".yellow());
             bail!("Feishu / Lark registration timed out or was denied");
         }
     };
 
-    // Step 6: Probe bot (best-effort)
+    // Step 5: Probe bot (best-effort)
     if let Some((bot_name, bot_open_id)) =
         probe_bot(&client, &result.app_id, &result.app_secret, &result.domain).await
     {
@@ -501,29 +450,19 @@ async fn run_inner(initial_domain: &str) -> Result<()> {
         result.bot_open_id = Some(bot_open_id);
     }
 
-    // Step 5: Persist
-    persist_credentials(&result)?;
-
     // Summary
     println!();
     println!("  {} Feishu app created automatically", "✓".green());
-    println!("  {} Credentials saved to config.toml", "✓".green());
     if result.bot_name.is_some() || result.bot_open_id.is_some() {
         println!("  {} Bot connectivity verified", "✓".green());
     }
-    println!();
     println!("  Domain:    {}", result.domain.bold());
     println!("  App ID:    {}", result.app_id.dimmed());
     if let Some(ref name) = result.bot_name {
         println!("  Bot name:  {}", name.bold());
     }
-    if let Some(ref oid) = result.bot_open_id {
-        println!("  Bot Open ID: {}", oid.dimmed());
-    }
-    println!();
-    println!("  {} Feishu / Lark setup complete!", "✓".green());
 
-    Ok(())
+    Ok(result)
 }
 
 // ── Tests ───────────────────────────────────────────────────────
@@ -663,7 +602,6 @@ mod tests {
 
     #[test]
     fn test_render_qr_valid_url() {
-        // Should not panic and should return true
         assert!(render_qr("https://example.com/test"));
     }
 
@@ -709,80 +647,6 @@ mod tests {
             result,
             "https://example.com/verify?code=abc&from=kestrel&tp=kestrel"
         );
-    }
-
-    #[test]
-    fn test_persist_credentials_creates_config() {
-        let tmp = tempfile::tempdir().unwrap();
-        let config_path = tmp.path().join("config.toml");
-
-        // Override config path for testing
-        std::env::set_var("KESTREL_HOME", tmp.path().to_str().unwrap());
-
-        let result = RegistrationResult {
-            app_id: "cli_test".to_string(),
-            app_secret: "secret_test".to_string(),
-            domain: "feishu".to_string(),
-            open_id: None,
-            bot_name: None,
-            bot_open_id: None,
-        };
-
-        // Use the internal logic directly
-        let mut config = Config::default();
-        config.channels.feishu = Some(FeishuConfig {
-            app_id: Some(result.app_id.clone()),
-            app_secret: Some(result.app_secret.clone()),
-            enabled: true,
-            proxy: None,
-        });
-
-        std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
-        save_config(&config, &config_path).unwrap();
-
-        assert!(config_path.exists());
-        let loaded = load_config(Some(&config_path)).unwrap();
-        let feishu = loaded.channels.feishu.unwrap();
-        assert_eq!(feishu.app_id.unwrap(), "cli_test");
-        assert_eq!(feishu.app_secret.unwrap(), "secret_test");
-        assert!(feishu.enabled);
-
-        std::env::remove_var("KESTREL_HOME");
-    }
-
-    #[test]
-    fn test_persist_credentials_preserves_existing_config() {
-        let tmp = tempfile::tempdir().unwrap();
-        let config_path = tmp.path().join("config.toml");
-
-        // Write initial config
-        let mut initial = Config::default();
-        initial.agent.model = "gpt-4o-mini".to_string();
-        initial.providers.openai = Some(kestrel_config::schema::ProviderEntry {
-            api_key: Some("sk-test".to_string()),
-            base_url: None,
-            model: None,
-            no_proxy: None,
-        });
-        std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
-        save_config(&initial, &config_path).unwrap();
-
-        // Load, add feishu, save
-        let mut config = load_config(Some(&config_path)).unwrap();
-        config.channels.feishu = Some(FeishuConfig {
-            app_id: Some("cli_new".to_string()),
-            app_secret: Some("new_secret".to_string()),
-            enabled: true,
-            proxy: None,
-        });
-        save_config(&config, &config_path).unwrap();
-
-        // Verify both old and new values
-        let loaded = load_config(Some(&config_path)).unwrap();
-        assert_eq!(loaded.agent.model, "gpt-4o-mini");
-        assert!(loaded.providers.openai.unwrap().api_key.unwrap() == "sk-test");
-        let feishu = loaded.channels.feishu.unwrap();
-        assert_eq!(feishu.app_id.unwrap(), "cli_new");
     }
 
     #[test]

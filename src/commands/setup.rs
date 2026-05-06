@@ -5,7 +5,7 @@ use console::Term;
 use dialoguer::{Confirm, Input, Password as PasswordInput, Select};
 use kestrel_config::{
     loader, paths,
-    schema::{Config, ProviderEntry, TelegramConfig, WebSocketConfig, WeixinConfig},
+    schema::{Config, FeishuConfig, ProviderEntry, TelegramConfig, WebSocketConfig, WeixinConfig},
 };
 use owo_colors::OwoColorize;
 use std::net::SocketAddr;
@@ -197,7 +197,7 @@ fn run_wizard(io: &dyn WizardIo, config_path: &Path) -> Result<()> {
 
     // ── Step 4: Feishu / Lark channel ────────────────────────────
     print_step(io, 4, "Feishu / Lark Channel")?;
-    configure_feishu(io, &mut config, config_path)?;
+    configure_feishu(io, &mut config)?;
 
     // ── Step 5: WebSocket port ───────────────────────────────────
     print_step(io, 5, "WebSocket Port")?;
@@ -499,7 +499,7 @@ fn configure_telegram(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
     Ok(())
 }
 
-fn configure_feishu(io: &dyn WizardIo, config: &mut Config, config_path: &Path) -> Result<()> {
+fn configure_feishu(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
     let has_existing = config.channels.feishu.as_ref().map_or(false, |f| f.enabled);
 
     let setup = if has_existing {
@@ -517,14 +517,25 @@ fn configure_feishu(io: &dyn WizardIo, config: &mut Config, config_path: &Path) 
     let idx = io.select("Select platform", &domain_options, 0)?;
     let domain = if idx == 1 { "lark" } else { "feishu" };
 
-    // Persist current in-memory config so the Feishu flow can load it.
-    loader::save_config(config, config_path)?;
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("Failed to create tokio runtime")?;
 
-    // Launch the QR onboarding sub-flow (loads config, adds credentials, saves).
-    commands::setup_feishu::run(domain)?;
+    let result = match rt.block_on(commands::setup_feishu::run_onboarding(domain)) {
+        Ok(r) => r,
+        Err(_) => {
+            // run_onboarding already printed the error details.
+            return Ok(());
+        }
+    };
 
-    // Reload to capture the Feishu credentials that were just persisted.
-    *config = load_existing_config(config_path)?;
+    config.channels.feishu = Some(FeishuConfig {
+        app_id: Some(result.app_id),
+        app_secret: Some(result.app_secret),
+        enabled: true,
+        proxy: None,
+    });
 
     Ok(())
 }

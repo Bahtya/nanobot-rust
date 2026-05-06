@@ -74,10 +74,7 @@ enum Commands {
     },
 
     /// Interactive configuration setup.
-    Setup {
-        /// Channel to set up (e.g. "feishu"). If omitted, runs full wizard.
-        channel: Option<String>,
-    },
+    Setup,
 
     /// Show current configuration and status.
     Status,
@@ -179,23 +176,7 @@ fn main() -> Result<()> {
             .init();
     }
 
-    if matches!(&cli.command, Commands::Setup { .. }) {
-        if let Commands::Setup {
-            channel: Some(ref ch),
-        } = &cli.command
-        {
-            match ch.as_str() {
-                "feishu" | "lark" => {
-                    return commands::setup_feishu::run(ch);
-                }
-                "weixin" | "wechat" => {
-                    return commands::setup_weixin::run();
-                }
-                _ => {
-                    return commands::setup::run(kestrel_config::Config::default());
-                }
-            }
-        }
+    if matches!(&cli.command, Commands::Setup) {
         return commands::setup::run(kestrel_config::Config::default());
     }
 
@@ -245,7 +226,7 @@ fn main() -> Result<()> {
                 commands::config::export(&config, &password, &output)?;
             }
         },
-        Commands::Setup { .. } => unreachable!("setup is handled before config loading"),
+        Commands::Setup => unreachable!("setup is handled before config loading"),
         Commands::Status => {
             commands::status::run(&config)?;
         }

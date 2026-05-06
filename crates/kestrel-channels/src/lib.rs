@@ -16,12 +16,12 @@ pub use commands::{
     SETTINGS_PER_PAGE,
 };
 pub use manager::ChannelManager;
+pub use platforms::feishu::{parse_webhook, FeishuChannel, WebhookResult};
 pub use platforms::telegram::{
     CallbackAction, CallbackContext, CallbackResponse, CallbackRouter, InlineKeyboardBuilder,
     InlineKeyboardButton, InlineKeyboardMarkup,
 };
 pub use platforms::websocket::{run_ws_stream_consumer, WebSocketChannel};
-pub use platforms::feishu::{parse_webhook, FeishuChannel, WebhookResult};
 pub use registry::ChannelRegistry;
 pub use stream_consumer::{split_message, StreamConsumer};
 

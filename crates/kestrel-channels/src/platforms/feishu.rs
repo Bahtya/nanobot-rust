@@ -172,7 +172,8 @@ pub enum WebhookResult {
 ///   during initial setup; respond with the same challenge string.
 /// - **Event callback**: Extracts message content and returns InboundMessage(s).
 pub fn parse_webhook(body: &[u8]) -> Result<WebhookResult> {
-    let event: WebhookEvent = serde_json::from_slice(body).context("invalid Feishu webhook JSON")?;
+    let event: WebhookEvent =
+        serde_json::from_slice(body).context("invalid Feishu webhook JSON")?;
 
     // URL verification challenge.
     if let Some(challenge) = &event.challenge {
@@ -258,7 +259,10 @@ pub fn parse_webhook(body: &[u8]) -> Result<WebhookResult> {
 
     let mut metadata = HashMap::new();
     if let Some(ref mid) = message_id {
-        metadata.insert("message_id".to_string(), serde_json::Value::String(mid.clone()));
+        metadata.insert(
+            "message_id".to_string(),
+            serde_json::Value::String(mid.clone()),
+        );
     }
 
     let inbound = InboundMessage {
@@ -354,9 +358,7 @@ fn parse_post_content(content: Option<&str>) -> String {
         .remove("zh_cn")
         .or_else(|| lang_posts.remove("en_us"))
         .or_else(|| lang_posts.into_values().next())
-        .unwrap_or(PostContent {
-            content: vec![],
-        });
+        .unwrap_or(PostContent { content: vec![] });
 
     let mut result = String::new();
     for line in &post.content {
@@ -645,9 +647,7 @@ impl FeishuChannel {
         content: &str,
         msg_type: &str,
     ) -> Result<SendResult> {
-        let url = format!(
-            "{FEISHU_BASE_URL}/im/v1/messages/{message_id}/reply"
-        );
+        let url = format!("{FEISHU_BASE_URL}/im/v1/messages/{message_id}/reply");
         let body = serde_json::json!({
             "msg_type": msg_type,
             "content": content,
@@ -667,10 +667,7 @@ impl FeishuChannel {
     }
 
     /// Handle the response from a send/reply API call.
-    async fn handle_send_response(
-        &self,
-        resp: reqwest::Response,
-    ) -> Result<SendResult> {
+    async fn handle_send_response(&self, resp: reqwest::Response) -> Result<SendResult> {
         let status = resp.status();
         let body: serde_json::Value = resp
             .json()
@@ -934,10 +931,7 @@ mod tests {
                 assert_eq!(msg.content, "hello feishu");
                 assert_eq!(msg.sender_id, "ou_user123");
                 assert_eq!(msg.message_id, Some("msg_abc".to_string()));
-                assert_eq!(
-                    msg.source.as_ref().unwrap().chat_type,
-                    "group"
-                );
+                assert_eq!(msg.source.as_ref().unwrap().chat_type, "group");
             }
             _ => panic!("Expected Messages result"),
         }

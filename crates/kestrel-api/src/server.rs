@@ -992,11 +992,19 @@ async fn feishu_webhook(
                         warn!("Feishu webhook: failed to forward message: {e}");
                     }
                 }
-                (StatusCode::OK, [(CONTENT_TYPE, "application/json")], "{}".to_string())
+                (
+                    StatusCode::OK,
+                    [(CONTENT_TYPE, "application/json")],
+                    "{}".to_string(),
+                )
             }
             WebhookResult::Ignored => {
                 debug!("Feishu webhook: ignored event");
-                (StatusCode::OK, [(CONTENT_TYPE, "application/json")], "{}".to_string())
+                (
+                    StatusCode::OK,
+                    [(CONTENT_TYPE, "application/json")],
+                    "{}".to_string(),
+                )
             }
         },
         Err(e) => {

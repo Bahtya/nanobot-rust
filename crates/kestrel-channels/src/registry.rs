@@ -77,9 +77,7 @@ impl ChannelRegistry {
 
         if let Some(feishu) = config.channels.feishu.clone() {
             registry.register("feishu", move || {
-                Box::new(platforms::feishu::FeishuChannel::new_with_config(
-                    &feishu,
-                ))
+                Box::new(platforms::feishu::FeishuChannel::new_with_config(&feishu))
             });
         } else {
             registry.register("feishu", || {

@@ -10,6 +10,6 @@ pub mod health;
 pub mod heartbeat;
 pub mod serve;
 pub mod setup;
-pub mod setup_feishu;
+pub mod feishu_onboarding;
 pub mod setup_weixin;
 pub mod status;

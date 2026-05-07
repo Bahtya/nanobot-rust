@@ -401,6 +401,9 @@ async fn probe_bot(
 ///
 /// Prints QR code and progress to stdout. Returns the registration result
 /// on success so the caller can persist credentials.
+// TODO: This function prints directly to stdout, bypassing the `WizardIo` trait.
+// A future refactor should accept a `&dyn std::io::Write` or trait object for
+// the output sink, enabling test capture and programmatic callers.
 pub async fn run_onboarding(initial_domain: &str) -> Result<RegistrationResult> {
     let client = build_http_client()?;
 

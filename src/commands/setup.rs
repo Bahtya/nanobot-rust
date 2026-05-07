@@ -522,19 +522,24 @@ fn configure_feishu(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
         .build()
         .context("Failed to create tokio runtime")?;
 
-    let result = match rt.block_on(commands::setup_feishu::run_onboarding(domain)) {
+    // TODO: Creating a nested tokio runtime here means this cannot be called
+    // from within an existing async context (e.g. tests). A future refactor
+    // could make `run_wizard` async or accept a runtime handle.
+    let result = match rt.block_on(commands::feishu_onboarding::run_onboarding(domain)) {
         Ok(r) => r,
-        Err(_) => {
-            // run_onboarding already printed the error details.
+        Err(e) => {
+            io.write_line(&format!("  {} Feishu setup skipped: {}", "!".yellow(), e))?;
             return Ok(());
         }
     };
+
+    let existing_proxy = config.channels.feishu.as_ref().and_then(|f| f.proxy.clone());
 
     config.channels.feishu = Some(FeishuConfig {
         app_id: Some(result.app_id),
         app_secret: Some(result.app_secret),
         enabled: true,
-        proxy: None,
+        proxy: existing_proxy,
     });
 
     Ok(())

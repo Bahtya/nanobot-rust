@@ -20,7 +20,6 @@ use std::time::{Duration, Instant};
 
 // ── iLink endpoint constants ────────────────────────────────────
 
-const ILINK_BASE_URL: &str = "https://ilinkai.weixin.qq.com";
 const EP_GET_BOT_QR: &str = "ilink/bot/get_bot_qrcode";
 const EP_GET_QR_STATUS: &str = "ilink/bot/get_qrcode_status";
 const QR_TIMEOUT_MS: u64 = 35_000;

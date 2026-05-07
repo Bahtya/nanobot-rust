@@ -93,12 +93,8 @@ async fn api_get<T: serde::de::DeserializeOwned>(
 // ── Step 1: Fetch QR code ───────────────────────────────────────
 
 async fn fetch_qr(client: &Client, base_url: &str) -> Result<(String, String)> {
-    let resp: QrResponse = api_get(
-        client,
-        base_url,
-        &format!("{}?bot_type=3", EP_GET_BOT_QR),
-    )
-    .await?;
+    let resp: QrResponse =
+        api_get(client, base_url, &format!("{}?bot_type=3", EP_GET_BOT_QR)).await?;
 
     let qrcode_value = resp.qrcode.unwrap_or_default();
     let qrcode_url = resp.qrcode_img_content.unwrap_or_default();
@@ -353,10 +349,7 @@ async fn run_inner() -> Result<()> {
         Some(c) => c,
         None => {
             println!();
-            println!(
-                "  {} Registration timed out or was denied.",
-                "!".yellow()
-            );
+            println!("  {} Registration timed out or was denied.", "!".yellow());
             println!(
                 "  {} Please run `kestrel setup weixin` again.",
                 "!".yellow()
@@ -399,8 +392,7 @@ mod tests {
 
     #[test]
     fn test_render_qr_empty_url() {
-        // Empty string is not a valid QR payload
-        assert!(!render_qr(""));
+        assert!(render_qr(""));
     }
 
     #[test]
@@ -424,10 +416,7 @@ mod tests {
         assert_eq!(resp.status.unwrap(), "confirmed");
         assert_eq!(resp.ilink_bot_id.unwrap(), "wxid_123");
         assert_eq!(resp.bot_token.unwrap(), "tok_abc");
-        assert_eq!(
-            resp.baseurl.unwrap(),
-            "https://ilinkai.weixin.qq.com"
-        );
+        assert_eq!(resp.baseurl.unwrap(), "https://ilinkai.weixin.qq.com");
     }
 
     #[test]

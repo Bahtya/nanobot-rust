@@ -524,7 +524,7 @@ fn configure_feishu(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
     // TODO: Creating a nested tokio runtime here means this cannot be called
     // from within an existing async context (e.g. tests). A future refactor
     // could make `run_wizard` async or accept a runtime handle.
-    let result = match rt.block_on(commands::feishu_onboarding::run_onboarding(domain)) {
+    let result = match rt.block_on(feishu_onboarding::run_onboarding(domain)) {
         Ok(r) => r,
         Err(e) => {
             io.write_line(&format!("  {} Feishu setup skipped: {}", "!".yellow(), e))?;

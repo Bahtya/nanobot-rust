@@ -499,7 +499,7 @@ fn configure_telegram(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
 }
 
 fn configure_feishu(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
-    let has_existing = config.channels.feishu.as_ref().map_or(false, |f| f.enabled);
+    let has_existing = config.channels.feishu.as_ref().is_some_and(|f| f.enabled);
 
     let setup = if has_existing {
         io.confirm("Reconfigure Feishu / Lark?", true)?

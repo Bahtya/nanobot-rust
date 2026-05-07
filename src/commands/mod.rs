@@ -11,5 +11,6 @@ pub mod health;
 pub mod heartbeat;
 pub mod serve;
 pub mod setup;
+#[allow(dead_code)]
 pub mod setup_weixin;
 pub mod status;

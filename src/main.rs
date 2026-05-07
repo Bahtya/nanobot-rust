@@ -188,6 +188,9 @@ fn main() -> Result<()> {
                 "feishu" | "lark" => {
                     return commands::setup_feishu::run(ch);
                 }
+                "weixin" | "wechat" => {
+                    return commands::setup_weixin::run();
+                }
                 _ => {
                     return commands::setup::run(kestrel_config::Config::default());
                 }

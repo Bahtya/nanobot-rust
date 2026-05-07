@@ -535,6 +535,11 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
                 auto.push("feishu".to_string());
             }
         }
+        if let Some(ref wx) = config.channels.weixin {
+            if wx.enabled {
+                auto.push("weixin".to_string());
+            }
+        }
         if auto.is_empty() {
             info!("No channels configured; starting with local-only mode");
         }

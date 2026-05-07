@@ -17,6 +17,8 @@
 //! ```
 
 use std::collections::HashMap;
+use std::io::Write;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -364,22 +366,66 @@ impl TypingTicketCache {
 }
 
 // ---------------------------------------------------------------------------
-// Context token store (in-memory; could be persisted later)
+// Context token store (disk-backed)
 // ---------------------------------------------------------------------------
 
 struct ContextTokenStore {
+    root: PathBuf,
     cache: ParkMutex<HashMap<String, String>>,
 }
 
 impl ContextTokenStore {
     fn new() -> Self {
+        let root = kestrel_config::paths::get_kestrel_home()
+            .map(|h| h.join("weixin"))
+            .unwrap_or_else(|_| std::env::temp_dir().join("kestrel-weixin"));
+        let _ = std::fs::create_dir_all(&root);
         Self {
+            root,
             cache: ParkMutex::new(HashMap::new()),
         }
     }
 
+    fn path(&self, account_id: &str) -> PathBuf {
+        self.root.join(format!("{}.context-tokens.json", account_id))
+    }
+
     fn make_key(account_id: &str, user_id: &str) -> String {
         format!("{}:{}", account_id, user_id)
+    }
+
+    fn restore(&self, account_id: &str) {
+        let path = self.path(account_id);
+        if !path.exists() {
+            return;
+        }
+        let text = match std::fs::read_to_string(&path) {
+            Ok(t) => t,
+            Err(e) => {
+                warn!("[weixin] failed to read context tokens for {}: {}", safe_id(Some(account_id), 8), e);
+                return;
+            }
+        };
+        let data: HashMap<String, String> = match serde_json::from_str(&text) {
+            Ok(d) => d,
+            Err(e) => {
+                warn!("[weixin] failed to parse context tokens for {}: {}", safe_id(Some(account_id), 8), e);
+                return;
+            }
+        };
+        let mut cache = self.cache.lock();
+        let prefix = format!("{}:", account_id);
+        cache.retain(|k, _| !k.starts_with(&prefix));
+        let mut restored = 0;
+        for (user_id, token) in data {
+            if !token.is_empty() {
+                cache.insert(Self::make_key(account_id, &user_id), token);
+                restored += 1;
+            }
+        }
+        if restored > 0 {
+            info!("[weixin] restored {} context token(s) for {}", restored, safe_id(Some(account_id), 8));
+        }
     }
 
     fn get(&self, account_id: &str, user_id: &str) -> Option<String> {
@@ -393,6 +439,46 @@ impl ContextTokenStore {
         self.cache
             .lock()
             .insert(Self::make_key(account_id, user_id), token.to_string());
+        self.persist(account_id);
+    }
+
+    fn persist(&self, account_id: &str) {
+        let path = self.path(account_id);
+        let prefix = format!("{}:", account_id);
+        let payload: HashMap<String, String> = {
+            let cache = self.cache.lock();
+            cache
+                .iter()
+                .filter(|(k, _)| k.starts_with(&prefix))
+                .map(|(k, v)| (k[prefix.len()..].to_string(), v.clone()))
+                .collect()
+        };
+        let text = match serde_json::to_string_pretty(&payload) {
+            Ok(t) => t,
+            Err(e) => {
+                warn!("[weixin] failed to serialize context tokens: {}", e);
+                return;
+            }
+        };
+        // Atomic write via temp file + rename
+        let tmp = path.with_extension("tmp");
+        if let Err(e) = (|| -> std::io::Result<()> {
+            let mut f = std::fs::File::create(&tmp)?;
+            f.write_all(text.as_bytes())?;
+            f.sync_all()?;
+            drop(f);
+            std::fs::rename(&tmp, &path)?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let perms = std::fs::Permissions::from_mode(0o600);
+                std::fs::set_permissions(&path, perms)?;
+            }
+            Ok(())
+        })() {
+            warn!("[weixin] failed to persist context tokens: {}", e);
+            let _ = std::fs::remove_file(&tmp);
+        }
     }
 }
 
@@ -987,6 +1073,9 @@ impl BaseChannel for WeixinChannel {
                 return Ok(false);
             }
         };
+
+        // Restore persisted context tokens for this account.
+        self.token_store.restore(&account_id);
 
         self.running.store(true, Ordering::Relaxed);
         self.connected = true;

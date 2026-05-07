@@ -11,4 +11,5 @@ pub mod heartbeat;
 pub mod serve;
 pub mod setup;
 pub mod setup_feishu;
+pub mod setup_weixin;
 pub mod status;

@@ -26,7 +26,8 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::Local;
 use parking_lot::Mutex as ParkMutex;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
 use tracing::{debug, error, info, warn};
 
 use kestrel_bus::events::InboundMessage;
@@ -155,24 +156,38 @@ struct GetConfigPayload {
 
 #[derive(Debug, Deserialize)]
 struct GetUpdatesResponse {
+    #[serde(default, deserialize_with = "deserialize_opt_i64_from_any")]
     ret: Option<i64>,
+    #[serde(default, deserialize_with = "deserialize_opt_i64_from_any")]
     errcode: Option<i64>,
+    #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
     errmsg: Option<String>,
-    #[serde(rename = "get_updates_buf")]
+    #[serde(
+        default,
+        alias = "sync_buf",
+        deserialize_with = "deserialize_opt_string_from_any"
+    )]
     get_updates_buf: Option<String>,
-    #[serde(rename = "longpolling_timeout_ms")]
+    #[serde(default, deserialize_with = "deserialize_opt_u64_from_any")]
     longpolling_timeout_ms: Option<u64>,
     msgs: Option<Vec<ILinkMsg>>,
 }
 
 #[derive(Debug, Deserialize)]
 struct ILinkMsg {
+    #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
     message_id: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
     from_user_id: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
     to_user_id: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
     room_id: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
     chat_room_id: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_opt_i32_from_any")]
     msg_type: Option<i32>,
+    #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
     context_token: Option<String>,
     item_list: Option<Vec<ILinkItem>>,
 }
@@ -180,12 +195,14 @@ struct ILinkMsg {
 #[derive(Debug, Deserialize)]
 struct ILinkItem {
     #[serde(rename = "type")]
+    #[serde(default, deserialize_with = "deserialize_opt_i32_from_any")]
     item_type: Option<i32>,
     text_item: Option<ILinkTextItem>,
 }
 
 #[derive(Debug, Deserialize)]
 struct ILinkTextItem {
+    #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
     text: Option<String>,
 }
 
@@ -241,6 +258,66 @@ fn is_stale_session_ret(ret: Option<i64>, errcode: Option<i64>, errmsg: Option<&
     errmsg
         .map(|s| s.to_lowercase() == "unknown error")
         .unwrap_or(false)
+}
+
+fn value_to_string(value: Value) -> Option<String> {
+    match value {
+        Value::Null => None,
+        Value::String(s) => Some(s),
+        Value::Number(n) => Some(n.to_string()),
+        Value::Bool(b) => Some(b.to_string()),
+        other => Some(other.to_string()),
+    }
+}
+
+fn deserialize_opt_string_from_any<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(value.and_then(value_to_string))
+}
+
+fn deserialize_opt_i32_from_any<'de, D>(deserializer: D) -> Result<Option<i32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(match value {
+        None | Some(Value::Null) => None,
+        Some(Value::Number(n)) => n.as_i64().and_then(|n| i32::try_from(n).ok()),
+        Some(Value::String(s)) => s.trim().parse::<i32>().ok(),
+        Some(Value::Bool(b)) => Some(i32::from(b)),
+        _ => None,
+    })
+}
+
+fn deserialize_opt_i64_from_any<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(match value {
+        None | Some(Value::Null) => None,
+        Some(Value::Number(n)) => n.as_i64(),
+        Some(Value::String(s)) => s.trim().parse::<i64>().ok(),
+        Some(Value::Bool(b)) => Some(i64::from(b)),
+        _ => None,
+    })
+}
+
+fn deserialize_opt_u64_from_any<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(match value {
+        None | Some(Value::Null) => None,
+        Some(Value::Number(n)) => n.as_u64(),
+        Some(Value::String(s)) => s.trim().parse::<u64>().ok(),
+        Some(Value::Bool(b)) => Some(u64::from(b)),
+        _ => None,
+    })
 }
 
 fn extract_text(item_list: &[ILinkItem]) -> String {
@@ -692,7 +769,13 @@ impl WeixinChannel {
             );
         }
 
-        resp.json().await.context("parse getUpdates response")
+        let text = resp.text().await.context("read getUpdates response body")?;
+        serde_json::from_str(&text).with_context(|| {
+            format!(
+                "parse getUpdates response body={}",
+                &text[..text.len().min(300)]
+            )
+        })
     }
 
     async fn send_message_api(
@@ -1298,5 +1381,61 @@ impl BaseChannel for WeixinChannel {
 
     fn set_message_handler(&mut self, handler: tokio::sync::mpsc::Sender<InboundMessage>) {
         self.message_handler = Some(handler);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{GetUpdatesResponse, ITEM_TEXT};
+
+    #[test]
+    fn get_updates_response_accepts_sync_buf_alias() {
+        let raw = r#"{
+            "msgs": [],
+            "sync_buf": "cursor-123",
+            "longpolling_timeout_ms": "35000"
+        }"#;
+
+        let resp: GetUpdatesResponse = serde_json::from_str(raw).unwrap();
+
+        assert_eq!(resp.get_updates_buf.as_deref(), Some("cursor-123"));
+        assert_eq!(resp.longpolling_timeout_ms, Some(35_000));
+    }
+
+    #[test]
+    fn get_updates_response_accepts_numeric_and_string_message_fields() {
+        let raw = r#"{
+            "ret": "0",
+            "errcode": 0,
+            "msgs": [{
+                "message_id": 123456,
+                "from_user_id": 987654,
+                "to_user_id": "c0b055833755@im.bot",
+                "msg_type": "1",
+                "context_token": 42,
+                "item_list": [{
+                    "type": "1",
+                    "text_item": { "text": 1001 }
+                }]
+            }]
+        }"#;
+
+        let resp: GetUpdatesResponse = serde_json::from_str(raw).unwrap();
+        let msg = &resp.msgs.unwrap()[0];
+        let item = &msg.item_list.as_ref().unwrap()[0];
+
+        assert_eq!(resp.ret, Some(0));
+        assert_eq!(resp.errcode, Some(0));
+        assert_eq!(msg.message_id.as_deref(), Some("123456"));
+        assert_eq!(msg.from_user_id.as_deref(), Some("987654"));
+        assert_eq!(msg.msg_type, Some(1));
+        assert_eq!(msg.context_token.as_deref(), Some("42"));
+        assert_eq!(item.item_type, Some(ITEM_TEXT));
+        assert_eq!(
+            item.text_item
+                .as_ref()
+                .and_then(|text| text.text.as_deref()),
+            Some("1001")
+        );
     }
 }

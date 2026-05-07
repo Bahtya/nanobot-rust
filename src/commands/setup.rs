@@ -207,7 +207,6 @@ fn run_wizard(io: &dyn WizardIo, config_path: &Path) -> Result<()> {
     print_step(io, 5, "WeChat Channel")?;
     configure_weixin(io, &mut config)?;
 
-
     // ── Step 6: Validate & write ─────────────────────────────────
     print_step(io, 6, "Save Configuration")?;
 
@@ -525,7 +524,7 @@ fn configure_feishu(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
     // TODO: Creating a nested tokio runtime here means this cannot be called
     // from within an existing async context (e.g. tests). A future refactor
     // could make `run_wizard` async or accept a runtime handle.
-    let result = match rt.block_on(commands::feishu_onboarding::run_onboarding(domain)) {
+    let result = match rt.block_on(feishu_onboarding::run_onboarding(domain)) {
         Ok(r) => r,
         Err(e) => {
             io.write_line(&format!("  {} Feishu setup skipped: {}", "!".yellow(), e))?;
@@ -533,7 +532,11 @@ fn configure_feishu(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
         }
     };
 
-    let existing_proxy = config.channels.feishu.as_ref().and_then(|f| f.proxy.clone());
+    let existing_proxy = config
+        .channels
+        .feishu
+        .as_ref()
+        .and_then(|f| f.proxy.clone());
 
     config.channels.feishu = Some(FeishuConfig {
         app_id: Some(result.app_id),
@@ -1134,7 +1137,6 @@ mod tests {
                 prompt_contains: "WeChat",
                 result: false,
             },
-
             // Step 6: Save
             MockAction::Confirm {
                 prompt_contains: "Write",

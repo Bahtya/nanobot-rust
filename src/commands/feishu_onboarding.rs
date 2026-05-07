@@ -396,7 +396,6 @@ async fn probe_bot(
 
 // ── Public entry point ─────────────────────────────────────────
 
-
 /// Run the Feishu / Lark QR onboarding flow.
 ///
 /// Prints QR code and progress to stdout. Returns the registration result

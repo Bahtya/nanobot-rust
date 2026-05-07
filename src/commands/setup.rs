@@ -1003,7 +1003,12 @@ mod tests {
                 prompt_contains: "WebSocket",
                 result: false,
             },
-            // Step 5: Save
+            // Step 5: WeChat (skip)
+            MockAction::Confirm {
+                prompt_contains: "WeChat",
+                result: false,
+            },
+            // Step 6: Save
             MockAction::Confirm {
                 prompt_contains: "Write",
                 result: true,
@@ -1055,7 +1060,12 @@ mod tests {
                 prompt_contains: "WebSocket",
                 result: false,
             },
-            // Step 5: Save
+            // Step 5: WeChat (skip)
+            MockAction::Confirm {
+                prompt_contains: "WeChat",
+                result: false,
+            },
+            // Step 6: Save
             MockAction::Confirm {
                 prompt_contains: "Write",
                 result: true,

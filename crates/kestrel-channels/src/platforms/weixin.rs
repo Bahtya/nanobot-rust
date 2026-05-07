@@ -402,14 +402,22 @@ impl ContextTokenStore {
         let text = match std::fs::read_to_string(&path) {
             Ok(t) => t,
             Err(e) => {
-                warn!("[weixin] failed to read context tokens for {}: {}", safe_id(Some(account_id), 8), e);
+                warn!(
+                    "[weixin] failed to read context tokens for {}: {}",
+                    safe_id(Some(account_id), 8),
+                    e
+                );
                 return;
             }
         };
         let data: HashMap<String, String> = match serde_json::from_str(&text) {
             Ok(d) => d,
             Err(e) => {
-                warn!("[weixin] failed to parse context tokens for {}: {}", safe_id(Some(account_id), 8), e);
+                warn!(
+                    "[weixin] failed to parse context tokens for {}: {}",
+                    safe_id(Some(account_id), 8),
+                    e
+                );
                 return;
             }
         };
@@ -424,7 +432,11 @@ impl ContextTokenStore {
             }
         }
         if restored > 0 {
-            info!("[weixin] restored {} context token(s) for {}", restored, safe_id(Some(account_id), 8));
+            info!(
+                "[weixin] restored {} context token(s) for {}",
+                restored,
+                safe_id(Some(account_id), 8)
+            );
         }
     }
 
@@ -1068,7 +1080,8 @@ impl BaseChannel for WeixinChannel {
             Some(a) if !a.is_empty() => a.to_string(),
             _ => {
                 warn!(
-                    "[weixin] Account ID not configured (set WEIXIN_ACCOUNT_ID or channels.weixin.account_id)"
+                    "[weixin] Account ID not configured \
+                     (set WEIXIN_ACCOUNT_ID or channels.weixin.account_id)"
                 );
                 return Ok(false);
             }

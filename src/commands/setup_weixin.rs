@@ -252,7 +252,7 @@ fn persist_credentials(creds: &Credentials) -> Result<()> {
     let config_path = get_config_path()?;
 
     let mut config = if config_path.exists() {
-        load_config(Some(&config_path))?;
+        load_config(Some(&config_path))?
     } else {
         Config::default()
     };
@@ -413,12 +413,21 @@ mod tests {
 
     #[test]
     fn test_status_response_parsing() {
-        let raw = r#"{"status":"confirmed","ilink_bot_id":"wxid_123","bot_token":"tok_abc","baseurl":"https://ilinkai.weixin.qq.com"}"#;
-        let resp: StatusResponse = serde_json::from_str(raw).unwrap();
+        let raw = serde_json::json!({
+            "status": "confirmed",
+            "ilink_bot_id": "wxid_123",
+            "bot_token": "tok_abc",
+            "baseurl": "https://ilinkai.weixin.qq.com"
+        })
+        .to_string();
+        let resp: StatusResponse = serde_json::from_str(&raw).unwrap();
         assert_eq!(resp.status.unwrap(), "confirmed");
         assert_eq!(resp.ilink_bot_id.unwrap(), "wxid_123");
         assert_eq!(resp.bot_token.unwrap(), "tok_abc");
-        assert_eq!(resp.baseurl.unwrap(), "https://ilinkai.weixin.qq.com");
+        assert_eq!(
+            resp.baseurl.unwrap(),
+            "https://ilinkai.weixin.qq.com"
+        );
     }
 
     #[test]

@@ -5,7 +5,7 @@ use console::Term;
 use dialoguer::{Confirm, Input, Password as PasswordInput, Select};
 use kestrel_config::{
     loader, paths,
-    schema::{Config, ProviderEntry, TelegramConfig, WebSocketConfig, WeixinConfig},
+    schema::{Config, FeishuConfig, ProviderEntry, TelegramConfig, WebSocketConfig, WeixinConfig},
 };
 use owo_colors::OwoColorize;
 use std::net::SocketAddr;
@@ -195,8 +195,12 @@ fn run_wizard(io: &dyn WizardIo, config_path: &Path) -> Result<()> {
     print_step(io, 3, "Telegram Channel")?;
     configure_telegram(io, &mut config)?;
 
-    // ── Step 4: WebSocket port ───────────────────────────────────
-    print_step(io, 4, "WebSocket Port")?;
+    // ── Step 4: Feishu / Lark channel ────────────────────────────
+    print_step(io, 4, "Feishu / Lark Channel")?;
+    configure_feishu(io, &mut config)?;
+
+    // ── Step 5: WebSocket port ───────────────────────────────────
+    print_step(io, 5, "WebSocket Port")?;
     configure_websocket(io, &mut config)?;
 
     // ── Step 5: Weixin channel ───────────────────────────────────
@@ -298,6 +302,13 @@ fn show_config_summary(io: &dyn WizardIo, config: &Config) -> Result<()> {
 
     if let Some(ref tg) = config.channels.telegram {
         io.write_line(&format!("  Telegram:     {}", mask_token(&tg.token)))?;
+    }
+
+    if let Some(ref fs) = config.channels.feishu {
+        if fs.enabled {
+            let app_id = fs.app_id.as_deref().unwrap_or("(not set)");
+            io.write_line(&format!("  Feishu:       {}", mask_token(app_id)))?;
+        }
     }
 
     if let Some(ref ws) = config.channels.websocket {
@@ -482,6 +493,56 @@ fn configure_telegram(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
         enabled,
         streaming,
         proxy,
+    });
+
+    Ok(())
+}
+
+fn configure_feishu(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
+    let has_existing = config.channels.feishu.as_ref().is_some_and(|f| f.enabled);
+
+    let setup = if has_existing {
+        io.confirm("Reconfigure Feishu / Lark?", true)?
+    } else {
+        io.confirm("Set up Feishu / Lark?", false)?
+    };
+
+    if !setup {
+        io.write_line("  Skipped.")?;
+        return Ok(());
+    }
+
+    let domain_options = ["Feishu (飞书)", "Lark (international)"];
+    let idx = io.select("Select platform", &domain_options, 0)?;
+    let domain = if idx == 1 { "lark" } else { "feishu" };
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("Failed to create tokio runtime")?;
+
+    // TODO: Creating a nested tokio runtime here means this cannot be called
+    // from within an existing async context (e.g. tests). A future refactor
+    // could make `run_wizard` async or accept a runtime handle.
+    let result = match rt.block_on(super::feishu_onboarding::run_onboarding(domain)) {
+        Ok(r) => r,
+        Err(e) => {
+            io.write_line(&format!("  {} Feishu setup skipped: {}", "!".yellow(), e))?;
+            return Ok(());
+        }
+    };
+
+    let existing_proxy = config
+        .channels
+        .feishu
+        .as_ref()
+        .and_then(|f| f.proxy.clone());
+
+    config.channels.feishu = Some(FeishuConfig {
+        app_id: Some(result.app_id),
+        app_secret: Some(result.app_secret),
+        enabled: true,
+        proxy: existing_proxy,
     });
 
     Ok(())
@@ -999,7 +1060,12 @@ mod tests {
                 prompt_contains: "Telegram",
                 result: false,
             },
-            // Step 4: WebSocket (skip)
+            // Step 4: Feishu (skip)
+            MockAction::Confirm {
+                prompt_contains: "Feishu",
+                result: false,
+            },
+            // Step 5: WebSocket (skip)
             MockAction::Confirm {
                 prompt_contains: "WebSocket",
                 result: false,
@@ -1056,7 +1122,12 @@ mod tests {
                 prompt_contains: "Telegram",
                 result: false,
             },
-            // Step 4: WebSocket (skip)
+            // Step 4: Feishu (skip)
+            MockAction::Confirm {
+                prompt_contains: "Feishu",
+                result: false,
+            },
+            // Step 5: WebSocket (skip)
             MockAction::Confirm {
                 prompt_contains: "WebSocket",
                 result: false,

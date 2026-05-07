@@ -425,21 +425,58 @@ pub struct WecomConfig {
     pub enabled: bool,
 }
 
-/// WeChat Official Account channel configuration.
+/// WeChat channel configuration.
+///
+/// Supports two modes:
+/// 1. **WeChat Official Account** (legacy): uses `app_id`, `app_secret`, `token`,
+///    `encoding_aes_key` for callback-based integration.
+/// 2. **iLink Bot API** (personal account): uses `account_id` + `bot_token` for
+///    Tencent's iLink Bot API with QR login.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct WeixinConfig {
-    /// WeChat app ID.
+    /// WeChat app ID (Official Account mode).
     pub app_id: Option<String>,
-    /// WeChat app secret.
+    /// WeChat app secret (Official Account mode).
     pub app_secret: Option<String>,
-    /// Callback verification token.
+    /// Callback verification token (Official Account mode).
     pub token: Option<String>,
-    /// Callback AES encoding key.
+    /// Callback AES encoding key (Official Account mode).
     pub encoding_aes_key: Option<String>,
+
+    // ─── iLink Bot API (personal account) ───────────────────────────────
+    /// iLink bot account ID (e.g. `wxid_...@im.bot`).
+    pub account_id: Option<String>,
+    /// iLink bot token (from QR login).
+    pub bot_token: Option<String>,
+    /// iLink API base URL (default: `https://ilinkai.weixin.qq.com`).
+    pub base_url: Option<String>,
+    /// WeChat CDN base URL (default: `https://novac2c.cdn.weixin.qq.com/c2c`).
+    pub cdn_base_url: Option<String>,
+    /// DM policy: `open`, `allowlist`, or `disabled`.
+    #[serde(default = "default_weixin_dm_policy")]
+    pub dm_policy: String,
+    /// Group policy: `open`, `allowlist`, or `disabled`.
+    #[serde(default = "default_weixin_group_policy")]
+    pub group_policy: String,
+    /// Allowed user IDs for DM (when dm_policy = `allowlist`).
+    #[serde(default)]
+    pub allowed_users: Vec<String>,
+    /// Allowed group IDs (when group_policy = `allowlist`).
+    #[serde(default)]
+    pub group_allowed_users: Vec<String>,
+
     /// Whether this channel is enabled.
     #[serde(default = "default_true")]
     pub enabled: bool,
+}
+
+fn default_weixin_dm_policy() -> String {
+    "open".to_string()
+}
+
+fn default_weixin_group_policy() -> String {
+    "disabled".to_string()
 }
 
 /// QQ channel configuration.

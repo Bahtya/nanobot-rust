@@ -698,10 +698,14 @@ fn validate_channels(channels: &ChannelsConfig, report: &mut ValidationReport) {
     if let Some(ref w) = channels.weixin {
         if w.enabled {
             has_enabled_channel = true;
-            if w.app_id.as_deref().is_none_or(|a| a.is_empty()) {
+            // Support two modes: Official Account (legacy) and iLink Bot API (personal account).
+            let has_ilink = w.account_id.as_deref().is_some_and(|a| !a.is_empty())
+                && w.bot_token.as_deref().is_some_and(|t| !t.is_empty());
+            let has_official = w.app_id.as_deref().is_some_and(|a| !a.is_empty());
+            if !has_ilink && !has_official {
                 report.error(
-                    "channels.weixin.app_id",
-                    "App ID is required when WeChat is enabled",
+                    "channels.weixin",
+                    "WeChat requires either (account_id + bot_token) for iLink Bot API or (app_id) for Official Account",
                 );
             }
         }
@@ -2933,21 +2937,48 @@ token = "${MISSING_BBB}"
     }
 
     #[test]
-    fn test_weixin_missing_app_id() {
+    fn test_weixin_missing_credentials() {
         let mut config = make_valid_config();
         config.channels.weixin = Some(WeixinConfig {
             app_id: None,
             app_secret: None,
             token: None,
             encoding_aes_key: None,
+            account_id: None,
+            bot_token: None,
+            base_url: None,
+            cdn_base_url: None,
+            dm_policy: "open".to_string(),
+            group_policy: "disabled".to_string(),
+            allowed_users: vec![],
+            group_allowed_users: vec![],
             enabled: true,
         });
         let report = validate(&config);
         assert!(!report.is_valid());
-        assert!(report
-            .errors()
-            .iter()
-            .any(|e| e.path == "channels.weixin.app_id"));
+        assert!(report.errors().iter().any(|e| e.path == "channels.weixin"));
+    }
+
+    #[test]
+    fn test_weixin_ilink_ok() {
+        let mut config = make_valid_config();
+        config.channels.weixin = Some(WeixinConfig {
+            app_id: None,
+            app_secret: None,
+            token: None,
+            encoding_aes_key: None,
+            account_id: Some("wxid_test@im.bot".to_string()),
+            bot_token: Some("test_token".to_string()),
+            base_url: None,
+            cdn_base_url: None,
+            dm_policy: "open".to_string(),
+            group_policy: "disabled".to_string(),
+            allowed_users: vec![],
+            group_allowed_users: vec![],
+            enabled: true,
+        });
+        let report = validate(&config);
+        assert!(report.is_valid());
     }
 
     #[test]

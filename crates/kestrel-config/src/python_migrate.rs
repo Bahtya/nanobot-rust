@@ -624,6 +624,14 @@ fn convert_channels(
             app_secret: w.app_secret.clone(),
             token: None,
             encoding_aes_key: None,
+            account_id: None,
+            bot_token: None,
+            base_url: None,
+            cdn_base_url: None,
+            dm_policy: "open".to_string(),
+            group_policy: "disabled".to_string(),
+            allowed_users: vec![],
+            group_allowed_users: vec![],
             enabled: w.enabled.unwrap_or(true),
         });
         report.add_mapped("channels.weixin (appId → app_id, appSecret → app_secret)");

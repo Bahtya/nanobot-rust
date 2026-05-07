@@ -30,6 +30,9 @@ impl ChannelRegistry {
         self.register("websocket", || {
             Box::new(platforms::websocket::WebSocketChannel::new())
         });
+        self.register("weixin", || {
+            Box::new(platforms::weixin::WeixinChannel::new())
+        });
     }
 
     /// Create a registry with built-in channel factories using process environment.
@@ -85,6 +88,16 @@ impl ChannelRegistry {
             });
         }
 
+        if let Some(weixin) = config.channels.weixin.clone() {
+            registry.register("weixin", move || {
+                Box::new(platforms::weixin::WeixinChannel::new_with_config(&weixin))
+            });
+        } else {
+            registry.register("weixin", || {
+                Box::new(platforms::weixin::WeixinChannel::new())
+            });
+        }
+
         registry
     }
 
@@ -130,13 +143,14 @@ mod tests {
         assert!(names.contains(&"discord".to_string()));
         assert!(names.contains(&"feishu".to_string()));
         assert!(names.contains(&"websocket".to_string()));
+        assert!(names.contains(&"weixin".to_string()));
     }
 
     #[test]
     fn test_registry_default() {
         let registry = ChannelRegistry::default();
         let names = registry.channel_names();
-        assert_eq!(names.len(), 4);
+        assert_eq!(names.len(), 5);
     }
 
     #[test]
@@ -157,6 +171,15 @@ mod tests {
     }
 
     #[test]
+    fn test_registry_create_weixin() {
+        let registry = ChannelRegistry::new();
+        let channel = registry.create_channel("weixin").unwrap();
+        assert_eq!(channel.name(), "weixin");
+        assert_eq!(channel.platform(), Platform::Weixin);
+        assert!(!channel.is_connected());
+    }
+
+    #[test]
     fn test_registry_create_unknown() {
         let registry = ChannelRegistry::new();
         let result = registry.create_channel("slack");
@@ -173,7 +196,7 @@ mod tests {
             Box::new(platforms::telegram::TelegramChannel::new())
         });
         let names = registry.channel_names();
-        assert_eq!(names.len(), 5);
+        assert_eq!(names.len(), 6);
         assert!(names.contains(&"custom".to_string()));
 
         let channel = registry.create_channel("custom").unwrap();

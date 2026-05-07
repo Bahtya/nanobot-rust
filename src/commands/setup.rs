@@ -5,7 +5,7 @@ use console::Term;
 use dialoguer::{Confirm, Input, Password as PasswordInput, Select};
 use kestrel_config::{
     loader, paths,
-    schema::{Config, ProviderEntry, TelegramConfig, WebSocketConfig},
+    schema::{Config, ProviderEntry, TelegramConfig, WebSocketConfig, WeixinConfig},
 };
 use owo_colors::OwoColorize;
 use std::net::SocketAddr;
@@ -26,7 +26,7 @@ const PROVIDER_NAMES: &[&str] = &[
     "glm_coding_plan",
 ];
 
-const TOTAL_STEPS: usize = 5;
+const TOTAL_STEPS: usize = 6;
 
 // ── Trait for interactive I/O (enables testability) ────────────
 
@@ -199,8 +199,12 @@ fn run_wizard(io: &dyn WizardIo, config_path: &Path) -> Result<()> {
     print_step(io, 4, "WebSocket Port")?;
     configure_websocket(io, &mut config)?;
 
-    // ── Step 5: Validate & write ─────────────────────────────────
-    print_step(io, 5, "Save Configuration")?;
+    // ── Step 5: Weixin channel ───────────────────────────────────
+    print_step(io, 5, "WeChat Channel")?;
+    configure_weixin(io, &mut config)?;
+
+    // ── Step 6: Validate & write ─────────────────────────────────
+    print_step(io, 6, "Save Configuration")?;
 
     io.write_line(&format!("  Config path: {}", config_path.display()))?;
     io.write_line("")?;
@@ -300,6 +304,15 @@ fn show_config_summary(io: &dyn WizardIo, config: &Config) -> Result<()> {
         if ws.enabled {
             io.write_line(&format!("  WebSocket:    {}", ws.listen_addr))?;
         }
+    }
+
+    if let Some(ref wx) = config.channels.weixin {
+        let status = if wx.enabled {
+            mask_token(wx.bot_token.as_deref().unwrap_or(""))
+        } else {
+            "disabled".to_string()
+        };
+        io.write_line(&format!("  WeChat:       {}", status))?;
     }
 
     Ok(())
@@ -512,6 +525,140 @@ fn configure_websocket(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
         max_clients: 100,
         max_message_size: 1048576,
     });
+
+    Ok(())
+}
+
+fn configure_weixin(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
+    let setup_wx = if config.channels.weixin.is_some() {
+        io.confirm("Configure WeChat channel?", true)?
+    } else {
+        io.confirm("Set up a WeChat channel?", false)?
+    };
+
+    if !setup_wx {
+        io.write_line("  Skipped.")?;
+        return Ok(());
+    }
+
+    let choices = &[
+        "Scan QR code with WeChat (recommended)",
+        "Enter credentials manually",
+        "Skip",
+    ];
+    let choice = io.select("How would you like to configure WeChat?", choices, 0)?;
+
+    match choice {
+        0 => {
+            io.write_line(
+                "  QR scan setup requires running `kestrel setup weixin` in a terminal.",
+            )?;
+            io.write_line("  Please run that command separately, then return to this wizard.")?;
+            // Mark as enabled if credentials already exist
+            if let Some(ref wx) = config.channels.weixin {
+                if wx.account_id.is_some() && wx.bot_token.is_some() {
+                    io.write_line(&format!(
+                        "  {} Existing WeChat credentials detected.",
+                        "✓".green()
+                    ))?;
+                }
+            }
+            // If no credentials yet, just leave channel unconfigured
+            if config.channels.weixin.is_none() {
+                io.write_line(
+                    "  No WeChat credentials found yet. Run `kestrel setup weixin` first.",
+                )?;
+            }
+        }
+        1 => {
+            let current_account = config
+                .channels
+                .weixin
+                .as_ref()
+                .and_then(|w| w.account_id.as_deref())
+                .unwrap_or("");
+            let account_id: String = if current_account.is_empty() {
+                io.input_allow_empty("iLink account ID (e.g. wxid_xxx@im.bot)")?
+            } else {
+                io.input_with_default("iLink account ID", current_account)?
+            };
+
+            if account_id.trim().is_empty() {
+                io.write_line("  No account ID provided, skipping WeChat.")?;
+                return Ok(());
+            }
+
+            let current_token = config
+                .channels
+                .weixin
+                .as_ref()
+                .and_then(|w| w.bot_token.as_deref())
+                .unwrap_or("");
+            let bot_token: String = if current_token.is_empty() {
+                io.input_allow_empty("iLink bot token")?
+            } else {
+                io.input_with_default("iLink bot token", current_token)?
+            };
+
+            if bot_token.trim().is_empty() {
+                io.write_line("  No bot token provided, skipping WeChat.")?;
+                return Ok(());
+            }
+
+            // Preserve existing fields
+            let (
+                app_id,
+                app_secret,
+                old_token,
+                encoding_aes_key,
+                base_url,
+                cdn_base_url,
+                dm_policy,
+                group_policy,
+                allowed_users,
+                group_allowed_users,
+            ) = config
+                .channels
+                .weixin
+                .as_ref()
+                .map(|w| {
+                    (
+                        w.app_id.clone(),
+                        w.app_secret.clone(),
+                        w.token.clone(),
+                        w.encoding_aes_key.clone(),
+                        w.base_url.clone(),
+                        w.cdn_base_url.clone(),
+                        w.dm_policy.clone(),
+                        w.group_policy.clone(),
+                        w.allowed_users.clone(),
+                        w.group_allowed_users.clone(),
+                    )
+                })
+                .unwrap_or_default();
+
+            config.channels.weixin = Some(WeixinConfig {
+                account_id: Some(account_id.trim().to_string()),
+                bot_token: Some(bot_token.trim().to_string()),
+                app_id,
+                app_secret,
+                token: old_token,
+                encoding_aes_key,
+                base_url,
+                cdn_base_url,
+                dm_policy,
+                group_policy,
+                allowed_users,
+                group_allowed_users,
+                enabled: true,
+            });
+
+            io.write_line(&format!("  {} WeChat credentials saved.", "✓".green()))?;
+        }
+        _ => {
+            io.write_line("  Skipped.")?;
+        }
+    }
 
     Ok(())
 }
@@ -857,7 +1004,12 @@ mod tests {
                 prompt_contains: "WebSocket",
                 result: false,
             },
-            // Step 5: Save
+            // Step 5: WeChat (skip)
+            MockAction::Confirm {
+                prompt_contains: "WeChat",
+                result: false,
+            },
+            // Step 6: Save
             MockAction::Confirm {
                 prompt_contains: "Write",
                 result: true,
@@ -909,7 +1061,12 @@ mod tests {
                 prompt_contains: "WebSocket",
                 result: false,
             },
-            // Step 5: Save
+            // Step 5: WeChat (skip)
+            MockAction::Confirm {
+                prompt_contains: "WeChat",
+                result: false,
+            },
+            // Step 6: Save
             MockAction::Confirm {
                 prompt_contains: "Write",
                 result: true,

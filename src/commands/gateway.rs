@@ -404,6 +404,22 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
             }
         }
     }
+    if let Some(ref wx) = config.channels.weixin {
+        if wx.enabled {
+            if let Some(ref account_id) = wx.account_id {
+                std::env::set_var("WEIXIN_ACCOUNT_ID", account_id);
+            }
+            if let Some(ref bot_token) = wx.bot_token {
+                std::env::set_var("WEIXIN_TOKEN", bot_token);
+            }
+            if let Some(ref base_url) = wx.base_url {
+                std::env::set_var("WEIXIN_BASE_URL", base_url);
+            }
+            if let Some(ref cdn_base_url) = wx.cdn_base_url {
+                std::env::set_var("WEIXIN_CDN_BASE_URL", cdn_base_url);
+            }
+        }
+    }
 
     // ── Channel manager (wrapped in Arc for shared access) ────
     let channel_registry = ChannelRegistry::new_with_config(&config);
@@ -533,6 +549,11 @@ pub async fn run(config: Config, channels: Vec<String>, dangerous: bool) -> Resu
         if let Some(ref fs) = config.channels.feishu {
             if fs.enabled {
                 auto.push("feishu".to_string());
+            }
+        }
+        if let Some(ref wx) = config.channels.weixin {
+            if wx.enabled {
+                auto.push("weixin".to_string());
             }
         }
         if auto.is_empty() {

@@ -615,11 +615,12 @@ fn configure_weixin(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
                 "  QR scan setup requires running `kestrel setup weixin` in a terminal.",
             )?;
             io.write_line("  Please run that command separately, then return to this wizard.")?;
-            // Mark as enabled if credentials already exist
-            if let Some(ref wx) = config.channels.weixin {
+            // Re-enable the channel when QR login credentials already exist.
+            if let Some(ref mut wx) = config.channels.weixin {
                 if wx.account_id.is_some() && wx.bot_token.is_some() {
+                    wx.enabled = true;
                     io.write_line(&format!(
-                        "  {} Existing WeChat credentials detected.",
+                        "  {} Existing WeChat credentials detected and enabled.",
                         "✓".green()
                     ))?;
                 }
@@ -1186,5 +1187,94 @@ mod tests {
 
         let output = mock.output();
         assert!(output.contains("(not set)"));
+    }
+
+    #[test]
+    fn configure_weixin_qr_enables_existing_credentials() {
+        let mock = MockWizard::new(vec![
+            MockAction::Confirm {
+                prompt_contains: "WeChat",
+                result: true,
+            },
+            MockAction::Select { result: 0 },
+        ]);
+        let mut config = Config::default();
+        config.channels.weixin = Some(WeixinConfig {
+            app_id: None,
+            app_secret: None,
+            token: None,
+            encoding_aes_key: None,
+            account_id: Some("wxid_existing@im.bot".to_string()),
+            bot_token: Some("tok_existing".to_string()),
+            base_url: None,
+            cdn_base_url: None,
+            dm_policy: "open".to_string(),
+            group_policy: "disabled".to_string(),
+            allowed_users: vec![],
+            group_allowed_users: vec![],
+            enabled: false,
+        });
+
+        configure_weixin(&mock, &mut config).unwrap();
+
+        let weixin = config.channels.weixin.unwrap();
+        assert!(weixin.enabled);
+        assert_eq!(weixin.account_id.as_deref(), Some("wxid_existing@im.bot"));
+        assert_eq!(weixin.bot_token.as_deref(), Some("tok_existing"));
+        assert!(mock.output().contains("detected and enabled"));
+    }
+
+    #[test]
+    fn configure_weixin_manual_preserves_existing_fields() {
+        let mock = MockWizard::new(vec![
+            MockAction::Confirm {
+                prompt_contains: "WeChat",
+                result: true,
+            },
+            MockAction::Select { result: 1 },
+            MockAction::Input {
+                result: "wxid_new@im.bot",
+            },
+            MockAction::Input { result: "tok_new" },
+        ]);
+        let mut config = Config::default();
+        config.channels.weixin = Some(WeixinConfig {
+            app_id: Some("app_existing".to_string()),
+            app_secret: Some("secret_existing".to_string()),
+            token: Some("verify_token".to_string()),
+            encoding_aes_key: Some("aes_key".to_string()),
+            account_id: Some("wxid_old@im.bot".to_string()),
+            bot_token: Some("tok_old".to_string()),
+            base_url: Some("https://ilinkai.weixin.qq.com".to_string()),
+            cdn_base_url: Some("https://novac2c.cdn.weixin.qq.com/c2c".to_string()),
+            dm_policy: "allowlist".to_string(),
+            group_policy: "open".to_string(),
+            allowed_users: vec!["u1".to_string()],
+            group_allowed_users: vec!["g1".to_string()],
+            enabled: false,
+        });
+
+        configure_weixin(&mock, &mut config).unwrap();
+
+        let weixin = config.channels.weixin.unwrap();
+        assert_eq!(weixin.account_id.as_deref(), Some("wxid_new@im.bot"));
+        assert_eq!(weixin.bot_token.as_deref(), Some("tok_new"));
+        assert_eq!(weixin.app_id.as_deref(), Some("app_existing"));
+        assert_eq!(weixin.app_secret.as_deref(), Some("secret_existing"));
+        assert_eq!(weixin.token.as_deref(), Some("verify_token"));
+        assert_eq!(weixin.encoding_aes_key.as_deref(), Some("aes_key"));
+        assert_eq!(
+            weixin.base_url.as_deref(),
+            Some("https://ilinkai.weixin.qq.com")
+        );
+        assert_eq!(
+            weixin.cdn_base_url.as_deref(),
+            Some("https://novac2c.cdn.weixin.qq.com/c2c")
+        );
+        assert_eq!(weixin.dm_policy, "allowlist");
+        assert_eq!(weixin.group_policy, "open");
+        assert_eq!(weixin.allowed_users, vec!["u1"]);
+        assert_eq!(weixin.group_allowed_users, vec!["g1"]);
+        assert!(weixin.enabled);
     }
 }

@@ -1026,6 +1026,7 @@ mod tests {
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use http_body_util::BodyExt;
+    use kestrel_core::Platform;
     use kestrel_test_utils::MockProvider;
     use tower::ServiceExt;
 
@@ -1080,6 +1081,7 @@ mod tests {
             .route("/v1/models", get(list_models))
             .route("/health", get(health))
             .route("/ready", get(ready))
+            .route("/feishu/webhook", post(feishu_webhook))
             .layer(middleware::from_fn(request_id_middleware))
             .with_state(test_state())
     }
@@ -1831,6 +1833,88 @@ mod tests {
         let server = ApiServer::new(config, bus, session_manager, Some(8080))
             .with_api_key("sk-test".to_string());
         assert_eq!(server.state.api_key, Some("sk-test".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_feishu_webhook_returns_challenge() {
+        let app = test_router();
+        let payload = serde_json::json!({
+            "type": "url_verification",
+            "challenge": "challenge-token"
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/feishu/webhook")
+                    .header("content-type", "application/json")
+                    .body(Body::from(payload.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+            serde_json::json!({
+                "challenge": "challenge-token",
+                "token": ""
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn test_feishu_webhook_forwards_message_to_bus() {
+        let state = test_state();
+        let mut inbound_rx = state.bus.consume_inbound().await.unwrap();
+        let app = Router::new()
+            .route("/feishu/webhook", post(feishu_webhook))
+            .with_state(state);
+        let payload = serde_json::json!({
+            "header": {
+                "event_type": "im.message.receive_v1"
+            },
+            "event": {
+                "message": {
+                    "message_id": "om_123",
+                    "chat_id": "oc_group",
+                    "chat_type": "group",
+                    "message_type": "text",
+                    "content": "{\"text\":\"hello feishu\"}"
+                },
+                "sender": {
+                    "sender_id": {
+                        "open_id": "ou_user"
+                    }
+                }
+            }
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/feishu/webhook")
+                    .header("content-type", "application/json")
+                    .body(Body::from(payload.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let forwarded = tokio::time::timeout(std::time::Duration::from_secs(1), inbound_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(forwarded.channel, Platform::Feishu);
+        assert_eq!(forwarded.chat_id, "oc_group");
+        assert_eq!(forwarded.sender_id, "ou_user");
+        assert_eq!(forwarded.content, "hello feishu");
+        assert_eq!(forwarded.message_id.as_deref(), Some("om_123"));
     }
 
     // ─── Serialization tests ─────────────────────────────

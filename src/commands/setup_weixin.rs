@@ -212,7 +212,9 @@ async fn poll_status(
             "confirmed" => {
                 let account_id = resp.ilink_bot_id.unwrap_or_default();
                 let token = resp.bot_token.unwrap_or_default();
-                let base_url = resp.baseurl.unwrap_or_else(|| "https://ilinkai.weixin.qq.com".to_string());
+                let base_url = resp
+                    .baseurl
+                    .unwrap_or_else(|| "https://ilinkai.weixin.qq.com".to_string());
                 let _user_id = resp.ilink_user_id.unwrap_or_default();
 
                 if account_id.is_empty() || token.is_empty() {

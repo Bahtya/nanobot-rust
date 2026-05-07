@@ -1,5 +1,20 @@
 # Changelog
 
+## [v0.7.0] - 2026-05-07
+
+### New Features
+- Feishu (Lark) channel support with webhook handling, gateway integration, and status visibility (#223)
+- Automated Feishu / Lark QR scan-to-create onboarding flow for setup (#225)
+- WeChat (Weixin) iLink Bot API channel integration with long-polling, typing indicators, DM/group policy controls, and context-token persistence (#228)
+- WeChat setup and operations wired into the product flow: gateway auto-start detection, status output, and setup wizard coverage for manual credentials plus QR onboarding support (#228)
+- Feishu / Lark is now discoverable directly from the main `kestrel setup` wizard, with QR auto-onboarding launched inline from the unified setup entry (#229)
+
+### Changes
+- `kestrel setup` is now the single setup entry point for Feishu / Lark onboarding; the old `kestrel setup feishu` shortcut was removed (#229)
+
+### Bug Fixes
+- Feishu onboarding review fixes: preserve existing proxy settings, avoid sensitive JSON parse leaks, and keep MSRV-compatible dead-code annotations (#226)
+
 ## [v0.6.0] - 2026-04-30
 
 ### New Features

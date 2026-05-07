@@ -20,7 +20,7 @@ to any LLM with built-in memory, skills, and self-evolution.
 
 ## Features
 
-- **Multi-platform channels** — Telegram, Discord, WebSocket, OpenAI-compatible HTTP API
+- **Multi-platform channels** — Telegram, Discord, Feishu/Lark, WeChat (Weixin), WebSocket, OpenAI-compatible HTTP API
 - **Streaming responses** — SSE streaming for real-time token delivery
 - **Tool system** — shell, web, filesystem, cron, search, message, spawn
 - **Agent loop** — context management, memory, hooks, and context compaction
@@ -141,7 +141,8 @@ cargo build --release
 
 ```bash
 kestrel setup
-# Edit ~/.kestrel/config.toml with your API keys
+# Unified setup wizard for provider + channel onboarding
+# Edit ~/.kestrel/config.toml with your API keys if needed
 ```
 
 ### Run
@@ -150,7 +151,7 @@ kestrel setup
 # Interactive agent (one-shot)
 kestrel agent "Summarize the latest commits"
 
-# Start gateway (Telegram + Discord + WebSocket)
+# Start gateway (auto-detects enabled channels from config)
 kestrel gateway
 
 # Start API server
@@ -224,6 +225,23 @@ streaming = false                     # telegram doesn't support token-by-token
 [channels.discord]
 token = "${DISCORD_BOT_TOKEN}"
 allowed_guilds = ["111222333"]        # optional: restrict to guild IDs
+enabled = true
+
+[channels.feishu]
+app_id = "${FEISHU_APP_ID}"
+app_secret = "${FEISHU_APP_SECRET}"
+enabled = true
+# proxy = "socks5://127.0.0.1:7890"   # optional: http/https/socks5/socks5h
+
+[channels.weixin]
+account_id = "wxid_example@im.bot"
+bot_token = "${WEIXIN_BOT_TOKEN}"
+base_url = "https://ilinkai.weixin.qq.com"
+cdn_base_url = "https://novac2c.cdn.weixin.qq.com/c2c"
+dm_policy = "open"                    # open | allowlist | disabled
+group_policy = "disabled"             # open | allowlist | disabled
+allowed_users = []
+group_allowed_users = []
 enabled = true
 
 [channels.websocket]
@@ -304,6 +322,8 @@ online_message = "Kestrel v{version} online — {channel} connected"
 
 Environment variables in values (`${VAR}`) are expanded at load time.
 
+`kestrel setup` is the primary onboarding entry point. The main wizard now includes Feishu / Lark directly, and WeChat credentials can be added in config for the built-in Weixin channel.
+
 ## CLI Commands
 
 | Command | Description |
@@ -317,8 +337,9 @@ Environment variables in values (`${VAR}`) are expanded at load time.
 | `cron status` | Show status of a specific cron job |
 | `config validate` | Validate the config.toml schema |
 | `config migrate` | Migrate Python kestrel config to kestrel format |
-| `setup` | Interactive configuration wizard |
+| `setup` | Unified interactive configuration wizard, including Feishu / Lark onboarding |
 | `status` | Show current configuration and system status |
+| `doctor` | Run system diagnostics for config, provider reachability, and local environment |
 | `daemon start/stop/restart/status` | Native Unix daemon: double-fork, PID file (flock), SIGTERM/SIGINT/SIGHUP, log rotation |
 
 ## Crates
@@ -335,7 +356,7 @@ Environment variables in values (`${VAR}`) are expanded at load time.
 | [`kestrel-agent`](./crates/kestrel-agent) | Agent loop, context builder, memory, skills, hooks, sub-agents |
 | [`kestrel-cron`](./crates/kestrel-cron) | Tick-based cron scheduler with JSON state persistence |
 | [`kestrel-heartbeat`](./crates/kestrel-heartbeat) | Health check registry, periodic task monitoring, auto-restart |
-| [`kestrel-channels`](./crates/kestrel-channels) | Platform adapters — Telegram, Discord, WebSocket — via `ChannelManager` |
+| [`kestrel-channels`](./crates/kestrel-channels) | Platform adapters — Telegram, Discord, Feishu, Weixin, WebSocket — via `ChannelManager` |
 | [`kestrel-api`](./crates/kestrel-api) | OpenAI-compatible HTTP API server (Axum) |
 | [`kestrel-daemon`](./crates/kestrel-daemon) | Unix daemon: double-fork, PID file (flock), signal handling, file logging |
 | [`kestrel-memory`](./crates/kestrel-memory) | `MemoryStore` trait, HotStore (L1 in-memory), WarmStore/LanceDB (L2 vectors) |

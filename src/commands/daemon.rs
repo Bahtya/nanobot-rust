@@ -252,4 +252,4 @@ mod fallback_impl {
 pub use unix_impl::{handle_daemon_command, DaemonHandles};
 
 #[cfg(not(target_family = "unix"))]
-pub use fallback_impl::{handle_daemon_command, DaemonHandles};
+pub use fallback_impl::handle_daemon_command;

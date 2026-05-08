@@ -66,8 +66,9 @@ struct ImageUploadData {
 }
 
 /// File upload response data.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 struct FileUploadData {
+    #[serde(default)]
     file_key: String,
 }
 

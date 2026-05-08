@@ -1596,7 +1596,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1639,7 +1639,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-agent"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1675,7 +1675,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-api"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1707,7 +1707,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-bus"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "chrono",
  "kestrel-core",
@@ -1719,7 +1719,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-channels"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1749,7 +1749,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-config"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -1769,7 +1769,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-core"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "chrono",
  "hickory-resolver",
@@ -1783,7 +1783,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-cron"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1802,11 +1802,12 @@ dependencies = [
 
 [[package]]
 name = "kestrel-daemon"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "chrono",
  "filetime",
+ "fs4",
  "kestrel-config",
  "libc",
  "nix",
@@ -1817,11 +1818,12 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "windows-service",
 ]
 
 [[package]]
 name = "kestrel-heartbeat"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1845,7 +1847,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-learning"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1866,7 +1868,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-memory"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1888,7 +1890,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-providers"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1909,7 +1911,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-security"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "ipnet",
@@ -1922,7 +1924,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-session"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1940,7 +1942,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-skill"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1959,7 +1961,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-test-utils"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1975,7 +1977,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-tools"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2177,6 +2179,16 @@ name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
+
+[[package]]
+name = "mime_guess"
+version = "2.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7c44f8e672c00fe5308fa235f821cb4198414e1c77935c1ab6948d3fd78550e"
+dependencies = [
+ "mime",
+ "unicase",
+]
 
 [[package]]
 name = "minimal-lexical"
@@ -2616,7 +2628,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2791,6 +2803,7 @@ dependencies = [
  "hyper-util",
  "js-sys",
  "log",
+ "mime_guess",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -3804,6 +3817,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "unicase"
+version = "2.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dbc4bc3a9f746d862c45cb89d705aa10f187bb96c76001afab07a0d35ce60142"
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4182,6 +4201,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7781fa89eaf60850ac3d2da7af8e5242a5ea78d1a11c49bf2910bb5a73853eb5"
 dependencies = [
  "windows-link",
+]
+
+[[package]]
+name = "windows-service"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d24d6bcc7f734a4091ecf8d7a64c5f7d7066f45585c1861eba06449909609c8a"
+dependencies = [
+ "bitflags 2.11.1",
+ "widestring",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

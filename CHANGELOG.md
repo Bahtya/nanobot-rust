@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.7.2] - 2026-05-08
+
+### Bug Fixes
+- Weixin iLink polling now tolerates `getupdates` response drift to avoid update fetch failures
+
 ## [v0.7.1] - 2026-05-07
 
 ### Bug Fixes

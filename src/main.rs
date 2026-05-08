@@ -317,7 +317,8 @@ fn main() -> Result<()> {
                         ctx.report_running()?;
 
                         let rt = tokio::runtime::Runtime::new()?;
-                        let gateway = rt.spawn(commands::gateway::run(config, vec![], cli.dangerous));
+                        let gateway =
+                            rt.spawn(commands::gateway::run(config, vec![], cli.dangerous));
 
                         // Block until SCM sends Stop/Shutdown
                         let _ = ctx.wait_for_shutdown();

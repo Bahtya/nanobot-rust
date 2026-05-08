@@ -1153,6 +1153,12 @@ pub struct McpServerConfig {
 fn default_true() -> bool {
     true
 }
+fn default_feishu_group_policy() -> String {
+    "open".to_string()
+}
+fn default_feishu_allow_bots() -> String {
+    "none".to_string()
+}
 
 fn default_model() -> String {
     "gpt-4o".to_string()

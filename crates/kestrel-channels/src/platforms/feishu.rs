@@ -701,11 +701,7 @@ impl FeishuChannel {
     /// Add an emoji reaction to a message.
     ///
     /// Returns the reaction_id on success.
-    async fn add_reaction(
-        &self,
-        message_id: &str,
-        emoji_key: &str,
-    ) -> Result<String> {
+    async fn add_reaction(&self, message_id: &str, emoji_key: &str) -> Result<String> {
         let token = self.get_access_token().await?;
         let url = format!("{FEISHU_BASE_URL}/im/v1/messages/{message_id}/reactions");
         let body = serde_json::json!({
@@ -736,10 +732,7 @@ impl FeishuChannel {
                 "Feishu add reaction failed: code={}, msg={:?}",
                 feishu_resp.code, feishu_resp.msg
             );
-            anyhow::bail!(
-                "Feishu add reaction failed: code={}",
-                feishu_resp.code
-            );
+            anyhow::bail!("Feishu add reaction failed: code={}", feishu_resp.code);
         }
 
         let reaction_id = feishu_resp
@@ -752,15 +745,9 @@ impl FeishuChannel {
     }
 
     /// Remove an emoji reaction from a message.
-    async fn delete_reaction(
-        &self,
-        message_id: &str,
-        reaction_id: &str,
-    ) -> Result<()> {
+    async fn delete_reaction(&self, message_id: &str, reaction_id: &str) -> Result<()> {
         let token = self.get_access_token().await?;
-        let url = format!(
-            "{FEISHU_BASE_URL}/im/v1/messages/{message_id}/reactions/{reaction_id}"
-        );
+        let url = format!("{FEISHU_BASE_URL}/im/v1/messages/{message_id}/reactions/{reaction_id}");
 
         let resp = self
             .client
@@ -1348,13 +1335,19 @@ mod tests {
 
         ch.track_message_id("oc_chat1", "om_msg123");
         assert_eq!(
-            ch.last_message_ids.lock().get("oc_chat1").map(|s| s.clone()),
+            ch.last_message_ids
+                .lock()
+                .get("oc_chat1")
+                .map(|s| s.clone()),
             Some("om_msg123".to_string())
         );
 
         ch.track_message_id("oc_chat1", "om_msg456");
         assert_eq!(
-            ch.last_message_ids.lock().get("oc_chat1").map(|s| s.clone()),
+            ch.last_message_ids
+                .lock()
+                .get("oc_chat1")
+                .map(|s| s.clone()),
             Some("om_msg456".to_string())
         );
     }

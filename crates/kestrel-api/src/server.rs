@@ -1000,9 +1000,7 @@ async fn feishu_webhook(
                     "{}".to_string(),
                 )
             }
-            WebhookResult::CardAction(action) => {
-                handle_card_action(state, action).await
-            }
+            WebhookResult::CardAction(action) => handle_card_action(state, action).await,
             WebhookResult::Ignored => {
                 debug!("Feishu webhook: ignored event");
                 (
@@ -1026,17 +1024,17 @@ async fn feishu_webhook(
 async fn handle_card_action(
     state: AppState,
     action: CardActionEvent,
-) -> (StatusCode, [(axum::http::header::HeaderName, HeaderValue); 1], String) {
+) -> (
+    StatusCode,
+    [(axum::http::header::HeaderName, HeaderValue); 1],
+    String,
+) {
     info!(
         "Feishu card action: key={} user={} chat={}",
         action.action_key, action.user_open_id, action.chat_id
     );
 
-    let content = format!(
-        "/{} {}",
-        action.action_key,
-        action.action_value
-    );
+    let content = format!("/{} {}", action.action_key, action.action_value);
 
     let mut metadata = HashMap::new();
     metadata.insert(
@@ -1047,14 +1045,8 @@ async fn handle_card_action(
         "action_key".to_string(),
         serde_json::Value::String(action.action_key.clone()),
     );
-    metadata.insert(
-        "action_value".to_string(),
-        action.action_value.clone(),
-    );
-    metadata.insert(
-        "is_card_action".to_string(),
-        serde_json::Value::Bool(true),
-    );
+    metadata.insert("action_value".to_string(), action.action_value.clone());
+    metadata.insert("is_card_action".to_string(), serde_json::Value::Bool(true));
 
     let inbound = InboundMessage {
         channel: kestrel_core::Platform::Feishu,

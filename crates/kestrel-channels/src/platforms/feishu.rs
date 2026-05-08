@@ -360,7 +360,8 @@ pub enum WebhookResult {
 ///   during initial setup; respond with the same challenge string.
 /// - **Event callback**: Extracts message content and returns InboundMessage(s).
 ///
-/// If `config` is provided, runs admission checks (verification token, group/DM policy, bot policy).
+/// If `config` is provided, runs admission checks (verification token,
+/// group/DM policy, bot policy).
 pub fn parse_webhook(body: &[u8], config: Option<&FeishuConfig>) -> Result<WebhookResult> {
     // Check if the payload is encrypted.
     let raw_body: Vec<u8> = if let Some(cfg) = config {
@@ -1254,7 +1255,12 @@ mod tests {
         assert_eq!(result, "Hello link (https://example.com)\nLine 2");
     }
 
-    fn make_message_event(chat_type: &str, chat_id: &str, sender_open_id: &str, content: &str) -> WebhookEvent {
+    fn make_message_event(
+        chat_type: &str,
+        chat_id: &str,
+        sender_open_id: &str,
+        content: &str,
+    ) -> WebhookEvent {
         WebhookEvent {
             schema: Some("2.0".to_string()),
             header: Some(WebhookHeader {
@@ -1301,7 +1307,10 @@ mod tests {
         let event = make_message_event("group", "oc_group1", "ou_user1", "{\"text\":\"hello\"}");
         let mut config = FeishuConfig::default();
         config.group_policy = "disabled".to_string();
-        assert_eq!(check_admission(&event, &config), Admission::Deny("group messages disabled".to_string()));
+        assert_eq!(
+            check_admission(&event, &config),
+            Admission::Deny("group messages disabled".to_string())
+        );
     }
 
     #[test]
@@ -1319,7 +1328,10 @@ mod tests {
         let mut config = FeishuConfig::default();
         config.group_policy = "allowlist".to_string();
         config.group_allowlist = vec!["oc_group1".to_string()];
-        assert_eq!(check_admission(&event, &config), Admission::Deny("group not in allowlist".to_string()));
+        assert_eq!(
+            check_admission(&event, &config),
+            Admission::Deny("group not in allowlist".to_string())
+        );
     }
 
     #[test]
@@ -1328,7 +1340,10 @@ mod tests {
         let mut config = FeishuConfig::default();
         config.group_policy = "blacklist".to_string();
         config.group_blacklist = vec!["oc_group1".to_string()];
-        assert_eq!(check_admission(&event, &config), Admission::Deny("group is blacklisted".to_string()));
+        assert_eq!(
+            check_admission(&event, &config),
+            Admission::Deny("group is blacklisted".to_string())
+        );
     }
 
     #[test]
@@ -1348,7 +1363,10 @@ mod tests {
         assert_eq!(check_admission(&event, &config), Admission::Allow);
 
         let event2 = make_message_event("p2p", "oc_dm1", "ou_user2", "{\"text\":\"hello\"}");
-        assert_eq!(check_admission(&event2, &config), Admission::Deny("user not allowed".to_string()));
+        assert_eq!(
+            check_admission(&event2, &config),
+            Admission::Deny("user not allowed".to_string())
+        );
     }
 
     #[test]
@@ -1366,7 +1384,10 @@ mod tests {
         event.header.as_mut().unwrap().token = Some("wrong_token".to_string());
         let mut config = FeishuConfig::default();
         config.verification_token = Some("my_token".to_string());
-        assert_eq!(check_admission(&event, &config), Admission::Deny("verification token mismatch".to_string()));
+        assert_eq!(
+            check_admission(&event, &config),
+            Admission::Deny("verification token mismatch".to_string())
+        );
     }
 
     #[test]
@@ -1388,12 +1409,20 @@ mod tests {
         let event = make_message_event("group", "oc_group1", "ou_user1", "{\"text\":\"hello\"}");
         let mut config = FeishuConfig::default();
         config.mention_only = true;
-        assert_eq!(check_admission(&event, &config), Admission::Deny("mention required in groups".to_string()));
+        assert_eq!(
+            check_admission(&event, &config),
+            Admission::Deny("mention required in groups".to_string())
+        );
     }
 
     #[test]
     fn test_admission_mention_only_with_mention() {
-        let event = make_message_event("group", "oc_group1", "ou_user1", "<at user_id=\"ou_bot\">Bot</at> hello");
+        let event = make_message_event(
+            "group",
+            "oc_group1",
+            "ou_user1",
+            "<at user_id=\"ou_bot\">Bot</at> hello",
+        );
         let mut config = FeishuConfig::default();
         config.mention_only = true;
         assert_eq!(check_admission(&event, &config), Admission::Allow);

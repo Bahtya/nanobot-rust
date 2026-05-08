@@ -211,7 +211,8 @@ pub fn parse_webhook(body: &[u8]) -> Result<WebhookResult> {
     let event_type = header.event_type.as_deref().unwrap_or("");
 
     if event_type == "card.action.trigger" {
-        return parse_card_action(&event);
+        let event_json = event.event.as_ref().cloned().unwrap_or_default();
+        return parse_card_action(&event_json);
     }
 
     if !event_type.starts_with("im.message.receive_v") {

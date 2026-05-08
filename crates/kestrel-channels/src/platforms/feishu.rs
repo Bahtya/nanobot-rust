@@ -59,8 +59,9 @@ struct TokenData {
 }
 
 /// Image upload response data.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 struct ImageUploadData {
+    #[serde(default)]
     image_key: String,
 }
 

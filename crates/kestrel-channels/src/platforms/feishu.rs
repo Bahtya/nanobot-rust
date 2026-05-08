@@ -878,9 +878,8 @@ impl FeishuChannel {
             Ok(bytes.to_vec())
         } else if let Some(key) = url.strip_prefix("feishu://file/") {
             let mid = message_id.context("message_id required for file download")?;
-            let api_url = format!(
-                "{FEISHU_BASE_URL}/im/v1/messages/{mid}/resources/{key}?type=file"
-            );
+            let api_url =
+                format!("{FEISHU_BASE_URL}/im/v1/messages/{mid}/resources/{key}?type=file");
             let resp = self
                 .client
                 .get(&api_url)

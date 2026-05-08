@@ -54,7 +54,7 @@ use tracing::{debug, info, warn, Instrument};
 /// A background task could prune stale entries, but for the webhook use-case
 /// the map stays small.
 #[derive(Clone, Default)]
-struct FeishuRateLimit {
+pub struct FeishuRateLimit {
     /// Map from IP address to (remaining_tokens, last_refill_instant).
     buckets: Arc<parking_lot::Mutex<Vec<(String, u32, std::time::Instant)>>>,
 }

@@ -67,6 +67,7 @@ struct ImageUploadData {
 
 /// File upload response data.
 #[derive(Debug, Deserialize, Default)]
+#[allow(dead_code)]
 struct FileUploadData {
     #[serde(default)]
     file_key: String,
@@ -95,6 +96,7 @@ struct AudioContent {
     #[serde(default)]
     file_key: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     duration: Option<u64>,
 }
 
@@ -105,6 +107,7 @@ struct VideoContent {
     #[serde(default)]
     file_name: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     duration: Option<u64>,
 }
 
@@ -949,6 +952,7 @@ impl FeishuChannel {
     }
 
     /// Upload a file to Feishu and return the `file_key`.
+    #[allow(dead_code)]
     async fn upload_file(
         &self,
         file_data: &[u8],

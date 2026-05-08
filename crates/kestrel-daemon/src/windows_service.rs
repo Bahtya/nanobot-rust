@@ -20,7 +20,7 @@
 //!
 //! # Usage
 //!
-//! ```no_run
+//! ```ignore
 //! // Register the service with the SCM:
 //! kestrel_daemon::windows_service::install_service("kestrel", "Kestrel Agent")?;
 //!

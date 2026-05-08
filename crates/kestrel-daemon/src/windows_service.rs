@@ -102,7 +102,7 @@ impl WinPidFile {
             fs::create_dir_all(parent).context("create PID file parent directory")?;
         }
 
-        let file = std::fs::OpenOptions::new()
+        let mut file = std::fs::OpenOptions::new()
             .create(true)
             .truncate(true)
             .read(true)

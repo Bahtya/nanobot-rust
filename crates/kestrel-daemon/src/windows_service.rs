@@ -271,10 +271,7 @@ where
         Ok(()) => (ServiceState::Stopped, ServiceExitCode::NoError),
         Err(e) => {
             tracing::error!("Service failed: {}", e);
-            (
-                ServiceState::Stopped,
-                ServiceExitCode::ServiceSpecific(1),
-            )
+            (ServiceState::Stopped, ServiceExitCode::ServiceSpecific(1))
         }
     };
 

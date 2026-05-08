@@ -1,0 +1,32 @@
+## Summary
+
+Adds Windows Service daemon support to the kestrel-daemon crate as requested in #241.
+
+### Changes
+
+New module: crates/kestrel-daemon/src/windows_service.rs
+
+Gated behind #[cfg(target_family = "windows")], providing the Windows equivalent of the Unix daemon modules:
+
+- WinPidFile - PID file management with fs4 file locking (analogous to Unix flock)
+- run_as_service() - Run as a Windows Service with full SCM lifecycle management
+- install_service() / uninstall_service() - Register/unregister with the SCM
+- ServiceContext - Provides report_running(), wait_for_shutdown(), report_stopping()
+- wait_for_signal() - Ctrl+C signal handling via tokio::signal::ctrl_c()
+- send_stop_and_wait() - Process termination via taskkill with force-kill fallback
+- is_process_running() - Process check via tasklist
+
+Updated: crates/kestrel-daemon/Cargo.toml
+- Added [target.'cfg(windows)'.dependencies] section with windows-service = "0.7" and fs4
+
+Updated: crates/kestrel-daemon/src/lib.rs
+- Added #[cfg(target_family = "windows")] pub mod windows_service;
+- Updated module documentation to describe both platforms
+
+### Design notes
+
+- Mirrors the Unix API surface so downstream code can be conditionally compiled for Windows
+- No changes to existing Unix code - all Windows code is additive behind cfg(windows) gates
+- fs4 provides cross-platform file locking; on Windows it uses LockFileEx internally
+
+Closes #241

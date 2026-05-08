@@ -163,12 +163,10 @@ struct GetUpdatesResponse {
     errcode: Option<i64>,
     #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
     errmsg: Option<String>,
-    #[serde(
-        default,
-        alias = "sync_buf",
-        deserialize_with = "deserialize_opt_string_from_any"
-    )]
+    #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
     get_updates_buf: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
+    sync_buf: Option<String>,
     #[serde(default, deserialize_with = "deserialize_opt_u64_from_any")]
     longpolling_timeout_ms: Option<u64>,
     #[serde(default, deserialize_with = "deserialize_opt_vec_from_any")]
@@ -192,7 +190,11 @@ struct ILinkMsg {
     #[allow(dead_code)]
     #[serde(default, deserialize_with = "deserialize_opt_i64_from_any")]
     create_time_ms: Option<i64>,
-    #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
+    #[serde(
+        default,
+        alias = "group_id",
+        deserialize_with = "deserialize_opt_string_from_any"
+    )]
     room_id: Option<String>,
     #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
     chat_room_id: Option<String>,
@@ -306,6 +308,36 @@ fn value_to_string(value: Value) -> Option<String> {
     }
 }
 
+fn value_to_i32(value: Value) -> Option<i32> {
+    match value {
+        Value::Null => None,
+        Value::Number(n) => n.as_i64().and_then(|n| i32::try_from(n).ok()),
+        Value::String(s) => s.trim().parse::<i32>().ok(),
+        Value::Bool(b) => Some(i32::from(b)),
+        _ => None,
+    }
+}
+
+fn value_to_i64(value: Value) -> Option<i64> {
+    match value {
+        Value::Null => None,
+        Value::Number(n) => n.as_i64(),
+        Value::String(s) => s.trim().parse::<i64>().ok(),
+        Value::Bool(b) => Some(i64::from(b)),
+        _ => None,
+    }
+}
+
+fn value_to_u64(value: Value) -> Option<u64> {
+    match value {
+        Value::Null => None,
+        Value::Number(n) => n.as_u64(),
+        Value::String(s) => s.trim().parse::<u64>().ok(),
+        Value::Bool(b) => Some(u64::from(b)),
+        _ => None,
+    }
+}
+
 fn deserialize_opt_string_from_any<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
     D: Deserializer<'de>,
@@ -319,13 +351,7 @@ where
     D: Deserializer<'de>,
 {
     let value = Option::<Value>::deserialize(deserializer)?;
-    Ok(match value {
-        None | Some(Value::Null) => None,
-        Some(Value::Number(n)) => n.as_i64().and_then(|n| i32::try_from(n).ok()),
-        Some(Value::String(s)) => s.trim().parse::<i32>().ok(),
-        Some(Value::Bool(b)) => Some(i32::from(b)),
-        _ => None,
-    })
+    Ok(value.and_then(value_to_i32))
 }
 
 fn deserialize_opt_i64_from_any<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
@@ -333,13 +359,7 @@ where
     D: Deserializer<'de>,
 {
     let value = Option::<Value>::deserialize(deserializer)?;
-    Ok(match value {
-        None | Some(Value::Null) => None,
-        Some(Value::Number(n)) => n.as_i64(),
-        Some(Value::String(s)) => s.trim().parse::<i64>().ok(),
-        Some(Value::Bool(b)) => Some(i64::from(b)),
-        _ => None,
-    })
+    Ok(value.and_then(value_to_i64))
 }
 
 fn deserialize_opt_u64_from_any<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
@@ -347,13 +367,7 @@ where
     D: Deserializer<'de>,
 {
     let value = Option::<Value>::deserialize(deserializer)?;
-    Ok(match value {
-        None | Some(Value::Null) => None,
-        Some(Value::Number(n)) => n.as_u64(),
-        Some(Value::String(s)) => s.trim().parse::<u64>().ok(),
-        Some(Value::Bool(b)) => Some(u64::from(b)),
-        _ => None,
-    })
+    Ok(value.and_then(value_to_u64))
 }
 
 fn deserialize_opt_vec_from_any<'de, D, T>(deserializer: D) -> Result<Option<Vec<T>>, D::Error>
@@ -489,6 +503,136 @@ fn safe_id(value: Option<&str>, keep: usize) -> String {
         }
         raw[..end].to_string()
     }
+}
+
+fn parse_text_item_value(value: Option<&Value>) -> Option<ILinkTextItem> {
+    match value.cloned() {
+        None | Some(Value::Null) => None,
+        Some(Value::Object(mut map)) => {
+            let text = map
+                .remove("text")
+                .or_else(|| map.remove("content"))
+                .or_else(|| map.remove("value"))
+                .and_then(value_to_string);
+            Some(ILinkTextItem { text })
+        }
+        Some(other) => Some(ILinkTextItem {
+            text: value_to_string(other),
+        }),
+    }
+}
+
+fn parse_item_list_value(value: Option<&Value>) -> Option<Vec<ILinkItem>> {
+    match value {
+        None | Some(Value::Null) => None,
+        Some(Value::Array(values)) => {
+            let items = values
+                .iter()
+                .filter_map(parse_ilink_item_value)
+                .collect::<Vec<_>>();
+            Some(items)
+        }
+        Some(other) => parse_ilink_item_value(other).map(|item| vec![item]),
+    }
+}
+
+fn parse_ilink_item_value(value: &Value) -> Option<ILinkItem> {
+    let map = value.as_object()?;
+    Some(ILinkItem {
+        item_type: map.get("type").cloned().and_then(value_to_i32),
+        seq: map.get("seq").cloned().and_then(value_to_i64),
+        item_id: map.get("item_id").cloned().and_then(value_to_string),
+        item_key: map.get("item_key").cloned().and_then(value_to_string),
+        mime_type: map.get("mime_type").cloned().and_then(value_to_string),
+        file_name: map.get("file_name").cloned().and_then(value_to_string),
+        size: map.get("size").cloned().and_then(value_to_i64),
+        create_time_ms: map.get("create_time_ms").cloned().and_then(value_to_i64),
+        text_item: parse_text_item_value(map.get("text_item")),
+    })
+}
+
+fn parse_ilink_msg_value(value: &Value) -> Option<ILinkMsg> {
+    let map = value.as_object()?;
+    Some(ILinkMsg {
+        seq: map.get("seq").cloned().and_then(value_to_i64),
+        message_id: map.get("message_id").cloned().and_then(value_to_string),
+        from_user_id: map.get("from_user_id").cloned().and_then(value_to_string),
+        to_user_id: map.get("to_user_id").cloned().and_then(value_to_string),
+        client_id: map.get("client_id").cloned().and_then(value_to_string),
+        create_time_ms: map.get("create_time_ms").cloned().and_then(value_to_i64),
+        room_id: map
+            .get("room_id")
+            .or_else(|| map.get("group_id"))
+            .cloned()
+            .and_then(value_to_string),
+        chat_room_id: map
+            .get("chat_room_id")
+            .or_else(|| map.get("session_id"))
+            .cloned()
+            .and_then(value_to_string),
+        msg_type: map
+            .get("msg_type")
+            .or_else(|| map.get("message_type"))
+            .cloned()
+            .and_then(value_to_i32),
+        message_state: map.get("message_state").cloned().and_then(value_to_i32),
+        context_token: map.get("context_token").cloned().and_then(value_to_string),
+        item_list: parse_item_list_value(map.get("item_list")),
+    })
+}
+
+fn parse_get_updates_response(text: &str) -> Result<GetUpdatesResponse, serde_json::Error> {
+    let root: Value = serde_json::from_str(text)?;
+    let map = root.as_object().ok_or_else(|| {
+        serde_json::Error::io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "getUpdates response must be a JSON object",
+        ))
+    })?;
+
+    let sync_buf = map.get("sync_buf").cloned().and_then(value_to_string);
+    let get_updates_buf = map
+        .get("get_updates_buf")
+        .cloned()
+        .and_then(value_to_string)
+        .or_else(|| sync_buf.clone());
+
+    Ok(GetUpdatesResponse {
+        ret: map.get("ret").cloned().and_then(value_to_i64),
+        errcode: map.get("errcode").cloned().and_then(value_to_i64),
+        errmsg: map.get("errmsg").cloned().and_then(value_to_string),
+        get_updates_buf,
+        sync_buf,
+        longpolling_timeout_ms: map
+            .get("longpolling_timeout_ms")
+            .cloned()
+            .and_then(value_to_u64),
+        msgs: match map.get("msgs") {
+            None | Some(Value::Null) => None,
+            Some(Value::Array(values)) => Some(
+                values
+                    .iter()
+                    .filter_map(parse_ilink_msg_value)
+                    .collect::<Vec<_>>(),
+            ),
+            Some(other) => parse_ilink_msg_value(other).map(|msg| vec![msg]),
+        },
+    })
+}
+
+fn next_get_updates_buf(response: &GetUpdatesResponse) -> Option<String> {
+    response
+        .sync_buf
+        .as_deref()
+        .filter(|buf| !buf.is_empty())
+        .map(|buf| buf.to_string())
+        .or_else(|| {
+            response
+                .get_updates_buf
+                .as_deref()
+                .filter(|buf| !buf.is_empty())
+                .map(|buf| buf.to_string())
+        })
 }
 
 // ---------------------------------------------------------------------------
@@ -850,7 +994,7 @@ impl WeixinChannel {
         }
 
         let text = resp.text().await.context("read getUpdates response body")?;
-        serde_json::from_str(&text).with_context(|| {
+        parse_get_updates_response(&text).with_context(|| {
             format!(
                 "parse getUpdates response body={}",
                 &text[..text.len().min(300)]
@@ -1065,10 +1209,8 @@ impl PollContext {
 
                     consecutive_failures = 0;
 
-                    if let Some(new_buf) = response.get_updates_buf {
-                        if !new_buf.is_empty() {
-                            *sync_buf.lock() = new_buf;
-                        }
+                    if let Some(new_buf) = next_get_updates_buf(&response) {
+                        *sync_buf.lock() = new_buf;
                     }
 
                     if let Some(msgs) = response.msgs {
@@ -1466,7 +1608,7 @@ impl BaseChannel for WeixinChannel {
 
 #[cfg(test)]
 mod tests {
-    use super::{GetUpdatesResponse, ITEM_TEXT};
+    use super::{next_get_updates_buf, GetUpdatesResponse, ITEM_TEXT};
 
     #[test]
     fn get_updates_response_accepts_sync_buf_alias() {
@@ -1476,9 +1618,10 @@ mod tests {
             "longpolling_timeout_ms": "35000"
         }"#;
 
-        let resp: GetUpdatesResponse = serde_json::from_str(raw).unwrap();
+        let resp = super::parse_get_updates_response(raw).unwrap();
 
         assert_eq!(resp.get_updates_buf.as_deref(), Some("cursor-123"));
+        assert_eq!(resp.sync_buf.as_deref(), Some("cursor-123"));
         assert_eq!(resp.longpolling_timeout_ms, Some(35_000));
     }
 
@@ -1541,11 +1684,12 @@ mod tests {
             "sync_buf": "cursor-456"
         }"#;
 
-        let resp: GetUpdatesResponse = serde_json::from_str(raw).unwrap();
+        let resp = super::parse_get_updates_response(raw).unwrap();
         let msg = &resp.msgs.as_ref().unwrap()[0];
         let item = &msg.item_list.as_ref().unwrap()[0];
 
         assert_eq!(resp.get_updates_buf.as_deref(), Some("cursor-456"));
+        assert_eq!(resp.sync_buf.as_deref(), Some("cursor-456"));
         assert_eq!(msg.seq, Some(3));
         assert_eq!(msg.message_id.as_deref(), Some("7458333664558825224"));
         assert_eq!(msg.client_id.as_deref(), Some("mmassistant_bypmsg_inbox_6222fbb41657740b5495ba1ac525ae73mmo9cq8029gO6b0ZdRInNgxlTlBtLk@weclaw282374_1778205313"));
@@ -1558,6 +1702,74 @@ mod tests {
                 .as_ref()
                 .and_then(|text| text.text.as_deref()),
             Some("hello from weixin")
+        );
+    }
+
+    #[test]
+    fn get_updates_response_accepts_live_replayed_payload_shape() {
+        let raw = r#"{
+            "msgs": [
+                {
+                    "seq": 3,
+                    "message_id": 7458333664558825224,
+                    "from_user_id": "o9cq803GbFB5tqE6gkXb5LGOTz3c@im.wechat",
+                    "to_user_id": "c0b055833755@im.bot",
+                    "client_id": "mmassistant_bypmsg_inbox_6222fbb41657740b5495ba1ac525ae73mmo9cq8029gO6b0ZdRInNgxlTlBtLk@weclaw282374_1778205313",
+                    "create_time_ms": 1778205314701,
+                    "update_time_ms": 1778205314800,
+                    "delete_time_ms": 0,
+                    "session_id": "",
+                    "group_id": "",
+                    "message_type": 1,
+                    "message_state": 2,
+                    "item_list": [
+                        {
+                            "type": 1,
+                            "create_time_ms": 1778205314701,
+                            "update_time_ms": 1778205314701,
+                            "is_completed": true,
+                            "button_item_list": [],
+                            "text_item": {
+                                "text": "你好"
+                            }
+                        }
+                    ],
+                    "context_token": "token-a"
+                }
+            ],
+            "sync_buf": "live-sync",
+            "get_updates_buf": "live-get"
+        }"#;
+
+        let resp = super::parse_get_updates_response(raw).unwrap();
+        let msg = &resp.msgs.as_ref().unwrap()[0];
+        let item = &msg.item_list.as_ref().unwrap()[0];
+
+        assert_eq!(resp.sync_buf.as_deref(), Some("live-sync"));
+        assert_eq!(resp.get_updates_buf.as_deref(), Some("live-get"));
+        assert_eq!(next_get_updates_buf(&resp).as_deref(), Some("live-sync"));
+        assert_eq!(msg.room_id.as_deref(), Some(""));
+        assert_eq!(msg.chat_room_id.as_deref(), Some(""));
+        assert_eq!(msg.msg_type, Some(1));
+        assert_eq!(
+            item.text_item
+                .as_ref()
+                .and_then(|text| text.text.as_deref()),
+            Some("你好")
+        );
+    }
+
+    #[test]
+    fn next_get_updates_buf_falls_back_to_get_updates_buf() {
+        let raw = r#"{
+            "msgs": [],
+            "get_updates_buf": "cursor-fallback"
+        }"#;
+
+        let resp = super::parse_get_updates_response(raw).unwrap();
+        assert_eq!(
+            next_get_updates_buf(&resp).as_deref(),
+            Some("cursor-fallback")
         );
     }
 }

@@ -744,6 +744,7 @@ struct WsFrame {
     #[serde(default)]
     data: Option<serde_json::Value>,
     #[serde(default)]
+    #[allow(dead_code)]
     msg_id: Option<String>,
 }
 

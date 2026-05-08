@@ -1489,7 +1489,10 @@ tick_secs = 30
         let dc = DaemonConfig::default();
         assert!(dc.pid_file.contains("kestrel.pid"));
         assert!(dc.log_dir.contains("logs"));
+        #[cfg(not(windows))]
         assert_eq!(dc.working_directory, "/");
+        #[cfg(windows)]
+        assert!(!dc.working_directory.is_empty());
         assert_eq!(dc.grace_period_secs, 30);
         assert_eq!(dc.log_retain_days, 30);
         assert_eq!(dc.log_format, "text");

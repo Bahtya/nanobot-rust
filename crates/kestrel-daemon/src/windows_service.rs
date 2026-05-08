@@ -52,6 +52,7 @@ use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 /// The name of the service as registered with the Windows Service Control Manager.
 const SERVICE_NAME: &str = "kestrel";
 /// Display name shown in the Windows Services snap-in.
+#[allow(dead_code)]
 const SERVICE_DISPLAY_NAME: &str = "Kestrel Agent";
 /// Service type: own process (not shared).
 const SERVICE_TYPE: ServiceType = ServiceType::OWN_PROCESS;

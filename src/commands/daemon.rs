@@ -236,7 +236,7 @@ mod fallback_impl {
     pub struct DaemonHandles;
 
     pub fn handle_daemon_command(
-        action: DaemonAction,
+        _action: DaemonAction,
         _config: Config,
     ) -> Result<Option<DaemonHandles>> {
         bail!(

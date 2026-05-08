@@ -277,7 +277,7 @@ fn main() -> Result<()> {
             match action {
                 commands::daemon::DaemonAction::Start => {
                     // Fork happens HERE — before any tokio runtime exists.
-                    let handles = commands::daemon::handle_daemon_command(action, config.clone())?
+                    let _handles = commands::daemon::handle_daemon_command(action, config.clone())?
                         .expect("Start always returns Some(DaemonHandles)");
 
                     // Install SIGHUP ignore handler before tokio runtime — closes the
@@ -293,9 +293,9 @@ fn main() -> Result<()> {
                     // then pid_file releases the flock and cleans up.
                     #[cfg(target_family = "unix")]
                     {
-                        drop(handles.comm_log_guard);
-                        drop(handles.log_guard);
-                        if let Err(e) = handles.pid_file.clean() {
+                        drop(_handles.comm_log_guard);
+                        drop(_handles.log_guard);
+                        if let Err(e) = _handles.pid_file.clean() {
                             eprintln!("Failed to clean PID file: {e}");
                         }
                     }
@@ -329,7 +329,7 @@ fn main() -> Result<()> {
 
                         // Cancel gateway and allow graceful shutdown
                         gateway.abort();
-                        let _ = rt.shutdown_timeout(std::time::Duration::from_secs(10));
+                        rt.shutdown_timeout(std::time::Duration::from_secs(10));
 
                         Ok(())
                     })?;

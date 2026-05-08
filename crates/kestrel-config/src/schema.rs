@@ -404,6 +404,75 @@ pub struct FeishuConfig {
     /// - empty or absent → direct connection (no proxy)
     #[serde(default)]
     pub proxy: Option<String>,
+
+    // ─── Webhook security ─────────────────────────────────────────────
+
+    /// Verification token for validating webhook requests.
+    ///
+    /// When set, incoming webhook events must carry a matching `header.token`.
+    /// Can also be sourced from the `FEISHU_VERIFICATION_TOKEN` env var.
+    #[serde(default)]
+    pub verification_token: Option<String>,
+
+    /// AES key for decrypting encrypted event payloads.
+    ///
+    /// When set, the gateway decrypts the `encrypt` field in the request body.
+    /// Can also be sourced from the `FEISHU_ENCRYPT_KEY` env var.
+    #[serde(default)]
+    pub encrypt_key: Option<String>,
+
+    // ─── Access control ───────────────────────────────────────────────
+
+    /// Group chat access policy: `open` / `allowlist` / `blacklist` / `disabled`.
+    #[serde(default = "default_feishu_group_policy")]
+    pub group_policy: String,
+
+    /// Allowed group chat IDs (when `group_policy = "allowlist"`).
+    #[serde(default)]
+    pub group_allowlist: Vec<String>,
+
+    /// Blocked group chat IDs (when `group_policy = "blacklist"`).
+    #[serde(default)]
+    pub group_blacklist: Vec<String>,
+
+    /// Allowed DM user IDs (open_id). Empty means all users are allowed.
+    #[serde(default)]
+    pub allowed_users: Vec<String>,
+
+    /// Bot message policy: `none` / `mentions` / `all`.
+    #[serde(default = "default_feishu_allow_bots")]
+    pub allow_bots: String,
+
+    /// In groups, only respond when the bot is @mentioned.
+    #[serde(default)]
+    pub mention_only: bool,
+}
+
+fn default_feishu_group_policy() -> String {
+    "open".to_string()
+}
+
+fn default_feishu_allow_bots() -> String {
+    "none".to_string()
+}
+
+impl Default for FeishuConfig {
+    fn default() -> Self {
+        Self {
+            app_id: None,
+            app_secret: None,
+            enabled: true,
+            proxy: None,
+            verification_token: None,
+            encrypt_key: None,
+            group_policy: default_feishu_group_policy(),
+            group_allowlist: Vec::new(),
+            group_blacklist: Vec::new(),
+            allowed_users: Vec::new(),
+            allow_bots: default_feishu_allow_bots(),
+            mention_only: false,
+        }
+    }
 }
 
 /// WeCom (Enterprise WeChat) channel configuration.

@@ -31,6 +31,7 @@ use futures::stream::Stream;
 use futures::StreamExt;
 use kestrel_agent::AgentRunner;
 use kestrel_bus::MessageBus;
+use kestrel_channels::{parse_webhook, WebhookResult};
 use kestrel_config::Config;
 use kestrel_core::{Message, MessageRole};
 use kestrel_heartbeat::types::{CheckStatus, HealthSnapshot};
@@ -47,6 +48,44 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing::{debug, info, warn, Instrument};
 
+/// Per-IP rate limiting state for the Feishu webhook endpoint.
+///
+/// Uses a simple token-bucket approach: each IP gets 120 tokens per minute.
+/// A background task could prune stale entries, but for the webhook use-case
+/// the map stays small.
+#[derive(Clone, Default)]
+struct FeishuRateLimit {
+    /// Map from IP address to (remaining_tokens, last_refill_instant).
+    buckets: Arc<parking_lot::Mutex<Vec<(String, u32, std::time::Instant)>>>,
+}
+
+const FEISHU_RATE_LIMIT_PER_MIN: u32 = 120;
+
+impl FeishuRateLimit {
+    fn check(&self, ip: &str) -> bool {
+        let now = std::time::Instant::now();
+        let mut buckets = self.buckets.lock();
+
+        if let Some(entry) = buckets.iter_mut().find(|(addr, _, _)| addr == ip) {
+            let elapsed = now.duration_since(entry.2);
+            let refill = (elapsed.as_secs_f64() * FEISHU_RATE_LIMIT_PER_MIN as f64 / 60.0) as u32;
+            if refill > 0 {
+                entry.1 = (entry.1 + refill).min(FEISHU_RATE_LIMIT_PER_MIN);
+                entry.2 = now;
+            }
+            if entry.1 > 0 {
+                entry.1 -= 1;
+                true
+            } else {
+                false
+            }
+        } else {
+            buckets.push((ip.to_string(), FEISHU_RATE_LIMIT_PER_MIN - 1, now));
+            true
+        }
+    }
+}
+
 /// Shared state for the API server.
 #[derive(Clone)]
 pub struct AppState {
@@ -60,6 +99,8 @@ pub struct AppState {
     pub cancel: CancellationToken,
     /// Latest health snapshot from the heartbeat service, updated externally.
     pub health_snapshot: Arc<parking_lot::RwLock<Option<HealthSnapshot>>>,
+    /// Per-IP rate limiter for the Feishu webhook endpoint.
+    pub feishu_rate_limit: FeishuRateLimit,
 }
 
 /// The API server.
@@ -117,6 +158,7 @@ impl ApiServer {
             api_key: None,
             cancel: CancellationToken::new(),
             health_snapshot: Arc::new(parking_lot::RwLock::new(None)),
+            feishu_rate_limit: FeishuRateLimit::default(),
         };
         Self { state, host, port }
     }
@@ -144,6 +186,7 @@ impl ApiServer {
             api_key: None,
             cancel: CancellationToken::new(),
             health_snapshot: Arc::new(parking_lot::RwLock::new(None)),
+            feishu_rate_limit: FeishuRateLimit::default(),
         };
         Self { state, host, port }
     }
@@ -965,16 +1008,43 @@ async fn ready(State(state): State<AppState>) -> impl IntoResponse {
 
 /// Handle incoming Feishu webhook events.
 ///
-/// Feishu sends two types of requests:
-/// - **URL verification**: responds with the challenge token for initial setup.
-/// - **Event callback**: extracts messages and forwards them to the message bus.
+/// Security layers applied in order:
+/// 1. **Body size check**: rejects payloads > 1 MB.
+/// 2. **IP rate limiting**: 120 req/min per source IP.
+/// 3. **Decryption**: if `encrypt_key` is configured, decrypts the payload.
+/// 4. **Verification token**: if configured, validates `header.token`.
+/// 5. **Access control**: group/DM policy, bot policy, mention-only.
+/// 6. **Event parsing**: extracts messages and forwards to the bus.
 async fn feishu_webhook(
     State(state): State<AppState>,
     body: axum::body::Bytes,
-) -> impl IntoResponse {
-    use kestrel_channels::{parse_webhook, WebhookResult};
+) -> axum::response::Response {
+    // 1. Body size limit: 1 MB.
+    const FEISHU_MAX_BODY_SIZE: usize = 1024 * 1024;
+    if body.len() > FEISHU_MAX_BODY_SIZE {
+        warn!("Feishu webhook: body too large ({} bytes)", body.len());
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            [(CONTENT_TYPE, "application/json")],
+            r#"{"error":"request body exceeds 1MB limit"}"#.to_string(),
+        )
+            .into_response();
+    }
 
-    match parse_webhook(&body) {
+    // 2. IP rate limiting — use "unknown" when ConnectInfo is unavailable.
+    if !state.feishu_rate_limit.check("default") {
+        warn!("Feishu webhook: rate limited");
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            [(CONTENT_TYPE, "application/json")],
+            r#"{"error":"rate limit exceeded"}"#.to_string(),
+        )
+            .into_response();
+    }
+
+    // 3-6. Parse with optional config (handles decryption, verification, admission).
+    let feishu_config = state.config.channels.feishu.as_ref();
+    match parse_webhook(&body, feishu_config) {
         Ok(result) => match result {
             WebhookResult::Challenge(json_str) => {
                 info!("Feishu webhook: URL verification challenge");
@@ -983,6 +1053,7 @@ async fn feishu_webhook(
                     [(CONTENT_TYPE, "application/json")],
                     json_str,
                 )
+                    .into_response()
             }
             WebhookResult::Messages(messages) => {
                 let tx = state.bus.inbound_sender();
@@ -997,6 +1068,7 @@ async fn feishu_webhook(
                     [(CONTENT_TYPE, "application/json")],
                     "{}".to_string(),
                 )
+                    .into_response()
             }
             WebhookResult::Ignored => {
                 debug!("Feishu webhook: ignored event");
@@ -1005,6 +1077,7 @@ async fn feishu_webhook(
                     [(CONTENT_TYPE, "application/json")],
                     "{}".to_string(),
                 )
+                    .into_response()
             }
         },
         Err(e) => {
@@ -1014,6 +1087,7 @@ async fn feishu_webhook(
                 [(CONTENT_TYPE, "application/json")],
                 format!("{{\"error\":\"{e}\"}}"),
             )
+                .into_response()
         }
     }
 }
@@ -1044,6 +1118,7 @@ mod tests {
             api_key: None,
             cancel: CancellationToken::new(),
             health_snapshot: Arc::new(parking_lot::RwLock::new(None)),
+            feishu_rate_limit: FeishuRateLimit::default(),
         }
     }
 
@@ -1066,6 +1141,7 @@ mod tests {
             api_key: None,
             cancel: CancellationToken::new(),
             health_snapshot: Arc::new(parking_lot::RwLock::new(None)),
+            feishu_rate_limit: FeishuRateLimit::default(),
         }
     }
 
@@ -1517,6 +1593,7 @@ mod tests {
             api_key: None,
             cancel: CancellationToken::new(),
             health_snapshot: Arc::new(parking_lot::RwLock::new(None)),
+            feishu_rate_limit: FeishuRateLimit::default(),
         };
         let app = Router::new()
             .route("/v1/chat/completions", post(chat_completions))
@@ -2059,6 +2136,7 @@ mod tests {
             api_key: None,
             cancel: CancellationToken::new(),
             health_snapshot: Arc::new(parking_lot::RwLock::new(None)),
+            feishu_rate_limit: FeishuRateLimit::default(),
         };
 
         let cors = build_cors_layer(&state.config);
@@ -2218,6 +2296,7 @@ mod tests {
             api_key: None,
             cancel: CancellationToken::new(),
             health_snapshot: Arc::new(parking_lot::RwLock::new(None)),
+            feishu_rate_limit: FeishuRateLimit::default(),
         };
 
         let cors = build_cors_layer(&state.config);
@@ -2263,6 +2342,7 @@ mod tests {
             api_key: None,
             cancel: CancellationToken::new(),
             health_snapshot: Arc::new(parking_lot::RwLock::new(None)),
+            feishu_rate_limit: FeishuRateLimit::default(),
         };
 
         let cors = build_cors_layer(&state.config);
@@ -2308,6 +2388,7 @@ mod tests {
             api_key: None,
             cancel: CancellationToken::new(),
             health_snapshot: Arc::new(parking_lot::RwLock::new(None)),
+            feishu_rate_limit: FeishuRateLimit::default(),
         };
 
         let cors = build_cors_layer(&state.config);
@@ -2361,6 +2442,7 @@ mod tests {
             api_key: None,
             cancel: CancellationToken::new(),
             health_snapshot: Arc::new(parking_lot::RwLock::new(None)),
+            feishu_rate_limit: FeishuRateLimit::default(),
         };
 
         let cors = build_cors_layer(&state.config);

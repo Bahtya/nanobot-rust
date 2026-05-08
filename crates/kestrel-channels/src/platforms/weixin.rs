@@ -405,10 +405,12 @@ fn resolve_aes_key(item: &ILinkItem) -> Option<String> {
     item.aes_key
         .as_deref()
         .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
         .or_else(|| {
             item.encrypted_query_param
                 .as_deref()
                 .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
         })
 }
 

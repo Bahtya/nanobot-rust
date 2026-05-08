@@ -278,7 +278,6 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
     #[test]
     fn test_cleanup_old_logs_removes_expired() {
         let tmp = TempDir::new().unwrap();
@@ -341,7 +340,6 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
     #[test]
     fn test_cleanup_old_logs_also_cleans_comm_log() {
         let tmp = TempDir::new().unwrap();

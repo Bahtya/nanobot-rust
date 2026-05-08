@@ -24,6 +24,4 @@ fs4 = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
-
-[target.'cfg(unix)'.dev-dependencies]
 filetime = "0.2"

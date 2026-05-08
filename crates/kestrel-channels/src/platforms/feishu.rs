@@ -17,6 +17,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::{Aes256Gcm, Nonce};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use futures::{SinkExt, StreamExt};
@@ -26,6 +28,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tracing::{debug, error, info, warn};
 
 use kestrel_bus::events::InboundMessage;
+use kestrel_config::schema::FeishuConfig;
 use kestrel_core::{MediaAttachment, MessageType, Platform, SessionSource};
 
 use crate::base::{BaseChannel, SendResult};
@@ -154,6 +157,190 @@ pub struct WebhookHeader {
     pub app_id: Option<String>,
 }
 
+/// Encrypted webhook envelope (when `Encrypt Key` is configured in Feishu).
+#[derive(Debug, Deserialize)]
+struct EncryptedEnvelope {
+    #[serde(default)]
+    encrypt: Option<String>,
+}
+
+/// Admission check result.
+#[derive(Debug, PartialEq)]
+pub enum Admission {
+    /// Message is allowed.
+    Allow,
+    /// Message is denied with a reason.
+    Deny(String),
+}
+
+/// Check if a webhook event should be accepted based on FeishuConfig.
+///
+/// Evaluates:
+/// - **Verification token**: if configured, `header.token` must match.
+/// - **Group policy**: `open` / `allowlist` / `blacklist` / `disabled`.
+/// - **DM allowed users**: if non-empty, sender must be in the list.
+/// - **Bot policy**: `none` / `mentions` / `all`.
+/// - **Mention-only**: in groups, skip unless the bot is @mentioned.
+pub fn check_admission(event: &WebhookEvent, config: &FeishuConfig) -> Admission {
+    // URL verification challenges bypass admission.
+    if event.challenge.is_some() {
+        return Admission::Allow;
+    }
+
+    // Verification token check.
+    let env_token = std::env::var("FEISHU_VERIFICATION_TOKEN").ok();
+    let configured_token = config
+        .verification_token
+        .as_deref()
+        .or(env_token.as_deref());
+    if let Some(expected) = configured_token {
+        let header_token = event
+            .header
+            .as_ref()
+            .and_then(|h| h.token.as_deref())
+            .unwrap_or("");
+        if header_token != expected {
+            warn!("Feishu webhook: verification token mismatch");
+            return Admission::Deny("verification token mismatch".to_string());
+        }
+    }
+
+    // Extract chat type and sender info from the event payload.
+    let event_json = match &event.event {
+        Some(v) => v,
+        None => return Admission::Allow, // non-message events pass through
+    };
+
+    let msg_event: MessageEvent = match serde_json::from_value(event_json.clone()) {
+        Ok(m) => m,
+        Err(_) => return Admission::Allow,
+    };
+
+    let message = match &msg_event.message {
+        Some(m) => m,
+        None => return Admission::Allow,
+    };
+
+    let chat_type = message.chat_type.as_deref().unwrap_or("p2p");
+    let chat_id = message.chat_id.as_deref().unwrap_or("");
+    let sender_id = msg_event
+        .sender
+        .as_ref()
+        .and_then(|s| s.sender_id.as_ref())
+        .and_then(|id| id.open_id.as_deref().or(id.user_id.as_deref()))
+        .unwrap_or("");
+
+    let sender_type = msg_event
+        .sender
+        .as_ref()
+        .and_then(|s| s.sender_type.as_deref());
+
+    // Bot policy check.
+    if sender_type == Some("app") {
+        match config.allow_bots.as_str() {
+            "none" => {
+                debug!("Feishu admission: bot message denied (allow_bots=none)");
+                return Admission::Deny("bot messages not allowed".to_string());
+            }
+            "mentions" | "all" => {}
+            _ => {
+                return Admission::Deny("bot messages not allowed".to_string());
+            }
+        }
+    }
+
+    match chat_type {
+        "group" => {
+            // Group policy check.
+            match config.group_policy.as_str() {
+                "disabled" => {
+                    debug!("Feishu admission: group messages disabled");
+                    return Admission::Deny("group messages disabled".to_string());
+                }
+                "allowlist"
+                    if !config.group_allowlist.is_empty()
+                        && !config.group_allowlist.iter().any(|g| g == chat_id) =>
+                {
+                    debug!("Feishu admission: group {chat_id} not in allowlist");
+                    return Admission::Deny("group not in allowlist".to_string());
+                }
+                "blacklist" if config.group_blacklist.iter().any(|g| g == chat_id) => {
+                    debug!("Feishu admission: group {chat_id} is blacklisted");
+                    return Admission::Deny("group is blacklisted".to_string());
+                }
+                "open" => {}
+                _ => {}
+            }
+
+            // Mention-only check for groups.
+            if config.mention_only {
+                // Feishu includes @mentions in the message content as
+                // `<at user_id="...">name</at>` tags. Check if the content
+                // contains an <at> tag.
+                let has_mention = message
+                    .content
+                    .as_deref()
+                    .map(|c| c.contains("<at "))
+                    .unwrap_or(false);
+                if !has_mention {
+                    debug!("Feishu admission: group message without @mention skipped");
+                    return Admission::Deny("mention required in groups".to_string());
+                }
+            }
+        }
+        "p2p"
+            if !config.allowed_users.is_empty()
+                && !config.allowed_users.iter().any(|u| u == sender_id) =>
+        {
+            debug!("Feishu admission: DM user {sender_id} not in allowed_users");
+            return Admission::Deny("user not allowed".to_string());
+        }
+        _ => {}
+    }
+
+    Admission::Allow
+}
+
+/// Decrypt an encrypted Feishu webhook payload.
+///
+/// Feishu uses AES-256-GCM with the key derived from the `Encrypt Key`
+/// configured in the Feishu developer console. The encrypted body is
+/// `base64(Nonce || Ciphertext || Tag)`.
+pub fn decrypt_event(body: &[u8], encrypt_key: &str) -> Result<Vec<u8>> {
+    let envelope: EncryptedEnvelope =
+        serde_json::from_slice(body).context("failed to parse encrypted envelope")?;
+
+    let encrypted = envelope
+        .encrypt
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("missing encrypt field"))?;
+
+    let ciphertext = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encrypted)
+        .context("failed to base64-decrypt encrypted payload")?;
+
+    // Feishu uses the encrypt_key directly as a 32-byte AES key (padded or truncated).
+    let key_bytes = encrypt_key.as_bytes();
+    let mut key = [0u8; 32];
+    let copy_len = key_bytes.len().min(32);
+    key[..copy_len].copy_from_slice(&key_bytes[..copy_len]);
+
+    // First 12 bytes are the nonce.
+    if ciphertext.len() < 12 {
+        anyhow::bail!("encrypted payload too short");
+    }
+    let (nonce_bytes, ct_and_tag) = ciphertext.split_at(12);
+
+    let cipher =
+        Aes256Gcm::new_from_slice(&key).map_err(|e| anyhow::anyhow!("invalid AES key: {e}"))?;
+    let nonce = Nonce::from_slice(nonce_bytes);
+
+    let plaintext = cipher
+        .decrypt(nonce, ct_and_tag)
+        .map_err(|e| anyhow::anyhow!("AES decryption failed: {e}"))?;
+
+    Ok(plaintext)
+}
+
 /// Parsed message event from Feishu.
 #[derive(Debug, Deserialize)]
 pub struct MessageEvent {
@@ -215,13 +402,52 @@ pub enum WebhookResult {
 
 /// Parse a Feishu webhook POST body.
 ///
-/// Handles two cases:
+/// Handles several cases:
+/// - **Encrypted event**: When `encrypt_key` is configured, decrypts the payload first.
 /// - **URL verification**: Feishu sends `{"challenge": "...", "token": "..."}`
 ///   during initial setup; respond with the same challenge string.
 /// - **Event callback**: Extracts message content and returns InboundMessage(s).
-pub fn parse_webhook(body: &[u8]) -> Result<WebhookResult> {
+///
+/// If `config` is provided, runs admission checks (verification token,
+/// group/DM policy, bot policy).
+pub fn parse_webhook(body: &[u8], config: Option<&FeishuConfig>) -> Result<WebhookResult> {
+    // Check if the payload is encrypted.
+    let raw_body: Vec<u8> = if let Some(cfg) = config {
+        let env_key = std::env::var("FEISHU_ENCRYPT_KEY").ok();
+        let encrypt_key = cfg.encrypt_key.as_deref().or(env_key.as_deref());
+        if let Some(key) = encrypt_key {
+            if !key.is_empty() {
+                let prelim: serde_json::Value =
+                    serde_json::from_slice(body).context("invalid JSON in webhook body")?;
+                if prelim.get("encrypt").is_some() {
+                    debug!("Feishu webhook: decrypting encrypted payload");
+                    decrypt_event(body, key)?
+                } else {
+                    body.to_vec()
+                }
+            } else {
+                body.to_vec()
+            }
+        } else {
+            body.to_vec()
+        }
+    } else {
+        body.to_vec()
+    };
+
     let event: WebhookEvent =
-        serde_json::from_slice(body).context("invalid Feishu webhook JSON")?;
+        serde_json::from_slice(&raw_body).context("invalid Feishu webhook JSON")?;
+
+    // Admission check if config is provided.
+    if let Some(cfg) = config {
+        match check_admission(&event, cfg) {
+            Admission::Allow => {}
+            Admission::Deny(reason) => {
+                info!("Feishu webhook: admission denied: {reason}");
+                return Ok(WebhookResult::Ignored);
+            }
+        }
+    }
 
     // URL verification challenge.
     if let Some(challenge) = &event.challenge {
@@ -1439,7 +1665,7 @@ mod tests {
     #[test]
     fn test_parse_webhook_challenge() {
         let body = r#"{"challenge":"test_challenge_123","token":"verification_token"}"#;
-        let result = parse_webhook(body.as_bytes()).unwrap();
+        let result = parse_webhook(body.as_bytes(), None).unwrap();
         match result {
             WebhookResult::Challenge(json_str) => {
                 let v: serde_json::Value = serde_json::from_str(&json_str).unwrap();
@@ -1452,7 +1678,7 @@ mod tests {
     #[test]
     fn test_parse_webhook_ignored_event() {
         let body = r#"{"schema":"2.0","header":{"event_type":"some.other.event"}}"#;
-        let result = parse_webhook(body.as_bytes()).unwrap();
+        let result = parse_webhook(body.as_bytes(), None).unwrap();
         assert!(matches!(result, WebhookResult::Ignored));
     }
 
@@ -1484,7 +1710,7 @@ mod tests {
             }
         }"#;
 
-        let result = parse_webhook(body.as_bytes()).unwrap();
+        let result = parse_webhook(body.as_bytes(), None).unwrap();
         match result {
             WebhookResult::Messages(msgs) => {
                 assert_eq!(msgs.len(), 1);
@@ -1521,7 +1747,7 @@ mod tests {
             }
         }"#;
 
-        let result = parse_webhook(body.as_bytes()).unwrap();
+        let result = parse_webhook(body.as_bytes(), None).unwrap();
         match result {
             WebhookResult::Messages(msgs) => {
                 assert_eq!(msgs[0].source.as_ref().unwrap().chat_type, "dm");
@@ -1551,7 +1777,7 @@ mod tests {
             }
         }"#;
 
-        let result = parse_webhook(body.as_bytes()).unwrap();
+        let result = parse_webhook(body.as_bytes(), None).unwrap();
         assert!(matches!(result, WebhookResult::Ignored));
     }
 
@@ -1580,5 +1806,178 @@ mod tests {
         }"#;
         let result = parse_post_content(Some(content));
         assert_eq!(result, "Hello link (https://example.com)\nLine 2");
+    }
+
+    fn make_message_event(
+        chat_type: &str,
+        chat_id: &str,
+        sender_open_id: &str,
+        content: &str,
+    ) -> WebhookEvent {
+        WebhookEvent {
+            schema: Some("2.0".to_string()),
+            header: Some(WebhookHeader {
+                event_id: Some("evt_test".to_string()),
+                event_type: Some("im.message.receive_v1".to_string()),
+                token: None,
+                app_id: None,
+            }),
+            event: Some(serde_json::json!({
+                "message": {
+                    "message_id": "msg_test",
+                    "chat_id": chat_id,
+                    "chat_type": chat_type,
+                    "message_type": "text",
+                    "content": content,
+                },
+                "sender": {
+                    "sender_id": { "open_id": sender_open_id },
+                    "sender_type": "user"
+                }
+            })),
+            challenge: None,
+            token: None,
+            event_type: None,
+        }
+    }
+
+    #[test]
+    fn test_admission_open_group() {
+        let event = make_message_event("group", "oc_group1", "ou_user1", "{\"text\":\"hello\"}");
+        let config = FeishuConfig::default();
+        assert_eq!(check_admission(&event, &config), Admission::Allow);
+    }
+
+    #[test]
+    fn test_admission_open_dm() {
+        let event = make_message_event("p2p", "oc_dm1", "ou_user1", "{\"text\":\"hello\"}");
+        let config = FeishuConfig::default();
+        assert_eq!(check_admission(&event, &config), Admission::Allow);
+    }
+
+    #[test]
+    fn test_admission_group_disabled() {
+        let event = make_message_event("group", "oc_group1", "ou_user1", "{\"text\":\"hello\"}");
+        let mut config = FeishuConfig::default();
+        config.group_policy = "disabled".to_string();
+        assert_eq!(
+            check_admission(&event, &config),
+            Admission::Deny("group messages disabled".to_string())
+        );
+    }
+
+    #[test]
+    fn test_admission_group_allowlist_allowed() {
+        let event = make_message_event("group", "oc_group1", "ou_user1", "{\"text\":\"hello\"}");
+        let mut config = FeishuConfig::default();
+        config.group_policy = "allowlist".to_string();
+        config.group_allowlist = vec!["oc_group1".to_string()];
+        assert_eq!(check_admission(&event, &config), Admission::Allow);
+    }
+
+    #[test]
+    fn test_admission_group_allowlist_denied() {
+        let event = make_message_event("group", "oc_group2", "ou_user1", "{\"text\":\"hello\"}");
+        let mut config = FeishuConfig::default();
+        config.group_policy = "allowlist".to_string();
+        config.group_allowlist = vec!["oc_group1".to_string()];
+        assert_eq!(
+            check_admission(&event, &config),
+            Admission::Deny("group not in allowlist".to_string())
+        );
+    }
+
+    #[test]
+    fn test_admission_group_blacklist_blocked() {
+        let event = make_message_event("group", "oc_group1", "ou_user1", "{\"text\":\"hello\"}");
+        let mut config = FeishuConfig::default();
+        config.group_policy = "blacklist".to_string();
+        config.group_blacklist = vec!["oc_group1".to_string()];
+        assert_eq!(
+            check_admission(&event, &config),
+            Admission::Deny("group is blacklisted".to_string())
+        );
+    }
+
+    #[test]
+    fn test_admission_group_blacklist_pass() {
+        let event = make_message_event("group", "oc_group2", "ou_user1", "{\"text\":\"hello\"}");
+        let mut config = FeishuConfig::default();
+        config.group_policy = "blacklist".to_string();
+        config.group_blacklist = vec!["oc_group1".to_string()];
+        assert_eq!(check_admission(&event, &config), Admission::Allow);
+    }
+
+    #[test]
+    fn test_admission_dm_allowed_users() {
+        let event = make_message_event("p2p", "oc_dm1", "ou_user1", "{\"text\":\"hello\"}");
+        let mut config = FeishuConfig::default();
+        config.allowed_users = vec!["ou_user1".to_string()];
+        assert_eq!(check_admission(&event, &config), Admission::Allow);
+
+        let event2 = make_message_event("p2p", "oc_dm1", "ou_user2", "{\"text\":\"hello\"}");
+        assert_eq!(
+            check_admission(&event2, &config),
+            Admission::Deny("user not allowed".to_string())
+        );
+    }
+
+    #[test]
+    fn test_admission_verification_token_valid() {
+        let mut event = make_message_event("p2p", "oc_dm1", "ou_user1", "{\"text\":\"hello\"}");
+        event.header.as_mut().unwrap().token = Some("my_token".to_string());
+        let mut config = FeishuConfig::default();
+        config.verification_token = Some("my_token".to_string());
+        assert_eq!(check_admission(&event, &config), Admission::Allow);
+    }
+
+    #[test]
+    fn test_admission_verification_token_invalid() {
+        let mut event = make_message_event("p2p", "oc_dm1", "ou_user1", "{\"text\":\"hello\"}");
+        event.header.as_mut().unwrap().token = Some("wrong_token".to_string());
+        let mut config = FeishuConfig::default();
+        config.verification_token = Some("my_token".to_string());
+        assert_eq!(
+            check_admission(&event, &config),
+            Admission::Deny("verification token mismatch".to_string())
+        );
+    }
+
+    #[test]
+    fn test_admission_challenge_bypasses() {
+        let event = WebhookEvent {
+            schema: None,
+            header: None,
+            event: None,
+            challenge: Some("test_challenge".to_string()),
+            token: Some("token".to_string()),
+            event_type: None,
+        };
+        let config = FeishuConfig::default();
+        assert_eq!(check_admission(&event, &config), Admission::Allow);
+    }
+
+    #[test]
+    fn test_admission_mention_only_in_group() {
+        let event = make_message_event("group", "oc_group1", "ou_user1", "{\"text\":\"hello\"}");
+        let mut config = FeishuConfig::default();
+        config.mention_only = true;
+        assert_eq!(
+            check_admission(&event, &config),
+            Admission::Deny("mention required in groups".to_string())
+        );
+    }
+
+    #[test]
+    fn test_admission_mention_only_with_mention() {
+        let event = make_message_event(
+            "group",
+            "oc_group1",
+            "ou_user1",
+            "<at user_id=\"ou_bot\">Bot</at> hello",
+        );
+        let mut config = FeishuConfig::default();
+        config.mention_only = true;
+        assert_eq!(check_admission(&event, &config), Admission::Allow);
     }
 }

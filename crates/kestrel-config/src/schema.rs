@@ -931,6 +931,7 @@ pub struct DaemonConfig {
     pub comm_log: Option<CommLogConfig>,
 }
 
+#[cfg(not(windows))]
 fn default_daemon_pid_file() -> String {
     let fallback = if crate::platform::is_termux() {
         std::path::PathBuf::from(crate::platform::TERMUX_HOME_FALLBACK)
@@ -944,6 +945,7 @@ fn default_daemon_pid_file() -> String {
         .to_string()
 }
 
+#[cfg(not(windows))]
 fn default_daemon_log_dir() -> String {
     let fallback = if crate::platform::is_termux() {
         std::path::PathBuf::from(crate::platform::TERMUX_HOME_FALLBACK)
@@ -957,6 +959,7 @@ fn default_daemon_log_dir() -> String {
         .to_string()
 }
 
+#[cfg(not(windows))]
 fn default_daemon_working_directory() -> String {
     if crate::platform::is_termux() {
         dirs::home_dir()
@@ -966,6 +969,32 @@ fn default_daemon_working_directory() -> String {
     } else {
         "/".to_string()
     }
+}
+
+#[cfg(windows)]
+fn default_daemon_pid_file() -> String {
+    dirs::data_local_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("C:\\ProgramData"))
+        .join("kestrel")
+        .join("kestrel.pid")
+        .to_string_lossy()
+        .to_string()
+}
+
+#[cfg(windows)]
+fn default_daemon_log_dir() -> String {
+    dirs::data_local_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("C:\\ProgramData"))
+        .join("kestrel")
+        .join("logs")
+        .to_string_lossy()
+        .to_string()
+}
+
+#[cfg(windows)]
+fn default_daemon_working_directory() -> String {
+    std::env::var("PROGRAMDATA")
+        .unwrap_or_else(|_| "C:\\ProgramData".to_string())
 }
 
 const fn default_daemon_grace_period() -> u64 {

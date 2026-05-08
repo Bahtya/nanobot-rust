@@ -974,7 +974,7 @@ async fn feishu_webhook(
     State(state): State<AppState>,
     body: axum::body::Bytes,
 ) -> impl IntoResponse {
-    use kestrel_channels::{parse_webhook, CardActionEvent, WebhookResult};
+    use kestrel_channels::{parse_webhook, WebhookResult};
 
     match parse_webhook(&body) {
         Ok(result) => match result {
@@ -1079,7 +1079,7 @@ async fn handle_card_action(
 
     (
         StatusCode::OK,
-        [(CONTENT_TYPE, "application/json")],
+        [(CONTENT_TYPE, HeaderValue::from_static("application/json"))],
         "{}".to_string(),
     )
 }

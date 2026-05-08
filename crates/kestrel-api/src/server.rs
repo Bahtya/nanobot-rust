@@ -1032,7 +1032,10 @@ async fn feishu_webhook(
 
                 // Flush any batches whose timer has already expired.
                 for msg in batcher.drain_ready() {
-                    debug!("Feishu webhook: flushing batched message for chat {}", msg.chat_id);
+                    debug!(
+                        "Feishu webhook: flushing batched message for chat {}",
+                        msg.chat_id
+                    );
                     if let Err(e) = tx.send(msg).await {
                         warn!("Feishu webhook: failed to forward batched message: {e}");
                     }
@@ -1061,7 +1064,10 @@ async fn feishu_webhook(
                 // Flush again in case single-message batches are ready
                 // (when the timer is already past due to elapsed processing time).
                 for msg in batcher.drain_ready() {
-                    debug!("Feishu webhook: flushing ready batch for chat {}", msg.chat_id);
+                    debug!(
+                        "Feishu webhook: flushing ready batch for chat {}",
+                        msg.chat_id
+                    );
                     if let Err(e) = tx.send(msg).await {
                         warn!("Feishu webhook: failed to forward batched message: {e}");
                     }

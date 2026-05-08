@@ -163,8 +163,7 @@ impl FeishuBatcher {
 
             if now.duration_since(batch.timer) < window {
                 // Within window — buffer this message
-                let near_limit =
-                    msg.content.len() >= FEISHU_SPLIT_THRESHOLD_CHARS;
+                let near_limit = msg.content.len() >= FEISHU_SPLIT_THRESHOLD_CHARS;
                 if near_limit {
                     batch.extended = true;
                 }

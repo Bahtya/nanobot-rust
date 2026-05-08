@@ -26,6 +26,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::Local;
 use parking_lot::Mutex as ParkMutex;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use tracing::{debug, error, info, warn};
@@ -170,11 +171,14 @@ struct GetUpdatesResponse {
     get_updates_buf: Option<String>,
     #[serde(default, deserialize_with = "deserialize_opt_u64_from_any")]
     longpolling_timeout_ms: Option<u64>,
+    #[serde(default, deserialize_with = "deserialize_opt_vec_from_any")]
     msgs: Option<Vec<ILinkMsg>>,
 }
 
 #[derive(Debug, Deserialize)]
 struct ILinkMsg {
+    #[serde(default, deserialize_with = "deserialize_opt_i64_from_any")]
+    seq: Option<i64>,
     #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
     message_id: Option<String>,
     #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
@@ -182,13 +186,24 @@ struct ILinkMsg {
     #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
     to_user_id: Option<String>,
     #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
+    client_id: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_opt_i64_from_any")]
+    create_time_ms: Option<i64>,
+    #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
     room_id: Option<String>,
     #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
     chat_room_id: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_opt_i32_from_any")]
+    #[serde(
+        default,
+        alias = "message_type",
+        deserialize_with = "deserialize_opt_i32_from_any"
+    )]
     msg_type: Option<i32>,
+    #[serde(default, deserialize_with = "deserialize_opt_i32_from_any")]
+    message_state: Option<i32>,
     #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
     context_token: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_opt_vec_from_any")]
     item_list: Option<Vec<ILinkItem>>,
 }
 
@@ -197,12 +212,28 @@ struct ILinkItem {
     #[serde(rename = "type")]
     #[serde(default, deserialize_with = "deserialize_opt_i32_from_any")]
     item_type: Option<i32>,
+    #[serde(default, deserialize_with = "deserialize_opt_i64_from_any")]
+    seq: Option<i64>,
+    #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
+    item_id: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
+    item_key: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
+    mime_type: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
+    file_name: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_opt_i64_from_any")]
+    size: Option<i64>,
+    #[serde(default, deserialize_with = "deserialize_opt_i64_from_any")]
+    create_time_ms: Option<i64>,
+    #[serde(default, deserialize_with = "deserialize_opt_text_item_from_any")]
     text_item: Option<ILinkTextItem>,
 }
 
 #[derive(Debug, Deserialize)]
 struct ILinkTextItem {
     #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
+    #[serde(alias = "content")]
     text: Option<String>,
 }
 
@@ -317,6 +348,50 @@ where
         Some(Value::String(s)) => s.trim().parse::<u64>().ok(),
         Some(Value::Bool(b)) => Some(u64::from(b)),
         _ => None,
+    })
+}
+
+fn deserialize_opt_vec_from_any<'de, D, T>(deserializer: D) -> Result<Option<Vec<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: DeserializeOwned,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(match value {
+        None | Some(Value::Null) => None,
+        Some(Value::Array(values)) => {
+            let items = values
+                .into_iter()
+                .filter_map(|value| serde_json::from_value::<T>(value).ok())
+                .collect::<Vec<_>>();
+            Some(items)
+        }
+        Some(other) => serde_json::from_value::<T>(other)
+            .ok()
+            .map(|item| vec![item]),
+    })
+}
+
+fn deserialize_opt_text_item_from_any<'de, D>(
+    deserializer: D,
+) -> Result<Option<ILinkTextItem>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(match value {
+        None | Some(Value::Null) => None,
+        Some(Value::Object(mut map)) => {
+            let text = map
+                .remove("text")
+                .or_else(|| map.remove("content"))
+                .or_else(|| map.remove("value"))
+                .and_then(value_to_string);
+            Some(ILinkTextItem { text })
+        }
+        Some(other) => Some(ILinkTextItem {
+            text: value_to_string(other),
+        }),
     })
 }
 
@@ -1436,6 +1511,48 @@ mod tests {
                 .as_ref()
                 .and_then(|text| text.text.as_deref()),
             Some("1001")
+        );
+    }
+
+    #[test]
+    fn get_updates_response_accepts_non_empty_msgs_with_drifted_fields() {
+        let raw = r#"{
+            "msgs": [{
+                "seq": 3,
+                "message_id": 7458333664558825224,
+                "from_user_id": "o9cq803GbFB5tqE6gkXb5LGOTz3c@im.wechat",
+                "to_user_id": "c0b055833755@im.bot",
+                "client_id": "mmassistant_bypmsg_inbox_6222fbb41657740b5495ba1ac525ae73mmo9cq8029gO6b0ZdRInNgxlTlBtLk@weclaw282374_1778205313",
+                "create_time_ms": 1778205314701,
+                "message_type": "1",
+                "message_state": "2",
+                "context_token": 42,
+                "item_list": [{
+                    "type": 1,
+                    "seq": 9,
+                    "text_item": "hello from weixin"
+                }]
+            }],
+            "sync_buf": "cursor-456"
+        }"#;
+
+        let resp: GetUpdatesResponse = serde_json::from_str(raw).unwrap();
+        let msg = &resp.msgs.as_ref().unwrap()[0];
+        let item = &msg.item_list.as_ref().unwrap()[0];
+
+        assert_eq!(resp.get_updates_buf.as_deref(), Some("cursor-456"));
+        assert_eq!(msg.seq, Some(3));
+        assert_eq!(msg.message_id.as_deref(), Some("7458333664558825224"));
+        assert_eq!(msg.client_id.as_deref(), Some("mmassistant_bypmsg_inbox_6222fbb41657740b5495ba1ac525ae73mmo9cq8029gO6b0ZdRInNgxlTlBtLk@weclaw282374_1778205313"));
+        assert_eq!(msg.create_time_ms, Some(1_778_205_314_701));
+        assert_eq!(msg.msg_type, Some(1));
+        assert_eq!(msg.message_state, Some(2));
+        assert_eq!(item.seq, Some(9));
+        assert_eq!(
+            item.text_item
+                .as_ref()
+                .and_then(|text| text.text.as_deref()),
+            Some("hello from weixin")
         );
     }
 }

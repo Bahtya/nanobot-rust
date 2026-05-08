@@ -2318,3 +2318,4 @@ mod tests {
         let block = setup_block.unwrap();
         assert!(block.contains("Install"));
     }
+}

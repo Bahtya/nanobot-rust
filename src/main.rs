@@ -90,6 +90,13 @@ enum Commands {
         #[command(subcommand)]
         subcommand: DaemonSubcommand,
     },
+
+    /// Windows Service management commands (Windows only).
+    #[cfg(windows)]
+    Service {
+        #[command(subcommand)]
+        action: ServiceAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -161,6 +168,20 @@ enum DaemonSubcommand {
 
     /// Check daemon status.
     Status,
+}
+
+/// Windows Service management actions (Windows only).
+#[cfg(windows)]
+#[derive(Subcommand)]
+enum ServiceAction {
+    /// Install kestrel as a Windows Service.
+    Install,
+
+    /// Uninstall the Windows Service.
+    Uninstall,
+
+    /// Run as a Windows Service (called by SCM internally).
+    Run,
 }
 
 fn main() -> Result<()> {
@@ -279,6 +300,34 @@ fn main() -> Result<()> {
                 }
                 _ => {
                     commands::daemon::handle_daemon_command(action, config)?;
+                }
+            }
+        }
+        #[cfg(windows)]
+        Commands::Service { action } => {
+            match action {
+                ServiceAction::Install => {
+                    kestrel_daemon::windows_service::install_service("kestrel", "Kestrel Agent")?;
+                }
+                ServiceAction::Uninstall => {
+                    kestrel_daemon::windows_service::uninstall_service("kestrel")?;
+                }
+                ServiceAction::Run => {
+                    kestrel_daemon::windows_service::run_as_service(move |ctx| {
+                        ctx.report_running()?;
+
+                        let rt = tokio::runtime::Runtime::new()?;
+                        let gateway = rt.spawn(commands::gateway::run(config, vec![], cli.dangerous));
+
+                        // Block until SCM sends Stop/Shutdown
+                        let _ = ctx.wait_for_shutdown();
+
+                        // Cancel gateway and allow graceful shutdown
+                        gateway.abort();
+                        let _ = rt.shutdown_timeout(std::time::Duration::from_secs(10));
+
+                        Ok(())
+                    })?;
                 }
             }
         }

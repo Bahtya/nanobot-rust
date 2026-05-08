@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.7.3] - 2026-05-08
+
+### Bug Fixes
+- fix(weixin): handle non-empty msgs in getUpdates response
+- fix(weixin): allow dead_code for iLink compatibility fields
+
 ## [v0.7.2] - 2026-05-08
 
 ### Bug Fixes

@@ -22,8 +22,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
 use aes::cipher::generic_array::GenericArray;
+use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::Local;
@@ -63,10 +63,7 @@ const MAX_IMAGE_SIZE: usize = 10 * 1024 * 1024;
 const MAX_FILE_SIZE: usize = 20 * 1024 * 1024;
 const MAX_VIDEO_SIZE: usize = 10 * 1024 * 1024;
 
-const CDN_ALLOWED_DOMAINS: &[&str] = &[
-    "novac2c.cdn.weixin.qq.com",
-    "ilinkai.weixin.qq.com",
-];
+const CDN_ALLOWED_DOMAINS: &[&str] = &["novac2c.cdn.weixin.qq.com", "ilinkai.weixin.qq.com"];
 
 const MAX_CONSECUTIVE_FAILURES: u32 = 3;
 const RETRY_DELAY_SECONDS: u64 = 2;
@@ -337,7 +334,10 @@ fn pkcs7_unpad(data: &[u8]) -> Result<Vec<u8>> {
     if pad_len == 0 || pad_len > data.len() || pad_len > 16 {
         anyhow::bail!("invalid PKCS7 padding (pad_len={})", pad_len);
     }
-    if data[data.len() - pad_len..].iter().any(|&b| b as usize != pad_len) {
+    if data[data.len() - pad_len..]
+        .iter()
+        .any(|&b| b as usize != pad_len)
+    {
         anyhow::bail!("inconsistent PKCS7 padding");
     }
     Ok(data[..data.len() - pad_len].to_vec())
@@ -396,14 +396,20 @@ fn is_cdn_url_allowed(url: &str) -> bool {
         Some(h) => h.to_lowercase(),
         None => return false,
     };
-    CDN_ALLOWED_DOMAINS.iter().any(|d| host == *d || host.ends_with(&format!(".{}", d)))
+    CDN_ALLOWED_DOMAINS
+        .iter()
+        .any(|d| host == *d || host.ends_with(&format!(".{}", d)))
 }
 
 fn resolve_aes_key(item: &ILinkItem) -> Option<String> {
     item.aes_key
         .as_deref()
         .filter(|s| !s.is_empty())
-        .or_else(|| item.encrypted_query_param.as_deref().filter(|s| !s.is_empty()))
+        .or_else(|| {
+            item.encrypted_query_param
+                .as_deref()
+                .filter(|s| !s.is_empty())
+        })
 }
 
 fn api_headers(token: Option<&str>, body: &str) -> HashMap<String, String> {
@@ -1370,13 +1376,14 @@ impl WeixinChannel {
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            anyhow::bail!("CDN download HTTP {}: {}", status, &text[..text.len().min(200)]);
+            anyhow::bail!(
+                "CDN download HTTP {}: {}",
+                status,
+                &text[..text.len().min(200)]
+            );
         }
 
-        let encrypted = resp
-            .bytes()
-            .await
-            .context("read CDN response body")?;
+        let encrypted = resp.bytes().await.context("read CDN response body")?;
 
         aes_decrypt_ecb(&aes_key, &encrypted)
     }
@@ -1651,7 +1658,9 @@ async fn process_message(
             .or_else(|| guess_mime_from_filename(&file_name))
             .unwrap_or_else(|| item_type_to_mime(item_type));
 
-        let file_size = media_item.size.and_then(|s| if s > 0 { Some(s as u64) } else { None });
+        let file_size = media_item
+            .size
+            .and_then(|s| if s > 0 { Some(s as u64) } else { None });
 
         let attachment = MediaAttachment {
             url: cdn_url,
@@ -1814,10 +1823,7 @@ impl WeixinChannel {
             }
         };
 
-        let aes_key_raw = upload_resp
-            .aes_key
-            .as_deref()
-            .unwrap_or("AAAAAAAAAAAAAAAA");
+        let aes_key_raw = upload_resp.aes_key.as_deref().unwrap_or("AAAAAAAAAAAAAAAA");
         let aes_key = decode_aes_key(aes_key_raw).unwrap_or_else(|_| vec![0u8; 16]);
 
         if let Err(e) = self.upload_media_bytes(data, &aes_key, &upload_url).await {
@@ -1880,10 +1886,8 @@ impl WeixinChannel {
             });
         }
 
-        let send_resp: SendMessageResponse = resp
-            .json()
-            .await
-            .context("parse sendMessage response")?;
+        let send_resp: SendMessageResponse =
+            resp.json().await.context("parse sendMessage response")?;
         let sret = send_resp.ret.unwrap_or(0);
         let serrcode = send_resp.errcode.unwrap_or(0);
         if sret != 0 || serrcode != 0 {

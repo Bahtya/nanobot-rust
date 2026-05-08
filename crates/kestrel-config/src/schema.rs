@@ -412,6 +412,18 @@ pub struct FeishuConfig {
     pub connection_mode: Option<String>,
 }
 
+impl Default for FeishuConfig {
+    fn default() -> Self {
+        Self {
+            app_id: None,
+            app_secret: None,
+            enabled: true,
+            proxy: None,
+            connection_mode: None,
+        }
+    }
+}
+
 /// WeCom (Enterprise WeChat) channel configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

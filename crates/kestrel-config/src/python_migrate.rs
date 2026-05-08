@@ -600,7 +600,7 @@ fn convert_channels(
             app_secret: f.app_secret.clone(),
             enabled: f.enabled.unwrap_or(true),
             proxy: None,
-            connection_mode: None,
+            ..Default::default()
         });
         report.add_mapped("channels.feishu (appId → app_id, appSecret → app_secret)");
     }

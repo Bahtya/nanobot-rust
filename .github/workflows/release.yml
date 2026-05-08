@@ -108,7 +108,7 @@ jobs:
           cp target/${{ matrix.target }}/release/kestrel dist/
           cp README.md dist/
           tar -czf ${{ matrix.artifact }}.tar.gz -C dist .
-        if: hashFiles('LICENSE') == ''
+        if: hashFiles('LICENSE') == '' && runner.os != 'Windows'
 
       - name: Package binary with LICENSE
         run: |

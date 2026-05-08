@@ -68,6 +68,7 @@ dashmap = "6"
 hickory-resolver = { version = "0.26", features = ["tokio"] }
 
 # Crypto
+aes = "0.8"
 aes-gcm = "0.10"
 argon2 = "0.5"
 

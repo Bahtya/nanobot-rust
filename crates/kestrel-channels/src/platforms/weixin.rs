@@ -22,6 +22,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use aes::cipher::generic_array::GenericArray;
+use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::Local;
@@ -32,7 +34,7 @@ use serde_json::Value;
 use tracing::{debug, error, info, warn};
 
 use kestrel_bus::events::InboundMessage;
-use kestrel_core::{MessageType, Platform, SessionSource};
+use kestrel_core::{MediaAttachment, MessageType, Platform, SessionSource};
 
 use crate::base::{BaseChannel, SendResult};
 
@@ -50,10 +52,18 @@ const EP_GET_UPDATES: &str = "ilink/bot/getupdates";
 const EP_SEND_MESSAGE: &str = "ilink/bot/sendmessage";
 const EP_SEND_TYPING: &str = "ilink/bot/sendtyping";
 const EP_GET_CONFIG: &str = "ilink/bot/getconfig";
+const EP_GET_UPLOAD_URL: &str = "ilink/bot/getuploadurl";
 
 const LONG_POLL_TIMEOUT_MS: u64 = 35_000;
 const _API_TIMEOUT_MS: u64 = 15_000;
 const _CONFIG_TIMEOUT_MS: u64 = 10_000;
+
+const UPLOAD_CHUNK_SIZE: usize = 512 * 1024;
+const MAX_IMAGE_SIZE: usize = 10 * 1024 * 1024;
+const MAX_FILE_SIZE: usize = 20 * 1024 * 1024;
+const MAX_VIDEO_SIZE: usize = 10 * 1024 * 1024;
+
+const CDN_ALLOWED_DOMAINS: &[&str] = &["novac2c.cdn.weixin.qq.com", "ilinkai.weixin.qq.com"];
 
 const MAX_CONSECUTIVE_FAILURES: u32 = 3;
 const RETRY_DELAY_SECONDS: u64 = 2;
@@ -70,10 +80,10 @@ const MAX_MESSAGE_LENGTH: usize = 2000;
 // ---------------------------------------------------------------------------
 
 const ITEM_TEXT: i32 = 1;
-const _ITEM_IMAGE: i32 = 2;
-const _ITEM_VOICE: i32 = 3;
-const _ITEM_FILE: i32 = 4;
-const _ITEM_VIDEO: i32 = 5;
+const ITEM_IMAGE: i32 = 2;
+const ITEM_VOICE: i32 = 3;
+const ITEM_FILE: i32 = 4;
+const ITEM_VIDEO: i32 = 5;
 
 const MSG_TYPE_BOT: i32 = 2;
 const MSG_STATE_FINISH: i32 = 2;
@@ -235,6 +245,14 @@ struct ILinkItem {
     create_time_ms: Option<i64>,
     #[serde(default, deserialize_with = "deserialize_opt_text_item_from_any")]
     text_item: Option<ILinkTextItem>,
+    #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
+    cdn_url: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
+    aes_key: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
+    encrypted_query_param: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
+    thumb_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -257,6 +275,36 @@ struct GetConfigResponse {
     typing_ticket: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+struct GetUploadUrlPayload {
+    file_type: i32,
+    file_size: i64,
+    file_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    to_user_id: Option<String>,
+    base_info: BaseInfo,
+}
+
+#[derive(Debug, Deserialize)]
+struct GetUploadUrlResponse {
+    #[serde(default, deserialize_with = "deserialize_opt_i64_from_any")]
+    ret: Option<i64>,
+    #[serde(default, deserialize_with = "deserialize_opt_i64_from_any")]
+    errcode: Option<i64>,
+    #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
+    errmsg: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
+    upload_url: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
+    aes_key: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
+    #[allow(dead_code)]
+    media_id: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
+    #[allow(dead_code)]
+    cdn_url: Option<String>,
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -267,6 +315,105 @@ fn random_wechat_uin() -> String {
         &base64::engine::general_purpose::STANDARD,
         value.to_string(),
     )
+}
+
+// ---------------------------------------------------------------------------
+// AES-128-ECB helpers
+// ---------------------------------------------------------------------------
+
+fn pkcs7_pad(data: &[u8], block_size: usize) -> Vec<u8> {
+    let padding = block_size - (data.len() % block_size);
+    let mut out = data.to_vec();
+    out.extend(std::vec![padding as u8; padding]);
+    out
+}
+
+fn pkcs7_unpad(data: &[u8]) -> Result<Vec<u8>> {
+    if data.is_empty() {
+        anyhow::bail!("empty data");
+    }
+    let pad_len = *data.last().unwrap() as usize;
+    if pad_len == 0 || pad_len > data.len() || pad_len > 16 {
+        anyhow::bail!("invalid PKCS7 padding (pad_len={})", pad_len);
+    }
+    if data[data.len() - pad_len..]
+        .iter()
+        .any(|&b| b as usize != pad_len)
+    {
+        anyhow::bail!("inconsistent PKCS7 padding");
+    }
+    Ok(data[..data.len() - pad_len].to_vec())
+}
+
+fn aes_encrypt_ecb(key: &[u8], plaintext: &[u8]) -> Vec<u8> {
+    let cipher = aes::Aes128::new(GenericArray::from_slice(key));
+    let padded = pkcs7_pad(plaintext, 16);
+    let mut buf = padded;
+    for chunk in buf.chunks_exact_mut(16) {
+        let block = GenericArray::from_mut_slice(chunk);
+        cipher.encrypt_block(block);
+    }
+    buf
+}
+
+fn aes_decrypt_ecb(key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>> {
+    if !ciphertext.len().is_multiple_of(16) {
+        anyhow::bail!("ciphertext length not a multiple of 16");
+    }
+    let cipher = aes::Aes128::new(GenericArray::from_slice(key));
+    let mut buf = ciphertext.to_vec();
+    for chunk in buf.chunks_exact_mut(16) {
+        let block = GenericArray::from_mut_slice(chunk);
+        cipher.decrypt_block(block);
+    }
+    pkcs7_unpad(&buf)
+}
+
+fn decode_aes_key(raw: &str) -> Result<Vec<u8>> {
+    if raw.is_empty() {
+        anyhow::bail!("empty AES key");
+    }
+    if let Ok(bytes) = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, raw) {
+        if bytes.len() == 16 {
+            return Ok(bytes);
+        }
+    }
+    let bytes = hex::decode(raw.trim()).context("hex decode AES key")?;
+    if bytes.len() != 16 {
+        anyhow::bail!("AES key must be 16 bytes, got {}", bytes.len());
+    }
+    Ok(bytes)
+}
+
+// ---------------------------------------------------------------------------
+// CDN URL whitelist (SSRF protection)
+// ---------------------------------------------------------------------------
+
+fn is_cdn_url_allowed(url: &str) -> bool {
+    let parsed = match url::Url::parse(url) {
+        Ok(u) => u,
+        Err(_) => return false,
+    };
+    let host = match parsed.host_str() {
+        Some(h) => h.to_lowercase(),
+        None => return false,
+    };
+    CDN_ALLOWED_DOMAINS
+        .iter()
+        .any(|d| host == *d || host.ends_with(&format!(".{}", d)))
+}
+
+fn resolve_aes_key(item: &ILinkItem) -> Option<String> {
+    item.aes_key
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            item.encrypted_query_param
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+        })
 }
 
 fn api_headers(token: Option<&str>, body: &str) -> HashMap<String, String> {
@@ -425,6 +572,49 @@ fn extract_text(item_list: &[ILinkItem]) -> String {
     String::new()
 }
 
+fn item_type_to_message_type(item_type: i32) -> MessageType {
+    match item_type {
+        ITEM_IMAGE => MessageType::Photo,
+        ITEM_VIDEO => MessageType::Video,
+        ITEM_VOICE => MessageType::Voice,
+        ITEM_FILE => MessageType::Document,
+        _ => MessageType::Text,
+    }
+}
+
+fn item_type_to_mime(item_type: i32) -> &'static str {
+    match item_type {
+        ITEM_IMAGE => "image/jpeg",
+        ITEM_VIDEO => "video/mp4",
+        ITEM_VOICE => "audio/amr",
+        ITEM_FILE => "application/octet-stream",
+        _ => "application/octet-stream",
+    }
+}
+
+fn guess_mime_from_filename(filename: &str) -> Option<&'static str> {
+    let lower = filename.to_lowercase();
+    if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+        Some("image/jpeg")
+    } else if lower.ends_with(".png") {
+        Some("image/png")
+    } else if lower.ends_with(".gif") {
+        Some("image/gif")
+    } else if lower.ends_with(".mp4") {
+        Some("video/mp4")
+    } else if lower.ends_with(".amr") {
+        Some("audio/amr")
+    } else if lower.ends_with(".mp3") {
+        Some("audio/mpeg")
+    } else if lower.ends_with(".pdf") {
+        Some("application/pdf")
+    } else if lower.ends_with(".doc") || lower.ends_with(".docx") {
+        Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    } else {
+        None
+    }
+}
+
 fn guess_chat_type<'a>(message: &'a ILinkMsg, account_id: &'a str) -> (&'a str, String) {
     let room_id = message
         .room_id
@@ -548,6 +738,13 @@ fn parse_ilink_item_value(value: &Value) -> Option<ILinkItem> {
         size: map.get("size").cloned().and_then(value_to_i64),
         create_time_ms: map.get("create_time_ms").cloned().and_then(value_to_i64),
         text_item: parse_text_item_value(map.get("text_item")),
+        cdn_url: map.get("cdn_url").cloned().and_then(value_to_string),
+        aes_key: map.get("aes_key").cloned().and_then(value_to_string),
+        encrypted_query_param: map
+            .get("encrypted_query_param")
+            .cloned()
+            .and_then(value_to_string),
+        thumb_url: map.get("thumb_url").cloned().and_then(value_to_string),
     })
 }
 
@@ -1097,6 +1294,105 @@ impl WeixinChannel {
     }
 
     // -----------------------------------------------------------------------
+    // CDN media upload
+    // -----------------------------------------------------------------------
+
+    async fn get_upload_url(
+        &self,
+        file_type: i32,
+        file_size: i64,
+        file_name: &str,
+        to_user_id: &str,
+    ) -> Result<GetUploadUrlResponse> {
+        let payload = GetUploadUrlPayload {
+            file_type,
+            file_size,
+            file_name: file_name.to_string(),
+            to_user_id: Some(to_user_id.to_string()),
+            base_info: base_info(),
+        };
+        let resp = self
+            .api_post(EP_GET_UPLOAD_URL, payload)
+            .await
+            .context("getUploadUrl request failed")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            anyhow::bail!(
+                "getUploadUrl HTTP {}: {}",
+                status,
+                &text[..text.len().min(200)]
+            );
+        }
+
+        resp.json().await.context("parse getUploadUrl response")
+    }
+
+    async fn upload_media_bytes(
+        &self,
+        data: &[u8],
+        aes_key: &[u8],
+        upload_url: &str,
+    ) -> Result<()> {
+        let encrypted = aes_encrypt_ecb(aes_key, data);
+
+        for (idx, chunk) in encrypted.chunks(UPLOAD_CHUNK_SIZE).enumerate() {
+            let resp = self
+                .client
+                .put(upload_url)
+                .header("Content-Type", "application/octet-stream")
+                .header("Content-Length", chunk.len().to_string())
+                .body(chunk.to_vec())
+                .send()
+                .await
+                .with_context(|| format!("upload chunk {} failed", idx))?;
+
+            if !resp.status().is_success() {
+                let status = resp.status();
+                let text = resp.text().await.unwrap_or_default();
+                anyhow::bail!(
+                    "upload chunk {} HTTP {}: {}",
+                    idx,
+                    status,
+                    &text[..text.len().min(200)]
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    async fn download_and_decrypt_media(
+        &self,
+        cdn_url: &str,
+        aes_key_raw: &str,
+    ) -> Result<Vec<u8>> {
+        let aes_key = decode_aes_key(aes_key_raw)?;
+
+        let resp = self
+            .client
+            .get(cdn_url)
+            .send()
+            .await
+            .context("download media from CDN")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            anyhow::bail!(
+                "CDN download HTTP {}: {}",
+                status,
+                &text[..text.len().min(200)]
+            );
+        }
+
+        let encrypted = resp.bytes().await.context("read CDN response body")?;
+
+        aes_decrypt_ecb(&aes_key, &encrypted)
+    }
+
+    // -----------------------------------------------------------------------
     // Polling
     // -----------------------------------------------------------------------
 
@@ -1310,9 +1606,101 @@ async fn process_message(
         token_store.set(account_id, sender_id, context_token);
     }
 
-    if text.is_empty() {
+    let media_items: Vec<&ILinkItem> = item_list
+        .iter()
+        .filter(|item| {
+            matches!(
+                item.item_type,
+                Some(ITEM_IMAGE) | Some(ITEM_VIDEO) | Some(ITEM_VOICE) | Some(ITEM_FILE)
+            )
+        })
+        .collect();
+
+    if text.is_empty() && media_items.is_empty() {
         return Ok(());
     }
+
+    let mut media = Vec::new();
+    let mut primary_type = MessageType::Text;
+    let mut aes_key_raw: Option<String> = None;
+
+    for media_item in &media_items {
+        let item_type = media_item.item_type.unwrap_or(ITEM_FILE);
+
+        let cdn_url = match media_item.cdn_url.as_deref() {
+            Some(u) if !u.is_empty() => u.to_string(),
+            _ => {
+                debug!(
+                    "[weixin] media item type={} has no cdn_url, skipping",
+                    item_type
+                );
+                continue;
+            }
+        };
+
+        if !is_cdn_url_allowed(&cdn_url) {
+            warn!(
+                "[weixin] CDN URL domain not whitelisted, skipping: {}",
+                &cdn_url[..cdn_url.len().min(80)]
+            );
+            continue;
+        }
+
+        let key_for_item = resolve_aes_key(media_item);
+        if aes_key_raw.is_none() {
+            aes_key_raw = key_for_item;
+        }
+        let file_name = media_item
+            .file_name
+            .clone()
+            .unwrap_or_else(|| format!("media_{}", item_type));
+
+        let mime = media_item
+            .mime_type
+            .as_deref()
+            .and_then(|m| if m.is_empty() { None } else { Some(m) })
+            .or_else(|| guess_mime_from_filename(&file_name))
+            .unwrap_or_else(|| item_type_to_mime(item_type));
+
+        let file_size = media_item
+            .size
+            .and_then(|s| if s > 0 { Some(s as u64) } else { None });
+
+        let attachment = MediaAttachment {
+            url: cdn_url,
+            mime_type: Some(mime.to_string()),
+            caption: None,
+            file_name: Some(file_name),
+            file_size,
+        };
+
+        media.push(attachment);
+
+        if primary_type == MessageType::Text {
+            primary_type = item_type_to_message_type(item_type);
+        }
+    }
+
+    if primary_type != MessageType::Text {
+        debug!(
+            "[weixin] processing {} media attachment(s) from {}",
+            media.len(),
+            sender_id
+        );
+    }
+
+    let content = if text.is_empty() && !media.is_empty() {
+        format!(
+            "[{}]",
+            media
+                .iter()
+                .filter_map(|m| m.file_name.clone())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    } else {
+        text
+    };
 
     let source = SessionSource {
         platform: Platform::Weixin,
@@ -1329,11 +1717,17 @@ async fn process_message(
         channel: Platform::Weixin,
         sender_id: sender_id.to_string(),
         chat_id: effective_chat_id,
-        content: text,
-        media: vec![],
-        metadata: HashMap::new(),
+        content,
+        media,
+        metadata: {
+            let mut m = HashMap::new();
+            if let Some(raw_key) = aes_key_raw.as_ref() {
+                m.insert("aes_key".to_string(), Value::String(raw_key.clone()));
+            }
+            m
+        },
         source: Some(source),
-        message_type: MessageType::Text,
+        message_type: primary_type,
         message_id: if message_id.is_empty() {
             None
         } else {
@@ -1349,6 +1743,180 @@ async fn process_message(
         .await
         .context("handler channel closed")?;
     Ok(())
+}
+
+impl WeixinChannel {
+    async fn send_media(
+        &self,
+        chat_id: &str,
+        data: &[u8],
+        file_name: &str,
+        item_type: i32,
+        caption: Option<&str>,
+    ) -> Result<SendResult> {
+        if !self.connected {
+            return Ok(SendResult {
+                success: false,
+                message_id: None,
+                error: Some("Not connected".to_string()),
+                retryable: false,
+            });
+        }
+
+        let max_size = match item_type {
+            ITEM_IMAGE => MAX_IMAGE_SIZE,
+            ITEM_VIDEO => MAX_VIDEO_SIZE,
+            _ => MAX_FILE_SIZE,
+        };
+        if data.len() > max_size {
+            return Ok(SendResult {
+                success: false,
+                message_id: None,
+                error: Some(format!(
+                    "File too large: {} bytes (max {} bytes)",
+                    data.len(),
+                    max_size
+                )),
+                retryable: false,
+            });
+        }
+
+        let account_id = match self.account_id.as_deref() {
+            Some(a) => a,
+            None => {
+                return Ok(SendResult {
+                    success: false,
+                    message_id: None,
+                    error: Some("Account ID not available".to_string()),
+                    retryable: false,
+                });
+            }
+        };
+        let context_token = self.token_store.get(account_id, chat_id);
+
+        let upload_resp = self
+            .get_upload_url(item_type, data.len() as i64, file_name, chat_id)
+            .await?;
+
+        let ret = upload_resp.ret.unwrap_or(0);
+        let errcode = upload_resp.errcode.unwrap_or(0);
+        if ret != 0 || errcode != 0 {
+            let errmsg = upload_resp
+                .errmsg
+                .unwrap_or_else(|| "unknown error".to_string());
+            return Ok(SendResult {
+                success: false,
+                message_id: None,
+                error: Some(format!(
+                    "getUploadUrl error: ret={} errcode={} errmsg={}",
+                    ret, errcode, errmsg
+                )),
+                retryable: false,
+            });
+        }
+
+        let upload_url = match upload_resp.upload_url.as_deref() {
+            Some(u) if !u.is_empty() => u.to_string(),
+            _ => {
+                return Ok(SendResult {
+                    success: false,
+                    message_id: None,
+                    error: Some("getUploadUrl returned no upload_url".to_string()),
+                    retryable: false,
+                });
+            }
+        };
+
+        let aes_key_raw = upload_resp.aes_key.as_deref().unwrap_or("AAAAAAAAAAAAAAAA");
+        let aes_key = decode_aes_key(aes_key_raw).unwrap_or_else(|_| vec![0u8; 16]);
+
+        if let Err(e) = self.upload_media_bytes(data, &aes_key, &upload_url).await {
+            return Ok(SendResult {
+                success: false,
+                message_id: None,
+                error: Some(format!("CDN upload failed: {}", e)),
+                retryable: true,
+            });
+        }
+
+        let client_id = format!("kestrel-weixin-{}", uuid::Uuid::new_v4());
+
+        let mut item_list = vec![MessageItem {
+            item_type,
+            text_item: None,
+        }];
+
+        if let Some(caption_text) = caption {
+            if !caption_text.is_empty() {
+                item_list.push(MessageItem {
+                    item_type: ITEM_TEXT,
+                    text_item: Some(TextItem {
+                        text: caption_text.to_string(),
+                    }),
+                });
+            }
+        }
+
+        let payload = SendMessagePayload {
+            msg: ILinkMessage {
+                from_user_id: String::new(),
+                to_user_id: chat_id.to_string(),
+                client_id: client_id.clone(),
+                message_type: MSG_TYPE_BOT,
+                message_state: MSG_STATE_FINISH,
+                item_list,
+                context_token: context_token.map(|s| s.to_string()),
+            },
+            base_info: base_info(),
+        };
+
+        let resp = self
+            .api_post(EP_SEND_MESSAGE, payload)
+            .await
+            .context("sendMessage (media) request failed")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Ok(SendResult {
+                success: false,
+                message_id: None,
+                error: Some(format!(
+                    "sendMessage (media) HTTP {}: {}",
+                    status,
+                    &text[..text.len().min(200)]
+                )),
+                retryable: true,
+            });
+        }
+
+        let send_resp: SendMessageResponse =
+            resp.json().await.context("parse sendMessage response")?;
+        let sret = send_resp.ret.unwrap_or(0);
+        let serrcode = send_resp.errcode.unwrap_or(0);
+        if sret != 0 || serrcode != 0 {
+            let errmsg = send_resp
+                .errmsg
+                .or(send_resp.msg)
+                .unwrap_or_else(|| "unknown error".to_string());
+            return Ok(SendResult {
+                success: false,
+                message_id: None,
+                error: Some(format!(
+                    "sendMessage (media) error: ret={} errcode={} errmsg={}",
+                    sret, serrcode, errmsg
+                )),
+                retryable: false,
+            });
+        }
+
+        Ok(SendResult {
+            success: true,
+            message_id: Some(client_id),
+            error: None,
+            retryable: false,
+        })
+    }
 }
 
 impl Default for WeixinChannel {
@@ -1588,17 +2156,44 @@ impl BaseChannel for WeixinChannel {
 
     async fn send_image(
         &self,
-        _chat_id: &str,
-        _image_url: &str,
-        _caption: Option<&str>,
+        chat_id: &str,
+        image_url: &str,
+        caption: Option<&str>,
     ) -> Result<SendResult> {
-        // TODO: implement media upload via AES-ECB encrypted CDN
-        Ok(SendResult {
-            success: false,
-            message_id: None,
-            error: Some("Weixin image sending not yet implemented".to_string()),
-            retryable: false,
-        })
+        if !self.connected {
+            return Ok(SendResult {
+                success: false,
+                message_id: None,
+                error: Some("Not connected".to_string()),
+                retryable: false,
+            });
+        }
+
+        let resp = self
+            .client
+            .get(image_url)
+            .send()
+            .await
+            .context("download image for upload")?;
+
+        if !resp.status().is_success() {
+            return Ok(SendResult {
+                success: false,
+                message_id: None,
+                error: Some(format!("Failed to download image: HTTP {}", resp.status())),
+                retryable: true,
+            });
+        }
+
+        let data = resp.bytes().await.context("read image bytes")?;
+        let file_name = image_url
+            .rsplit('/')
+            .next()
+            .unwrap_or("image.jpg")
+            .to_string();
+
+        self.send_media(chat_id, &data, &file_name, ITEM_IMAGE, caption)
+            .await
     }
 
     fn set_message_handler(&mut self, handler: tokio::sync::mpsc::Sender<InboundMessage>) {

@@ -120,6 +120,7 @@ mod tests {
         assert!(home.to_string_lossy().ends_with(".kestrel"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn test_kestrel_home_env() {
         std::env::set_var("KESTREL_HOME", "/tmp/test-kestrel");
@@ -128,6 +129,7 @@ mod tests {
         std::env::remove_var("KESTREL_HOME");
     }
 
+    #[cfg(unix)]
     #[test]
     fn test_config_path_default() {
         std::env::set_var("KESTREL_HOME", "/tmp/test-kestrel-config");

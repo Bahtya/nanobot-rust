@@ -21,3 +21,10 @@ pub mod logging;
 pub mod pid_file;
 #[cfg(target_family = "unix")]
 pub mod signal;
+
+#[cfg(not(target_family = "unix"))]
+compile_error!(
+    "kestrel-daemon only supports Unix platforms. \
+     This crate provides daemonization, PID file management, and signal handling \
+     that depend on Unix-specific APIs (fork, flock, SIGTERM, etc.)."
+);

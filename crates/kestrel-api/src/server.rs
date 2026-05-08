@@ -1157,7 +1157,9 @@ async fn feishu_webhook(
                 )
                     .into_response()
             }
-            WebhookResult::CardAction(action) => handle_card_action(state, action).await,
+            WebhookResult::CardAction(action) => {
+                handle_card_action(state, action).await.into_response()
+            }
             WebhookResult::Ignored => {
                 debug!("Feishu webhook: ignored event");
                 (

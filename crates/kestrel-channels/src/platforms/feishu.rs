@@ -1866,7 +1866,7 @@ async fn handle_ws_text_frame(
             // Event callback via WebSocket.
             if let Some(event_data) = frame.data {
                 if let Ok(event_bytes) = serde_json::to_vec(&event_data) {
-                    match parse_webhook(&event_bytes) {
+                    match parse_webhook(&event_bytes, None) {
                         Ok(WebhookResult::Messages(msgs)) => {
                             for msg in msgs {
                                 if let Err(e) = handler.send(msg).await {
@@ -1878,6 +1878,9 @@ async fn handle_ws_text_frame(
                             debug!("[feishu:ws] challenge event via WS — not applicable");
                         }
                         Ok(WebhookResult::Ignored) => {}
+                        Ok(WebhookResult::CardAction(_)) => {
+                            debug!("[feishu:ws] card action event via WS — not handled");
+                        }
                         Err(e) => {
                             debug!("[feishu:ws] event parse error: {e}");
                         }
@@ -2609,8 +2612,6 @@ mod tests {
         let mut config = FeishuConfig::default();
         config.mention_only = true;
         assert_eq!(check_admission(&event, &config), Admission::Allow);
-    }
-        }
     }
 
     #[test]

@@ -261,6 +261,7 @@ fn main() -> Result<()> {
 
                     // Install SIGHUP ignore handler before tokio runtime — closes the
                     // window where default SIGHUP would kill the daemon during startup
+                    #[cfg(target_family = "unix")]
                     kestrel_daemon::signal::install_early_sighup_handler();
 
                     // Now start tokio runtime in the daemon process
@@ -269,10 +270,13 @@ fn main() -> Result<()> {
 
                     // Drop log_guard first to flush remaining log lines,
                     // then pid_file releases the flock and cleans up.
-                    drop(handles.comm_log_guard);
-                    drop(handles.log_guard);
-                    if let Err(e) = handles.pid_file.clean() {
-                        eprintln!("Failed to clean PID file: {e}");
+                    #[cfg(target_family = "unix")]
+                    {
+                        drop(handles.comm_log_guard);
+                        drop(handles.log_guard);
+                        if let Err(e) = handles.pid_file.clean() {
+                            eprintln!("Failed to clean PID file: {e}");
+                        }
                     }
 
                     result?;

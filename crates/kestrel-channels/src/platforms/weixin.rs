@@ -211,6 +211,7 @@ struct ILinkMsg {
     item_list: Option<Vec<ILinkItem>>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct ILinkItem {
     #[serde(rename = "type")]

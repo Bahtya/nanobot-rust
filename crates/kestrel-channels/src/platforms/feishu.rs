@@ -58,6 +58,54 @@ struct TokenData {
     expire: u64,
 }
 
+/// Image upload response data.
+#[derive(Debug, Deserialize)]
+struct ImageUploadData {
+    image_key: String,
+}
+
+/// File upload response data.
+#[derive(Debug, Deserialize)]
+struct FileUploadData {
+    file_key: String,
+}
+
+// ---------------------------------------------------------------------------
+// Inbound media content types
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct ImageContent {
+    #[serde(default)]
+    image_key: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct FileContent {
+    #[serde(default)]
+    file_key: Option<String>,
+    #[serde(default)]
+    file_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AudioContent {
+    #[serde(default)]
+    file_key: Option<String>,
+    #[serde(default)]
+    duration: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct VideoContent {
+    #[serde(default)]
+    file_key: Option<String>,
+    #[serde(default)]
+    file_name: Option<String>,
+    #[serde(default)]
+    duration: Option<u64>,
+}
+
 // ---------------------------------------------------------------------------
 // Webhook event types (public — used by the API server webhook route)
 // ---------------------------------------------------------------------------
@@ -233,8 +281,20 @@ pub fn parse_webhook(body: &[u8]) -> Result<WebhookResult> {
             (text, MessageType::Text, vec![])
         }
         "image" => {
-            let (text, media) = parse_image_content(message.content.as_deref(), chat_id.clone());
+            let (text, media) = parse_image_content(message.content.as_deref());
             (text, MessageType::Photo, media)
+        }
+        "file" => {
+            let (text, media) = parse_file_content(message.content.as_deref());
+            (text, MessageType::Document, media)
+        }
+        "audio" => {
+            let (text, media) = parse_audio_content(message.content.as_deref());
+            (text, MessageType::Audio, media)
+        }
+        "video" => {
+            let (text, media) = parse_video_content(message.content.as_deref());
+            (text, MessageType::Video, media)
         }
         "post" => {
             let text = parse_post_content(message.content.as_deref());
@@ -379,30 +439,113 @@ fn parse_post_content(content: Option<&str>) -> String {
 }
 
 /// Parse image content from a Feishu message.
-fn parse_image_content(content: Option<&str>, _chat_id: String) -> (String, Vec<MediaAttachment>) {
+fn parse_image_content(content: Option<&str>) -> (String, Vec<MediaAttachment>) {
     let raw = match content {
         Some(c) => c,
         None => return (String::new(), vec![]),
     };
-
-    #[derive(Deserialize)]
-    struct ImageContent {
-        #[serde(default)]
-        image_key: Option<String>,
-    }
 
     let parsed: ImageContent = match serde_json::from_str(raw) {
         Ok(p) => p,
         Err(_) => return (String::new(), vec![]),
     };
 
-    let desc = parsed
-        .image_key
-        .as_deref()
-        .map(|k| format!("[image: {k}]"))
-        .unwrap_or_default();
+    if let Some(key) = parsed.image_key {
+        let desc = format!("[image: {key}]");
+        let media = vec![MediaAttachment {
+            url: format!("feishu://image/{key}"),
+            mime_type: Some("image/jpeg".to_string()),
+            caption: None,
+            file_name: None,
+            file_size: None,
+        }];
+        (desc, media)
+    } else {
+        (String::new(), vec![])
+    }
+}
 
-    (desc, vec![])
+/// Parse file content from a Feishu message.
+fn parse_file_content(content: Option<&str>) -> (String, Vec<MediaAttachment>) {
+    let raw = match content {
+        Some(c) => c,
+        None => return (String::new(), vec![]),
+    };
+
+    let parsed: FileContent = match serde_json::from_str(raw) {
+        Ok(p) => p,
+        Err(_) => return (String::new(), vec![]),
+    };
+
+    if let Some(key) = parsed.file_key {
+        let name = parsed.file_name.as_deref().unwrap_or("file");
+        let desc = format!("[file: {name}]");
+        let media = vec![MediaAttachment {
+            url: format!("feishu://file/{key}"),
+            mime_type: Some("application/octet-stream".to_string()),
+            caption: None,
+            file_name: parsed.file_name,
+            file_size: None,
+        }];
+        (desc, media)
+    } else {
+        (String::new(), vec![])
+    }
+}
+
+/// Parse audio content from a Feishu message.
+fn parse_audio_content(content: Option<&str>) -> (String, Vec<MediaAttachment>) {
+    let raw = match content {
+        Some(c) => c,
+        None => return (String::new(), vec![]),
+    };
+
+    let parsed: AudioContent = match serde_json::from_str(raw) {
+        Ok(p) => p,
+        Err(_) => return (String::new(), vec![]),
+    };
+
+    if let Some(key) = parsed.file_key {
+        let desc = format!("[audio: {key}]");
+        let media = vec![MediaAttachment {
+            url: format!("feishu://file/{key}"),
+            mime_type: Some("audio/mpeg".to_string()),
+            caption: None,
+            file_name: None,
+            file_size: None,
+        }];
+        (desc, media)
+    } else {
+        (String::new(), vec![])
+    }
+}
+
+/// Parse video content from a Feishu message.
+fn parse_video_content(content: Option<&str>) -> (String, Vec<MediaAttachment>) {
+    let raw = match content {
+        Some(c) => c,
+        None => return (String::new(), vec![]),
+    };
+
+    let parsed: VideoContent = match serde_json::from_str(raw) {
+        Ok(p) => p,
+        Err(_) => return (String::new(), vec![]),
+    };
+
+    if let Some(key) = parsed.file_key {
+        let name = parsed.file_name.as_deref().unwrap_or("video");
+        let desc = format!("[video: {name}]");
+        let media = vec![MediaAttachment {
+            url: format!("feishu://file/{key}"),
+            mime_type: Some("video/mp4".to_string()),
+            caption: None,
+            file_name: parsed.file_name,
+            file_size: None,
+        }];
+        (desc, media)
+    } else {
+        (String::new(), vec![])
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -704,6 +847,167 @@ impl FeishuChannel {
             })
         }
     }
+
+    /// Download media from Feishu CDN using an image_key or file_key.
+    ///
+    /// For images: uses `GET /im/v1/images/{image_key}`
+    /// For files/audio/video: uses `GET /im/v1/messages/{message_id}/resources/{file_key}`
+    pub async fn download_media(&self, url: &str, message_id: Option<&str>) -> Result<Vec<u8>> {
+        let token = self.get_access_token().await?;
+
+        if let Some(key) = url.strip_prefix("feishu://image/") {
+            let api_url = format!("{FEISHU_BASE_URL}/im/v1/images/{key}");
+            let resp = self
+                .client
+                .get(&api_url)
+                .header("Authorization", format!("Bearer {token}"))
+                .send()
+                .await
+                .context("Failed to download Feishu image")?;
+
+            if !resp.status().is_success() {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                anyhow::bail!("Feishu image download failed: status={status}, body={body}");
+            }
+
+            let bytes = resp
+                .bytes()
+                .await
+                .context("Failed to read Feishu image response body")?;
+            Ok(bytes.to_vec())
+        } else if let Some(key) = url.strip_prefix("feishu://file/") {
+            let mid = message_id.context("message_id required for file download")?;
+            let api_url = format!(
+                "{FEISHU_BASE_URL}/im/v1/messages/{mid}/resources/{key}?type=file"
+            );
+            let resp = self
+                .client
+                .get(&api_url)
+                .header("Authorization", format!("Bearer {token}"))
+                .send()
+                .await
+                .context("Failed to download Feishu file")?;
+
+            if !resp.status().is_success() {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                anyhow::bail!("Feishu file download failed: status={status}, body={body}");
+            }
+
+            let bytes = resp
+                .bytes()
+                .await
+                .context("Failed to read Feishu file response body")?;
+            Ok(bytes.to_vec())
+        } else {
+            anyhow::bail!("Unsupported Feishu media URL scheme: {url}");
+        }
+    }
+
+    /// Upload an image to Feishu and return the `image_key`.
+    async fn upload_image(&self, image_data: &[u8]) -> Result<String> {
+        let token = self.get_access_token().await?;
+        let url = format!("{FEISHU_BASE_URL}/im/v1/images");
+
+        let part = reqwest::multipart::Part::bytes(image_data.to_vec())
+            .file_name("image.png")
+            .mime_str("image/png")
+            .context("invalid mime type")?;
+
+        let form = reqwest::multipart::Form::new()
+            .text("image_type", "message_image")
+            .part("image", part);
+
+        let resp = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Bearer {token}"))
+            .multipart(form)
+            .send()
+            .await
+            .context("Failed to upload Feishu image")?;
+
+        let feishu_resp: FeishuResponse<ImageUploadData> = resp
+            .json()
+            .await
+            .context("Failed to parse Feishu image upload response")?;
+
+        if feishu_resp.code != 0 {
+            anyhow::bail!(
+                "Feishu image upload failed: code={}, msg={:?}",
+                feishu_resp.code,
+                feishu_resp.msg
+            );
+        }
+
+        feishu_resp
+            .data
+            .map(|d| d.image_key)
+            .context("Feishu image upload response missing image_key")
+    }
+
+    /// Upload a file to Feishu and return the `file_key`.
+    async fn upload_file(&self, file_data: &[u8], file_name: &str, file_type: &str) -> Result<String> {
+        let token = self.get_access_token().await?;
+        let url = format!("{FEISHU_BASE_URL}/im/v1/files");
+
+        let part = reqwest::multipart::Part::bytes(file_data.to_vec())
+            .file_name(file_name.to_string())
+            .mime_str("application/octet-stream")
+            .context("invalid mime type")?;
+
+        let form = reqwest::multipart::Form::new()
+            .text("file_type", file_type.to_string())
+            .part("file", part);
+
+        let resp = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Bearer {token}"))
+            .multipart(form)
+            .send()
+            .await
+            .context("Failed to upload Feishu file")?;
+
+        let feishu_resp: FeishuResponse<FileUploadData> = resp
+            .json()
+            .await
+            .context("Failed to parse Feishu file upload response")?;
+
+        if feishu_resp.code != 0 {
+            anyhow::bail!(
+                "Feishu file upload failed: code={}, msg={:?}",
+                feishu_resp.code,
+                feishu_resp.msg
+            );
+        }
+
+        feishu_resp
+            .data
+            .map(|d| d.file_key)
+            .context("Feishu file upload response missing file_key")
+    }
+
+    /// Download bytes from a URL.
+    async fn fetch_bytes(&self, url: &str) -> Result<Vec<u8>> {
+        let resp = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .context("Failed to download image from URL")?;
+
+        if !resp.status().is_success() {
+            anyhow::bail!("Failed to download image: status={}", resp.status());
+        }
+
+        let bytes = resp
+            .bytes()
+            .await
+            .context("Failed to read image response body")?;
+        Ok(bytes.to_vec())
+    }
 }
 
 #[async_trait]
@@ -768,24 +1072,32 @@ impl BaseChannel for FeishuChannel {
     ) -> Result<SendResult> {
         let token = self.get_access_token().await?;
 
-        let url = format!("{FEISHU_BASE_URL}/im/v1/messages?receive_id_type=chat_id");
+        let image_data = self.fetch_bytes(image_url).await.map_err(|e| {
+            warn!("Feishu send_image: failed to download from URL: {e}");
+            e
+        })?;
 
-        // Send image as a text message with the URL.
-        // Feishu's image message requires uploading to Feishu first;
-        // fall back to sending URL as text with an image indicator.
-        let text = match caption {
-            Some(c) => format!("{c}\n{image_url}"),
-            None => image_url.to_string(),
+        let image_key = match self.upload_image(&image_data).await {
+            Ok(key) => key,
+            Err(e) => {
+                warn!("Feishu send_image: upload failed, falling back to text: {e}");
+                let text = match caption {
+                    Some(c) => format!("{c}\n{image_url}"),
+                    None => image_url.to_string(),
+                };
+                return self.send_text_message(chat_id, &text, None).await;
+            }
         };
 
+        let url = format!("{FEISHU_BASE_URL}/im/v1/messages?receive_id_type=chat_id");
         let content = serde_json::json!({
-            "text": text
+            "image_key": image_key
         })
         .to_string();
 
         let body = serde_json::json!({
             "receive_id": chat_id,
-            "msg_type": "text",
+            "msg_type": "image",
             "content": content,
         });
 
@@ -797,9 +1109,17 @@ impl BaseChannel for FeishuChannel {
             .json(&body)
             .send()
             .await
-            .context("Failed to send Feishu image")?;
+            .context("Failed to send Feishu image message")?;
 
-        self.handle_send_response(resp).await
+        let result = self.handle_send_response(resp).await?;
+
+        if let Some(caption_text) = caption {
+            if !caption_text.is_empty() {
+                let _ = self.send_text_message(chat_id, caption_text, None).await;
+            }
+        }
+
+        Ok(result)
     }
 
     async fn edit_message(

@@ -501,7 +501,11 @@ mod tests {
             }))
             .await;
         assert!(result.is_ok());
-        assert!(result.unwrap().contains(dir.path().to_str().unwrap()));
+        let output = result.unwrap();
+        // On Windows, paths may use UNC prefix (\\?\) or short names (RUNNER~1).
+        // Check that the output contains the temp directory name as a substring.
+        let dir_name = dir.path().file_name().unwrap().to_str().unwrap();
+        assert!(output.contains(dir_name));
     }
 
     #[test]

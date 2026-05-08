@@ -194,7 +194,10 @@ mod tests {
             .unwrap();
         let payload: Value = serde_json::from_str(&result).unwrap();
 
-        assert_eq!(payload["instruction_file"], requested.display().to_string());
+        // On Windows, canonical paths may use UNC prefix (\\?\) so compare
+        // the file name rather than the full path string.
+        let file_path = payload["instruction_file"].as_str().unwrap();
+        assert!(file_path.contains("custom.md"));
         assert!(payload["instructions"]
             .as_str()
             .unwrap()

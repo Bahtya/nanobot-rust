@@ -298,8 +298,10 @@ struct GetUploadUrlResponse {
     #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
     aes_key: Option<String>,
     #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
+    #[allow(dead_code)]
     media_id: Option<String>,
     #[serde(default, deserialize_with = "deserialize_opt_string_from_any")]
+    #[allow(dead_code)]
     cdn_url: Option<String>,
 }
 
@@ -322,7 +324,7 @@ fn random_wechat_uin() -> String {
 fn pkcs7_pad(data: &[u8], block_size: usize) -> Vec<u8> {
     let padding = block_size - (data.len() % block_size);
     let mut out = data.to_vec();
-    out.extend(std::iter::repeat(padding as u8).take(padding));
+    out.extend(std::vec![padding as u8; padding]);
     out
 }
 
@@ -355,7 +357,7 @@ fn aes_encrypt_ecb(key: &[u8], plaintext: &[u8]) -> Vec<u8> {
 }
 
 fn aes_decrypt_ecb(key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>> {
-    if ciphertext.len() % 16 != 0 {
+    if !ciphertext.len().is_multiple_of(16) {
         anyhow::bail!("ciphertext length not a multiple of 16");
     }
     let cipher = aes::Aes128::new(GenericArray::from_slice(key));

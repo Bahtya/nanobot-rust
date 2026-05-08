@@ -502,8 +502,8 @@ impl FeishuChannel {
     pub fn new() -> Self {
         let app_id = std::env::var("FEISHU_APP_ID").unwrap_or_default();
         let app_secret = std::env::var("FEISHU_APP_SECRET").unwrap_or_default();
-        let connection_mode = std::env::var("FEISHU_CONNECTION_MODE")
-            .unwrap_or_else(|_| "webhook".to_string());
+        let connection_mode =
+            std::env::var("FEISHU_CONNECTION_MODE").unwrap_or_else(|_| "webhook".to_string());
         Self {
             app_id,
             app_secret,

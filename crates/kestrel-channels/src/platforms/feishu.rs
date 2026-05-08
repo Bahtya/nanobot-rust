@@ -238,10 +238,7 @@ pub fn check_admission(event: &WebhookEvent, config: &FeishuConfig) -> Admission
         "p2p" => {
             // DM allowed users check.
             if !config.allowed_users.is_empty()
-                && !config
-                    .allowed_users
-                    .iter()
-                    .any(|u| u == sender_id)
+                && !config.allowed_users.iter().any(|u| u == sender_id)
             {
                 debug!("Feishu admission: DM user {sender_id} not in allowed_users");
                 return Admission::Deny("user not allowed".to_string());
@@ -366,10 +363,7 @@ pub fn parse_webhook(body: &[u8], config: Option<&FeishuConfig>) -> Result<Webho
     // Check if the payload is encrypted.
     let raw_body: Vec<u8> = if let Some(cfg) = config {
         let env_key = std::env::var("FEISHU_ENCRYPT_KEY").ok();
-        let encrypt_key = cfg
-            .encrypt_key
-            .as_deref()
-            .or_else(|| env_key.as_deref());
+        let encrypt_key = cfg.encrypt_key.as_deref().or_else(|| env_key.as_deref());
         if let Some(key) = encrypt_key {
             if !key.is_empty() {
                 let prelim: serde_json::Value =

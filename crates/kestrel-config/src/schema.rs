@@ -406,7 +406,6 @@ pub struct FeishuConfig {
     pub proxy: Option<String>,
 
     // ─── Webhook security ─────────────────────────────────────────────
-
     /// Verification token for validating webhook requests.
     ///
     /// When set, incoming webhook events must carry a matching `header.token`.
@@ -422,7 +421,6 @@ pub struct FeishuConfig {
     pub encrypt_key: Option<String>,
 
     // ─── Access control ───────────────────────────────────────────────
-
     /// Group chat access policy: `open` / `allowlist` / `blacklist` / `disabled`.
     #[serde(default = "default_feishu_group_policy")]
     pub group_policy: String,

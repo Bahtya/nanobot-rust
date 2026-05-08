@@ -60,9 +60,17 @@ pub fn get_prefix() -> Option<PathBuf> {
 
 /// Returns a POSIX-compatible shell path for use in command wrappers.
 ///
-/// Always returns a POSIX sh — either `/bin/sh` or `$PREFIX/bin/sh` on Termux.
-/// This should be used for `ulimit` wrappers and other POSIX shell constructs,
-/// NOT for interactive shell resolution (use `get_shell_path()` for that).
+/// - Windows: `"powershell"`
+/// - Unix: Always returns a POSIX sh — either `/bin/sh` or `$PREFIX/bin/sh` on
+///   Termux. This should be used for `ulimit` wrappers and other POSIX shell
+///   constructs, NOT for interactive shell resolution (use `get_shell_path()`
+///   for that).
+#[cfg(windows)]
+pub fn get_posix_sh() -> String {
+    "powershell".to_string()
+}
+
+#[cfg(not(windows))]
 pub fn get_posix_sh() -> String {
     if is_termux() {
         if let Some(prefix) = get_prefix() {
@@ -77,8 +85,15 @@ pub fn get_posix_sh() -> String {
 
 /// Returns the appropriate binary directory for installing executables.
 ///
+/// - Windows: `%LOCALAPPDATA%\kestrel\bin`
 /// - Termux: `$PREFIX/bin`
 /// - Desktop: `~/.local/bin`
+#[cfg(windows)]
+pub fn get_bin_dir() -> Option<PathBuf> {
+    dirs::data_local_dir().map(|p| p.join("kestrel").join("bin"))
+}
+
+#[cfg(not(windows))]
 pub fn get_bin_dir() -> Option<PathBuf> {
     if let Some(prefix) = get_prefix() {
         Some(prefix.join("bin"))
@@ -89,8 +104,15 @@ pub fn get_bin_dir() -> Option<PathBuf> {
 
 /// Returns the appropriate tmp directory.
 ///
+/// - Windows: Uses `std::env::temp_dir()` (typically `%TEMP%`).
 /// - Termux: `$PREFIX/tmp`
 /// - Desktop: `/tmp`
+#[cfg(windows)]
+pub fn get_tmp_dir() -> PathBuf {
+    std::env::temp_dir()
+}
+
+#[cfg(not(windows))]
 pub fn get_tmp_dir() -> PathBuf {
     if let Some(prefix) = get_prefix() {
         let tmp = prefix.join("tmp");
@@ -103,9 +125,15 @@ pub fn get_tmp_dir() -> PathBuf {
 
 /// Returns the interactive shell path.
 ///
-/// - Respects `$SHELL` env var if set
-/// - Termux fallback: `$PREFIX/bin/sh`
-/// - Default: `/bin/sh`
+/// - Windows: Uses `%COMSPEC%` env var, falling back to `"cmd.exe"`.
+/// - Unix: Respects `$SHELL` env var if set; Termux fallback: `$PREFIX/bin/sh`;
+///   Default: `/bin/sh`
+#[cfg(windows)]
+pub fn get_shell_path() -> String {
+    std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string())
+}
+
+#[cfg(not(windows))]
 pub fn get_shell_path() -> String {
     if let Ok(shell) = std::env::var("SHELL") {
         if !shell.is_empty() {
@@ -136,16 +164,23 @@ mod tests {
     }
 
     #[test]
-    fn test_get_tmp_dir_default() {
-        assert_eq!(get_tmp_dir(), PathBuf::from("/tmp"));
-    }
-
-    #[test]
     fn test_get_shell_path_is_nonempty() {
         let path = get_shell_path();
         assert!(!path.is_empty());
     }
 
+    #[test]
+    fn test_get_bin_dir_returns_some() {
+        assert!(get_bin_dir().is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_get_tmp_dir_default() {
+        assert_eq!(get_tmp_dir(), PathBuf::from("/tmp"));
+    }
+
+    #[cfg(unix)]
     #[test]
     fn test_get_posix_sh_returns_posix_path() {
         let sh = get_posix_sh();
@@ -153,8 +188,32 @@ mod tests {
         assert!(sh.ends_with("/sh"));
     }
 
+    #[cfg(windows)]
     #[test]
-    fn test_get_bin_dir_returns_some() {
-        assert!(get_bin_dir().is_some());
+    fn test_get_tmp_dir_is_valid() {
+        let tmp = get_tmp_dir();
+        assert!(!tmp.as_os_str().is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_get_posix_sh_returns_powershell() {
+        let sh = get_posix_sh();
+        assert_eq!(sh, "powershell");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_get_shell_path_is_nonempty_windows() {
+        let shell = get_shell_path();
+        assert!(!shell.is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_get_bin_dir_is_in_local_appdata() {
+        let bin = get_bin_dir().expect("bin dir should exist on Windows");
+        assert!(bin.to_string_lossy().contains("kestrel"));
+        assert!(bin.to_string_lossy().contains("bin"));
     }
 }

@@ -543,6 +543,7 @@ fn configure_feishu(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
         app_secret: Some(result.app_secret),
         enabled: true,
         proxy: existing_proxy,
+        ..Default::default()
     });
 
     Ok(())

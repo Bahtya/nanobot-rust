@@ -124,7 +124,10 @@ impl FeishuBatcher {
     /// - `Ok(Some(msg))` — message is ready to dispatch immediately (no batch)
     /// - `Ok(None)` — message was buffered into an existing or new batch
     /// - `Err(msg)` — message is a duplicate, discard it
-    pub fn process(&self, msg: InboundMessage) -> std::result::Result<Option<InboundMessage>, InboundMessage> {
+    pub fn process(
+        &self,
+        msg: InboundMessage,
+    ) -> std::result::Result<Option<InboundMessage>, InboundMessage> {
         let message_id = msg.message_id.as_deref().unwrap_or("");
         let sender_id = &msg.sender_id;
 
@@ -1253,7 +1256,7 @@ mod tests {
         assert_eq!(result, "Hello link (https://example.com)\nLine 2");
     }
 
-    // ─── Dedup tests ──────────────────────────────────────
+    // ─── Dedup tests ─────────────────────────────
 
     #[test]
     fn test_dedup_new_key_not_duplicate() {

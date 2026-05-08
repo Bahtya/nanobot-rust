@@ -407,10 +407,16 @@ pub struct FeishuConfig {
 
     // ─── Webhook security ─────────────────────────────────────────────
     /// Verification token for validating webhook requests.
+    ///
+    /// When set, incoming webhook events must carry a matching `header.token`.
+    /// Can also be sourced from the `FEISHU_VERIFICATION_TOKEN` env var.
     #[serde(default)]
     pub verification_token: Option<String>,
 
     /// AES key for decrypting encrypted event payloads.
+    ///
+    /// When set, the gateway decrypts the `encrypt` field in the request body.
+    /// Can also be sourced from the `FEISHU_ENCRYPT_KEY` env var.
     #[serde(default)]
     pub encrypt_key: Option<String>,
 
@@ -423,11 +429,11 @@ pub struct FeishuConfig {
     #[serde(default)]
     pub group_allowlist: Vec<String>,
 
-    /// Blacklisted group chat IDs (when `group_policy = "blacklist"`).
+    /// Blocked group chat IDs (when `group_policy = "blacklist"`).
     #[serde(default)]
     pub group_blacklist: Vec<String>,
 
-    /// Allowed user open IDs for DM access control.
+    /// Allowed DM user IDs (open_id). Empty means all users are allowed.
     #[serde(default)]
     pub allowed_users: Vec<String>,
 
@@ -435,13 +441,24 @@ pub struct FeishuConfig {
     #[serde(default = "default_feishu_allow_bots")]
     pub allow_bots: String,
 
-    /// Only respond to messages that @mention the bot (group chats only).
+    /// In groups, only respond when the bot is @mentioned.
     #[serde(default)]
     pub mention_only: bool,
 
     /// Connection mode: `"websocket"` or `"webhook"` (default: `"webhook"`).
+    ///
+    /// WebSocket mode establishes a persistent outbound connection to Feishu,
+    /// no public endpoint needed. Also reads from `FEISHU_CONNECTION_MODE` env var.
     #[serde(default)]
     pub connection_mode: Option<String>,
+}
+
+fn default_feishu_group_policy() -> String {
+    "open".to_string()
+}
+
+fn default_feishu_allow_bots() -> String {
+    "none".to_string()
 }
 
 impl Default for FeishuConfig {
@@ -454,9 +471,9 @@ impl Default for FeishuConfig {
             verification_token: None,
             encrypt_key: None,
             group_policy: default_feishu_group_policy(),
-            group_allowlist: vec![],
-            group_blacklist: vec![],
-            allowed_users: vec![],
+            group_allowlist: Vec::new(),
+            group_blacklist: Vec::new(),
+            allowed_users: Vec::new(),
             allow_bots: default_feishu_allow_bots(),
             mention_only: false,
             connection_mode: None,

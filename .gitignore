@@ -4,4 +4,11 @@
 *~
 .env
 .DS_Store
-kestrel\nkestrel-*.tar.gz
+kestrel
+kestrel-*.tar.gz
+
+# Tool-specific files
+.claude/
+.omc/
+.pr-body.txt
+rust_files.txt

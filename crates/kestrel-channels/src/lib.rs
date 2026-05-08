@@ -16,7 +16,10 @@ pub use commands::{
     SETTINGS_PER_PAGE,
 };
 pub use manager::ChannelManager;
-pub use platforms::feishu::{parse_webhook, CardActionEvent, FeishuChannel, WebhookResult};
+pub use platforms::feishu::{
+    check_admission, decrypt_event, parse_webhook, Admission, CardActionEvent, FeishuBatcher,
+    FeishuChannel, FeishuDedup, WebhookResult,
+};
 pub use platforms::telegram::{
     CallbackAction, CallbackContext, CallbackResponse, CallbackRouter, InlineKeyboardBuilder,
     InlineKeyboardButton, InlineKeyboardMarkup,

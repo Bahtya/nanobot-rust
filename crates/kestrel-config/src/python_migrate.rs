@@ -600,6 +600,14 @@ fn convert_channels(
             app_secret: f.app_secret.clone(),
             enabled: f.enabled.unwrap_or(true),
             proxy: None,
+            verification_token: None,
+            encrypt_key: None,
+            group_policy: "open".to_string(),
+            group_allowlist: vec![],
+            group_blacklist: vec![],
+            allowed_users: vec![],
+            allow_bots: "none".to_string(),
+            mention_only: false,
         });
         report.add_mapped("channels.feishu (appId → app_id, appSecret → app_secret)");
     }

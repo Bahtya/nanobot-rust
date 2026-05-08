@@ -35,6 +35,7 @@
 //! ```
 
 use anyhow::{bail, Context, Result};
+use fs4::fs_std::FileExt;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{Read, Write};
@@ -250,7 +251,7 @@ where
             service_type: SERVICE_TYPE,
             current_state: ServiceState::StartPending,
             controls_accepted: ServiceControlAccept::empty(),
-            exit_code: ServiceExitCode::NoError,
+            exit_code: ServiceExitCode::NO_ERROR,
             checkpoint: 0,
             wait_hint: Duration::from_secs(5),
             process_id: None,
@@ -268,7 +269,7 @@ where
 
     // Report final status to SCM
     let (final_state, exit_code) = match &result {
-        Ok(()) => (ServiceState::Stopped, ServiceExitCode::NoError),
+        Ok(()) => (ServiceState::Stopped, ServiceExitCode::NO_ERROR),
         Err(e) => {
             tracing::error!("Service failed: {}", e);
             (ServiceState::Stopped, ServiceExitCode::ServiceSpecific(1))
@@ -317,7 +318,7 @@ impl ServiceContext {
                 service_type: SERVICE_TYPE,
                 current_state: ServiceState::Running,
                 controls_accepted: ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN,
-                exit_code: ServiceExitCode::NoError,
+                exit_code: ServiceExitCode::NO_ERROR,
                 checkpoint: 0,
                 wait_hint: Duration::default(),
                 process_id: None,
@@ -341,7 +342,7 @@ impl ServiceContext {
                 service_type: SERVICE_TYPE,
                 current_state: ServiceState::StopPending,
                 controls_accepted: ServiceControlAccept::empty(),
-                exit_code: ServiceExitCode::NoError,
+                exit_code: ServiceExitCode::NO_ERROR,
                 checkpoint: 0,
                 wait_hint: Duration::from_secs(10),
                 process_id: None,
@@ -398,7 +399,7 @@ pub fn install_service(service_name: &str, display_name: &str) -> Result<()> {
     };
 
     manager
-        .create_service(service_info, ServiceAccess::CHANGE_CONFIG)
+        .create_service(&service_info, ServiceAccess::CHANGE_CONFIG)
         .context("create service")?;
 
     println!("Service '{service_name}' installed successfully.");

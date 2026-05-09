@@ -10,6 +10,9 @@ use tracing::{debug, info};
 
 static SESSION_COUNTER: AtomicU64 = AtomicU64::new(1);
 
+/// Default maximum number of concurrent terminal sessions.
+const DEFAULT_MAX_SESSIONS: usize = 10;
+
 /// Manages multiple PTY terminal sessions.
 ///
 /// Thread-safe via `parking_lot::RwLock`. Sessions are identified by
@@ -19,19 +22,38 @@ static SESSION_COUNTER: AtomicU64 = AtomicU64::new(1);
 /// release the registry lock before awaiting on session-level I/O.
 pub struct TerminalManager {
     sessions: RwLock<HashMap<String, Arc<TerminalSession>>>,
+    max_sessions: usize,
+    dangerous: bool,
 }
 
 impl TerminalManager {
-    /// Create a new empty session manager.
+    /// Create a new empty session manager with default limits.
     pub fn new() -> Self {
         Self {
             sessions: RwLock::new(HashMap::new()),
+            max_sessions: DEFAULT_MAX_SESSIONS,
+            dangerous: false,
         }
+    }
+
+    /// Create a session manager with the given configuration.
+    pub fn with_config(max_sessions: usize, dangerous: bool) -> Self {
+        Self {
+            sessions: RwLock::new(HashMap::new()),
+            max_sessions,
+            dangerous,
+        }
+    }
+
+    /// Whether this manager runs in dangerous (unrestricted) mode.
+    pub fn is_dangerous(&self) -> bool {
+        self.dangerous
     }
 
     /// Spawn a new terminal session.
     ///
-    /// Returns the session ID on success.
+    /// Returns the session ID on success. Returns an error if the maximum
+    /// number of sessions has been reached or if the shell is not allowed.
     pub fn create_session(
         &self,
         shell: Option<String>,
@@ -39,9 +61,17 @@ impl TerminalManager {
         cols: u16,
         rows: u16,
     ) -> Result<String> {
+        let current_count = self.sessions.read().len();
+        if current_count >= self.max_sessions {
+            anyhow::bail!(
+                "Maximum number of terminal sessions reached ({})",
+                self.max_sessions
+            );
+        }
+
         let id = format!("ts-{}", SESSION_COUNTER.fetch_add(1, Ordering::Relaxed));
 
-        let session = TerminalSession::spawn(id.clone(), shell, cwd, cols, rows)
+        let session = TerminalSession::spawn(id.clone(), shell, cwd, cols, rows, self.dangerous)
             .with_context(|| format!("Failed to spawn terminal session '{}'", id))?;
 
         self.sessions.write().insert(id.clone(), Arc::new(session));
@@ -148,6 +178,13 @@ mod tests {
     }
 
     #[test]
+    fn test_manager_with_config() {
+        let mgr = TerminalManager::with_config(5, true);
+        assert!(mgr.is_empty());
+        assert!(mgr.is_dangerous());
+    }
+
+    #[test]
     fn test_list_sessions_empty() {
         let mgr = TerminalManager::new();
         assert!(mgr.list_sessions().is_empty());
@@ -180,5 +217,17 @@ mod tests {
         let mgr = TerminalManager::new();
         let result = mgr.resize_session("nonexistent", 120, 40);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_max_sessions_limit() {
+        // Create a manager with max_sessions=1 and dangerous=true to allow
+        // any shell (avoids shell validation issues in test environments).
+        let mgr = TerminalManager::with_config(1, true);
+        let id = mgr.create_session(None, None, 80, 24);
+        assert!(id.is_ok(), "First session should succeed");
+        let id2 = mgr.create_session(None, None, 80, 24);
+        assert!(id2.is_err(), "Second session should fail due to limit");
+        assert!(id2.unwrap_err().to_string().contains("Maximum number"));
     }
 }

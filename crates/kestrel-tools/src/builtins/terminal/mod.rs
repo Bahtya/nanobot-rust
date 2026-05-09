@@ -9,7 +9,7 @@ mod session;
 mod tools;
 
 pub use manager::TerminalManager;
-pub use session::{SessionInfo, TerminalSession};
+pub use session::{validate_shell, SessionInfo, TerminalSession};
 pub use tools::register_terminal_tools;
 pub use tools::{
     TerminalCreateSessionTool, TerminalKillSessionTool, TerminalListSessionsTool,

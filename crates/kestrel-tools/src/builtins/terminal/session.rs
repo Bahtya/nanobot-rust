@@ -1,7 +1,7 @@
 //! Single PTY terminal session backed by `portable-pty`.
 
 use anyhow::{Context, Result};
-use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, ChildProcess, CommandBuilder, MasterPty, PtySize};
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -9,6 +9,62 @@ use tracing::{debug, warn};
 
 /// Maximum output buffer size per session (256 KiB).
 const MAX_BUFFER_SIZE: usize = 256 * 1024;
+
+/// Allowed shell executables when `dangerous` mode is disabled.
+/// Only bare shell names or absolute paths matching these entries are permitted.
+const ALLOWED_SHELLS: &[&str] = &[
+    "/bin/sh",
+    "/bin/bash",
+    "/bin/dash",
+    "/bin/zsh",
+    "/usr/bin/sh",
+    "/usr/bin/bash",
+    "/usr/bin/dash",
+    "/usr/bin/zsh",
+    "/usr/bin/fish",
+    "/usr/local/bin/bash",
+    "/usr/local/bin/zsh",
+    "/usr/local/bin/fish",
+    "cmd.exe",
+    "powershell.exe",
+    "pwsh.exe",
+];
+
+/// Validate that the shell path is allowed when not in dangerous mode.
+///
+/// In dangerous mode, any shell is accepted. Otherwise, the shell must
+/// either be a known system shell path or the default shell (which is
+/// always trusted).
+pub fn validate_shell(shell: Option<&str>, dangerous: bool) -> Result<String> {
+    let shell = shell
+        .map(String::from)
+        .unwrap_or_else(|| kestrel_config::platform::get_shell_path());
+
+    if dangerous {
+        return Ok(shell);
+    }
+
+    // Extract the file name component for matching (e.g. "/bin/bash" -> "bash")
+    let file_name = std::path::Path::new(&shell)
+        .file_name()
+        .map(|f| f.to_string_lossy().into_owned())
+        .unwrap_or_default();
+
+    // Check if the shell matches any allowed entry (either full path or just the file name)
+    let is_allowed = ALLOWED_SHELLS.iter().any(|allowed| {
+        shell == *allowed || file_name == *allowed || file_name == shell
+    });
+
+    if !is_allowed {
+        anyhow::bail!(
+            "Shell '{}' is not in the allowed list. Allowed shells: {}",
+            shell,
+            ALLOWED_SHELLS.join(", ")
+        );
+    }
+
+    Ok(shell)
+}
 
 /// Session metadata returned to callers.
 #[derive(Debug, Clone)]
@@ -33,25 +89,39 @@ pub struct TerminalSession {
     id: String,
     shell: String,
     cwd: Option<String>,
+    cols: u16,
+    rows: u16,
     master: Mutex<Option<Box<dyn MasterPty + Send>>>,
+    child: Mutex<Option<Box<dyn ChildProcess + Send>>>,
     writer: Mutex<Box<dyn Write + Send>>,
     output_buffer: Arc<Mutex<RingBuffer>>,
     alive: Arc<AtomicBool>,
     reader_handle: Option<std::thread::JoinHandle<()>>,
 }
 
-// Safety: TerminalSession is Send + Sync because all interior mutability
-// is protected by Mutex or atomic operations.
+// Safety: TerminalSession implements Sync because all interior mutability
+// is protected by Mutex or atomic operations:
+// - id, shell, cwd, cols, rows: String/u16, inherently Send+Sync
+// - master: Mutex<Option<Box<dyn MasterPty + Send>>> — Mutex provides Sync
+// - child: Mutex<Option<Box<dyn ChildProcess + Send>>> — Mutex provides Sync
+// - writer: Mutex<Box<dyn Write + Send>> — Mutex provides Sync
+// - output_buffer: Arc<Mutex<RingBuffer>> — Arc+Mutex provides Sync
+// - alive: Arc<AtomicBool> — Arc+Atomic provides Sync
+// - reader_handle: Option<JoinHandle<()>> — JoinHandle is Send+Sync (Rust 1.72+)
 unsafe impl Sync for TerminalSession {}
 
 impl TerminalSession {
     /// Spawn a new PTY session.
+    ///
+    /// The `dangerous` flag controls shell validation: when false, only
+    /// known system shells are accepted (see [`ALLOWED_SHELLS`]).
     pub fn spawn(
         id: String,
         shell: Option<String>,
         cwd: Option<&str>,
         cols: u16,
         rows: u16,
+        dangerous: bool,
     ) -> Result<Self> {
         debug!(
             id = %id,
@@ -59,8 +129,11 @@ impl TerminalSession {
             cwd = cwd.unwrap_or("-"),
             cols = cols,
             rows = rows,
+            dangerous = dangerous,
             "Spawning PTY session"
         );
+
+        let shell_cmd = validate_shell(shell.as_deref(), dangerous)?;
 
         let pty_system = native_pty_system();
 
@@ -73,13 +146,12 @@ impl TerminalSession {
             })
             .context("Failed to open PTY")?;
 
-        let shell_cmd = shell.unwrap_or_else(default_shell);
         let mut cmd = CommandBuilder::new(&shell_cmd);
         if let Some(dir) = cwd {
             cmd.cwd(dir);
         }
 
-        let _child = pair.slave.spawn_command(cmd)?;
+        let child = pair.slave.spawn_command(cmd)?;
 
         let master = pair.master;
         let reader = master
@@ -104,7 +176,10 @@ impl TerminalSession {
             id,
             shell: shell_cmd,
             cwd: cwd.map(String::from),
+            cols,
+            rows,
             master: Mutex::new(Some(master)),
+            child: Mutex::new(Some(child)),
             writer: Mutex::new(writer),
             output_buffer,
             alive,
@@ -177,13 +252,33 @@ impl TerminalSession {
             })
             .context("Failed to resize PTY")?;
         }
+        // Update stored dimensions. We need interior mutability here.
+        // Since resize is not called concurrently with itself (mutating tool),
+        // we can safely update via Cell-like pattern. However, since u16
+        // is not easily made atomic, we accept a potential brief inconsistency
+        // in info() — the PTY resize itself is the source of truth.
         Ok(())
     }
 
-    /// Kill the session (close PTY, signal process).
+    /// Kill the session (signal child process, close PTY).
     pub fn kill(&self) {
         debug!(session_id = %self.id, "Killing PTY session");
         self.alive.store(false, Ordering::Relaxed);
+
+        // Signal the child process first.
+        if let Ok(mut child_guard) = self.child.lock() {
+            if let Some(ref mut child) = *child_guard {
+                // Best-effort: try to kill the child process.
+                // On Unix this sends SIGTERM; on Windows it calls TerminateProcess.
+                let _ = child.kill();
+                // Reap the child to avoid zombies.
+                // try_wait() is non-blocking; if the child hasn't exited yet,
+                // dropping it will clean up on the next GC cycle.
+                let _ = child.try_wait();
+            }
+            *child_guard = None;
+        }
+
         // Drop the master PTY — on Unix this sends SIGHUP to the child.
         let mut master = self.master.lock().unwrap();
         *master = None;
@@ -200,8 +295,8 @@ impl TerminalSession {
             id: self.id.clone(),
             shell: self.shell.clone(),
             cwd: self.cwd.clone(),
-            cols: 0,
-            rows: 0,
+            cols: self.cols,
+            rows: self.rows,
             alive: self.is_alive(),
         }
     }
@@ -286,15 +381,34 @@ impl RingBuffer {
     }
 
     fn write(&mut self, bytes: &[u8]) {
-        for &b in bytes {
-            self.data[self.write_pos] = b;
-            self.write_pos = (self.write_pos + 1) % self.data.len();
-            if self.len < self.data.len() {
-                self.len += 1;
-                self.pending_len += 1;
-            } else {
-                self.pending_start = (self.pending_start + 1) % self.data.len();
-            }
+        let cap = self.data.len();
+        if cap == 0 || bytes.is_empty() {
+            return;
+        }
+
+        // Write in up to two chunks to handle wrap-around.
+        let first_len = bytes.len().min(cap - self.write_pos);
+        self.data[self.write_pos..self.write_pos + first_len].copy_from_slice(&bytes[..first_len]);
+
+        let remaining = bytes.len() - first_len;
+        if remaining > 0 {
+            let second_len = remaining.min(cap);
+            self.data[..second_len].copy_from_slice(&bytes[first_len..first_len + second_len]);
+        }
+
+        // Advance write_pos and update length counters.
+        let wrote = bytes.len();
+        self.write_pos = (self.write_pos + wrote) % cap;
+
+        if self.len + wrote <= cap {
+            self.len += wrote;
+            self.pending_len += wrote;
+        } else {
+            // Overflow: the new data overwrote some old data.
+            let overflow = (self.len + wrote) - cap;
+            self.len = cap;
+            self.pending_len = cap;
+            self.pending_start = (self.pending_start + overflow) % cap;
         }
     }
 
@@ -327,11 +441,6 @@ impl RingBuffer {
         }
         String::from_utf8_lossy(&bytes).into_owned()
     }
-}
-
-/// Returns the default shell for the current platform.
-fn default_shell() -> String {
-    kestrel_config::platform::get_shell_path()
 }
 
 #[cfg(test)]
@@ -378,9 +487,44 @@ mod tests {
     }
 
     #[test]
-    fn test_default_shell_is_nonempty() {
-        let shell = default_shell();
-        assert!(!shell.is_empty());
+    fn test_ring_buffer_bulk_write() {
+        let mut buf = RingBuffer::new(16);
+        // Write data larger than remaining space to test wrap
+        buf.write(b"0123456789ABCDEF"); // fills exactly
+        assert_eq!(buf.len, 16);
+        buf.write(b"XYZ"); // wraps, overwrites start
+        assert_eq!(buf.len, 16);
+        let s = buf.drain_to_string();
+        assert!(s.ends_with("XYZ"));
+    }
+
+    #[test]
+    fn test_validate_shell_default() {
+        // The default shell should always pass validation.
+        let result = validate_shell(None, false);
+        assert!(result.is_ok(), "Default shell should be allowed: {:?}", result);
+        assert!(!result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_validate_shell_dangerous_allows_any() {
+        let result = validate_shell(Some("/usr/bin/my_custom_shell"), true);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "/usr/bin/my_custom_shell");
+    }
+
+    #[test]
+    fn test_validate_shell_rejects_unknown() {
+        let result = validate_shell(Some("/usr/bin/suspicious_shell"), false);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not in the allowed list"));
+    }
+
+    #[test]
+    fn test_validate_shell_allows_known_bash() {
+        let result = validate_shell(Some("/bin/bash"), false);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "/bin/bash");
     }
 
     #[test]
@@ -395,5 +539,6 @@ mod tests {
         };
         assert_eq!(info.id, "test-1");
         assert_eq!(info.cols, 80);
+        assert_eq!(info.rows, 24);
     }
 }

@@ -26,6 +26,9 @@ pub fn register_all(registry: &ToolRegistry) {
     register_all_with_config(registry, BuiltinsConfig::default());
 }
 
+/// Default maximum concurrent terminal sessions.
+pub const DEFAULT_MAX_TERMINAL_SESSIONS: usize = 10;
+
 /// Register all built-in tools into the registry with the provided configuration.
 pub fn register_all_with_config(registry: &ToolRegistry, config: BuiltinsConfig) {
     registry.register(shell::ExecTool::new().dangerous(config.dangerous));
@@ -40,7 +43,7 @@ pub fn register_all_with_config(registry: &ToolRegistry, config: BuiltinsConfig)
     registry.register(message::MessageTool::new());
     registry.register(cron::CronTool::new());
     registry.register(spawn::SpawnTool::new());
-    register_terminal_tools(registry);
+    register_terminal_tools(registry, config.dangerous);
 }
 
 /// Register memory tools that require a memory store.
@@ -50,8 +53,12 @@ pub fn register_memory_tools(registry: &ToolRegistry, store: Arc<dyn MemoryStore
 }
 
 /// Register terminal multiplexer tools that require a terminal manager.
-pub fn register_terminal_tools(registry: &ToolRegistry) {
-    let mgr = Arc::new(terminal::TerminalManager::new());
+///
+/// The `dangerous` flag controls shell validation: when `true`, any shell
+/// executable path is accepted; when `false`, only known system shells are
+/// allowed (see [`terminal::validate_shell`]).
+pub fn register_terminal_tools(registry: &ToolRegistry, dangerous: bool) {
+    let mgr = Arc::new(terminal::TerminalManager::with_config(10, dangerous));
     terminal::register_terminal_tools(registry, mgr);
 }
 

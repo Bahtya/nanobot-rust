@@ -12,6 +12,7 @@
 
 use crate::trait_def::{Tool, ToolError};
 use async_trait::async_trait;
+use kestrel_core::MAX_TOOL_OUTPUT_LENGTH;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tracing::debug;
@@ -24,10 +25,22 @@ use super::manager::TerminalManager;
 ///
 /// The manager is always present in normal operation; `None` only occurs
 /// if the tool was constructed without wiring (e.g. in tests).
-fn require_manager(mgr: &Option<Arc<TerminalManager>>) -> Result<&TerminalManager, ToolError> {
-    mgr.as_ref()
-        .map(|a| a.as_ref())
+fn require_manager(mgr: &Option<Arc<TerminalManager>>) -> Result<Arc<TerminalManager>, ToolError> {
+    mgr.clone()
         .ok_or_else(|| ToolError::NotAvailable("TerminalManager not wired".to_string()))
+}
+
+/// Truncate output to the maximum allowed length, appending a truncation
+/// indicator if needed. Mirrors the approach used by the `exec` tool.
+fn truncate_output(output: String) -> String {
+    if output.len() > MAX_TOOL_OUTPUT_LENGTH {
+        let mut truncated = output;
+        truncated.truncate(MAX_TOOL_OUTPUT_LENGTH);
+        truncated.push_str("\n... (output truncated)");
+        truncated
+    } else {
+        output
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -73,7 +86,8 @@ impl Tool for TerminalCreateSessionTool {
             "properties": {
                 "shell": {
                     "type": "string",
-                    "description": "Shell executable path (default: system shell)"
+                    "description": "Shell executable path (default: system shell). \
+                     Only known system shells are allowed unless running in dangerous mode."
                 },
                 "cwd": {
                     "type": "string",
@@ -99,21 +113,26 @@ impl Tool for TerminalCreateSessionTool {
     async fn execute(&self, args: Value) -> Result<String, ToolError> {
         let mgr = require_manager(&self.mgr)?;
         let shell = args["shell"].as_str().map(String::from);
-        let cwd = args["cwd"].as_str();
+        let cwd = args["cwd"].as_str().map(String::from);
         let cols = args["cols"].as_u64().unwrap_or(80) as u16;
         let rows = args["rows"].as_u64().unwrap_or(24) as u16;
 
         debug!(
             shell = shell.as_deref().unwrap_or("default"),
-            cwd = cwd.unwrap_or("-"),
+            cwd = cwd.as_deref().unwrap_or("-"),
             cols = cols,
             rows = rows,
             "Creating terminal session"
         );
 
-        let id = mgr
-            .create_session(shell, cwd, cols, rows)
-            .map_err(|e| ToolError::Execution(format!("Failed to create session: {}", e)))?;
+        // Spawn a PTY session on a blocking thread to avoid blocking
+        // the async runtime. PTY spawn and fork are inherently blocking.
+        let id = tokio::task::spawn_blocking(move || {
+            mgr.create_session(shell, cwd.as_deref(), cols, rows)
+        })
+        .await
+        .map_err(|e| ToolError::Execution(format!("Task join error: {}", e)))?
+        .map_err(|e| ToolError::Execution(format!("Failed to create session: {}", e)))?;
 
         debug!(session_id = %id, "Terminal session created");
         Ok(format!(
@@ -196,8 +215,14 @@ impl Tool for TerminalSendInputTool {
             "Sending input to terminal session"
         );
 
-        mgr.send_input(session_id, input)
-            .map_err(|e| ToolError::Execution(format!("Failed to send input: {}", e)))?;
+        let sid = session_id.to_string();
+        let input_owned = input.to_string();
+        tokio::task::spawn_blocking(move || {
+            mgr.send_input(&sid, &input_owned)
+        })
+        .await
+        .map_err(|e| ToolError::Execution(format!("Task join error: {}", e)))?
+        .map_err(|e| ToolError::Execution(format!("Failed to send input: {}", e)))?;
 
         Ok(format!(
             "Sent {} bytes to session '{}'.",
@@ -241,7 +266,8 @@ impl Tool for TerminalReadOutputTool {
     fn description(&self) -> &str {
         "Read new output from a terminal session since the last read. \
          Optionally wait for output with a timeout. Returns the text \
-         output (ANSI sequences are preserved)."
+         output (ANSI sequences are preserved). Output is truncated at \
+         100,000 characters to avoid overwhelming the context window."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -278,9 +304,13 @@ impl Tool for TerminalReadOutputTool {
             "Reading output from terminal session"
         );
 
-        let output = mgr
-            .read_output(session_id, timeout_ms)
-            .map_err(|e| ToolError::Execution(format!("Failed to read output: {}", e)))?;
+        let sid = session_id.to_string();
+        let output = tokio::task::spawn_blocking(move || {
+            mgr.read_output(&sid, timeout_ms)
+        })
+        .await
+        .map_err(|e| ToolError::Execution(format!("Task join error: {}", e)))?
+        .map_err(|e| ToolError::Execution(format!("Failed to read output: {}", e)))?;
 
         if output.is_empty() {
             Ok("(no new output)".to_string())
@@ -290,7 +320,7 @@ impl Tool for TerminalReadOutputTool {
                 output_len = output.len(),
                 "Returning terminal output"
             );
-            Ok(output)
+            Ok(truncate_output(output))
         }
     }
 }
@@ -430,8 +460,13 @@ impl Tool for TerminalKillSessionTool {
 
         debug!(session_id = session_id, "Killing terminal session");
 
-        mgr.kill_session(session_id)
-            .map_err(|e| ToolError::Execution(format!("Failed to kill session: {}", e)))?;
+        let sid = session_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            mgr.kill_session(&sid)
+        })
+        .await
+        .map_err(|e| ToolError::Execution(format!("Task join error: {}", e)))?
+        .map_err(|e| ToolError::Execution(format!("Failed to kill session: {}", e)))?;
 
         Ok(format!("Killed terminal session '{}'.", session_id))
     }
@@ -518,8 +553,13 @@ impl Tool for TerminalResizeTool {
             "Resizing terminal session"
         );
 
-        mgr.resize_session(session_id, cols, rows)
-            .map_err(|e| ToolError::Execution(format!("Failed to resize session: {}", e)))?;
+        let sid = session_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            mgr.resize_session(&sid, cols, rows)
+        })
+        .await
+        .map_err(|e| ToolError::Execution(format!("Task join error: {}", e)))?
+        .map_err(|e| ToolError::Execution(format!("Failed to resize session: {}", e)))?;
 
         Ok(format!(
             "Resized session '{}' to {}x{}.",
@@ -549,6 +589,7 @@ pub fn register_terminal_tools(
 mod tests {
     use super::*;
 
+    /// Create a manager in dangerous mode for testing (allows any shell).
     fn make_tools() -> (
         Arc<TerminalManager>,
         TerminalCreateSessionTool,
@@ -558,7 +599,7 @@ mod tests {
         TerminalKillSessionTool,
         TerminalResizeTool,
     ) {
-        let mgr = Arc::new(TerminalManager::new());
+        let mgr = Arc::new(TerminalManager::with_config(10, true));
         (
             mgr.clone(),
             TerminalCreateSessionTool::new().with_manager(mgr.clone()),
@@ -715,7 +756,7 @@ mod tests {
         use crate::registry::ToolRegistry;
 
         let registry = ToolRegistry::new();
-        let mgr = Arc::new(TerminalManager::new());
+        let mgr = Arc::new(TerminalManager::with_config(10, true));
         register_terminal_tools(&registry, mgr);
 
         assert!(registry.get("terminal_create_session").is_some());
@@ -731,5 +772,22 @@ mod tests {
         assert!(!registry.is_mutating("terminal_list_sessions"));
         assert!(registry.is_mutating("terminal_kill_session"));
         assert!(registry.is_mutating("terminal_resize"));
+    }
+
+    #[test]
+    fn test_truncate_output_short() {
+        let output = "hello world".to_string();
+        assert_eq!(truncate_output(output), "hello world");
+    }
+
+    #[test]
+    fn test_truncate_output_long() {
+        let long_output = "x".repeat(200_000);
+        let result = truncate_output(long_output);
+        assert!(result.len() > MAX_TOOL_OUTPUT_LENGTH);
+        assert!(result.ends_with("... (output truncated)"));
+        // The actual content part should be exactly MAX_TOOL_OUTPUT_LENGTH chars
+        let truncated_part = &result[..MAX_TOOL_OUTPUT_LENGTH];
+        assert!(truncated_part.chars().all(|c| c == 'x'));
     }
 }

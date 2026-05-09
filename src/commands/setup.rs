@@ -1611,6 +1611,20 @@ fn set_provider_api_key(config: &mut Config, provider: &str, key: &str) {
     }
 }
 
+// ── Test helpers (cfg(test) only) ─────────────────────────────
+
+#[cfg(test)]
+fn mock_connectivity_ok(
+    _provider_key: &str,
+    _base_url: &str,
+    _api_key: &str,
+) -> ConnectivityResult {
+    ConnectivityResult::Ok {
+        latency_ms: 42,
+        models: vec!["gpt-4o".to_string(), "gpt-4o-mini".to_string()],
+    }
+}
+
 // ── Tests ──────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1621,18 +1635,6 @@ mod tests {
 
     fn template_toml() -> String {
         toml::to_string(&Config::default()).unwrap()
-    }
-
-    /// Mock connectivity check that always succeeds (avoids real network calls in tests).
-    fn mock_connectivity_ok(
-        _provider_key: &str,
-        _base_url: &str,
-        _api_key: &str,
-    ) -> ConnectivityResult {
-        ConnectivityResult::Ok {
-            latency_ms: 42,
-            models: vec!["gpt-4o".to_string(), "gpt-4o-mini".to_string()],
-        }
     }
 
     // ── Mock wizard IO for flow testing ─────────────────────────

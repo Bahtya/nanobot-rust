@@ -10,8 +10,8 @@ mod tools;
 
 pub use manager::TerminalManager;
 pub use session::{SessionInfo, TerminalSession};
+pub use tools::register_terminal_tools;
 pub use tools::{
-    register_terminal_tools, TerminalCreateSessionTool, TerminalKillSessionTool,
-    TerminalListSessionsTool, TerminalReadOutputTool, TerminalResizeTool,
-    TerminalSendInputTool,
+    TerminalCreateSessionTool, TerminalKillSessionTool, TerminalListSessionsTool,
+    TerminalReadOutputTool, TerminalResizeTool, TerminalSendInputTool,
 };

@@ -35,7 +35,7 @@ pub struct TerminalSession {
     cwd: Option<String>,
     master: Mutex<Option<Box<dyn MasterPty + Send>>>,
     writer: Mutex<Box<dyn Write + Send>>,
-    output_buffer: Mutex<RingBuffer>,
+    output_buffer: Arc<Mutex<RingBuffer>>,
     alive: Arc<AtomicBool>,
     reader_handle: Option<std::thread::JoinHandle<()>>,
 }
@@ -89,10 +89,10 @@ impl TerminalSession {
             .take_writer()
             .context("Failed to take PTY writer")?;
 
-        let output_buffer = Mutex::new(RingBuffer::new(MAX_BUFFER_SIZE));
+        let output_buffer = Arc::new(Mutex::new(RingBuffer::new(MAX_BUFFER_SIZE)));
         let alive = Arc::new(AtomicBool::new(true));
 
-        let buf_clone = Arc::new(output_buffer);
+        let buf_clone = output_buffer.clone();
         let alive_clone = alive.clone();
         let session_id = id.clone();
         let reader_handle = std::thread::Builder::new()
@@ -134,7 +134,7 @@ impl TerminalSession {
     /// new output before returning.
     pub fn read_output(&self, timeout_ms: Option<u64>) -> Result<String> {
         {
-            let buf = self.output_buffer.lock().unwrap();
+            let mut buf = self.output_buffer.lock().unwrap();
             if !buf.is_empty() {
                 let output = buf.drain_to_string();
                 debug!(session_id = %self.id, output_len = output.len(), "Returning buffered output");

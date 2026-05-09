@@ -21,6 +21,8 @@ const DEFAULT_MAX_OUTPUT_BYTES: usize = 1024 * 1024;
 const DEFAULT_MAX_WRITE_BYTES: usize = 10 * 1024 * 1024;
 const DEFAULT_MAX_WRITE_FILES: usize = 100;
 const DEFAULT_MAX_INSTRUCTIONS: usize = 10_000_000;
+const DEFAULT_MAX_LIST_DIR_DEPTH: usize = 10;
+const DEFAULT_MAX_LIST_DIR_ENTRIES: usize = 10_000;
 
 /// System paths that are never writable from Lua scripts.
 #[cfg(unix)]
@@ -337,8 +339,15 @@ impl ScriptTool {
         let list_dir_fn = lua
             .create_function(|lua, (path, recursive): (String, Option<bool>)| {
                 let mut result = Vec::new();
-                list_dir_recursive(&path, recursive.unwrap_or(false), &mut result, 0)
-                    .map_err(|e| mlua::Error::external(e.to_string()))?;
+                list_dir_recursive(
+                    &path,
+                    recursive.unwrap_or(false),
+                    &mut result,
+                    0,
+                    DEFAULT_MAX_LIST_DIR_DEPTH,
+                    DEFAULT_MAX_LIST_DIR_ENTRIES,
+                )
+                .map_err(|e| mlua::Error::external(e.to_string()))?;
 
                 let table = lua.create_table()?;
                 for entry in &result {
@@ -784,25 +793,51 @@ fn list_dir_recursive(
     recursive: bool,
     result: &mut Vec<String>,
     depth: usize,
+    max_depth: usize,
+    max_entries: usize,
 ) -> Result<(), ToolError> {
-    let entries = std::fs::read_dir(path)
-        .map_err(|e| ToolError::Execution(format!("Failed to read dir '{}': {}", path, e)))?;
+    if depth > max_depth {
+        result.push(format!("{}(max depth reached)", "  ".repeat(depth)));
+        return Ok(());
+    }
+
+    let entries = match std::fs::read_dir(path) {
+        Ok(e) => e,
+        Err(e) => {
+            warn!(path, error = %e, "Script list_dir: unreadable directory, skipping");
+            result.push(format!("{}(unreadable: {})", "  ".repeat(depth), e));
+            return Ok(());
+        }
+    };
 
     let mut entries: Vec<_> = entries.filter_map(|e| e.ok()).collect();
     entries.sort_by_key(|e| e.file_name());
 
     let indent = "  ".repeat(depth);
     for entry in entries {
+        if result.len() >= max_entries {
+            result.push(format!(
+                "{}(truncated: max {} entries)",
+                indent, max_entries
+            ));
+            return Ok(());
+        }
+
         let name = entry.file_name().to_string_lossy().to_string();
-        let file_type = entry
-            .file_type()
-            .map_err(|e| ToolError::Execution(e.to_string()))?;
+        let file_type = match entry.file_type() {
+            Ok(ft) => ft,
+            Err(e) => {
+                warn!(path, error = %e, "Script list_dir: could not get file type, skipping");
+                result.push(format!("{}{} (stat failed)", indent, name));
+                continue;
+            }
+        };
 
         if file_type.is_dir() {
             result.push(format!("{}{}/", indent, name));
             if recursive {
                 let sub_path = format!("{}/{}", path, name);
-                list_dir_recursive(&sub_path, true, result, depth + 1)?;
+                list_dir_recursive(&sub_path, true, result, depth + 1, max_depth, max_entries)?;
             }
         } else {
             result.push(format!("{}{}", indent, name));
@@ -1231,5 +1266,62 @@ mod tests {
     fn test_validate_write_path_blocks_sensitive_home() {
         assert!(validate_write_path(".ssh/authorized_keys").is_err());
         assert!(validate_write_path(".gnupg/pubring.gpg").is_err());
+    }
+
+    #[test]
+    fn test_list_dir_respects_max_depth() {
+        let dir = tempfile::tempdir().unwrap();
+        // Create depth 5: dir/a/b/c/d/e
+        let mut deep = dir.path().to_path_buf();
+        for i in 0..5 {
+            deep.push(format!("l{}", i));
+            std::fs::create_dir_all(&deep).unwrap();
+            std::fs::write(deep.join("file.txt"), "x").unwrap();
+        }
+
+        let mut result = Vec::new();
+        list_dir_recursive(dir.path().to_str().unwrap(), true, &mut result, 0, 2, 10000).unwrap();
+
+        let output = result.join("\n");
+        assert!(output.contains("max depth reached"), "output: {}", output);
+    }
+
+    #[test]
+    fn test_list_dir_respects_max_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        for i in 0..50 {
+            std::fs::write(dir.path().join(format!("f{:03}.txt", i)), "x").unwrap();
+        }
+
+        let mut result = Vec::new();
+        list_dir_recursive(dir.path().to_str().unwrap(), false, &mut result, 0, 10, 10).unwrap();
+
+        let output = result.join("\n");
+        assert!(
+            output.contains("truncated: max 10 entries"),
+            "output: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn test_list_dir_handles_unreadable_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("visible.txt"), "x").unwrap();
+
+        let mut result = Vec::new();
+        // Reading a non-existent sub-path should not panic — just return a warning
+        list_dir_recursive(
+            "/nonexistent_xyz_dir_12345",
+            false,
+            &mut result,
+            0,
+            10,
+            10000,
+        )
+        .unwrap();
+
+        let output = result.join("\n");
+        assert!(output.contains("unreadable"), "output: {}", output);
     }
 }

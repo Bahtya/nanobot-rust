@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Bug Fixes
+- fix(tools): add depth (max 10) and entry count (max 10,000) limits to `kestrel.list_dir` recursive mode to prevent filesystem enumeration DoS; gracefully skip unreadable directories instead of aborting (Issue #304)
+
 ## [v0.9.2] - 2026-05-10
 
 ### Bug Fixes

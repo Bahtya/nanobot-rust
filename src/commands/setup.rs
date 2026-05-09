@@ -851,7 +851,7 @@ fn test_api_key_connectivity(
         let start = std::time::Instant::now();
 
         // Build the request based on provider type
-        let (url, req) = build_validation_request(provider_key, base_url, api_key, &client);
+        let (display_url, req) = build_validation_request(provider_key, base_url, api_key, &client);
 
         match req {
             Ok(request) => match client.execute(request).await {
@@ -860,7 +860,6 @@ fn test_api_key_connectivity(
                     let status = resp.status();
 
                     if status.is_success() {
-                        // Try to parse models from response
                         let models = parse_models_from_response(provider_key, resp).await;
                         ConnectivityResult::Ok {
                             latency_ms: latency,
@@ -872,18 +871,16 @@ fn test_api_key_connectivity(
                             .unwrap_or_else(|| format!("HTTP {} — API key may be invalid", status));
                         ConnectivityResult::AuthFailed(msg)
                     } else {
-                        // Other HTTP errors — server reachable but unexpected response
-                        ConnectivityResult::Ok {
-                            latency_ms: latency,
-                            models: vec![],
-                        }
+                        // Other HTTP errors — report with status code so user can diagnose
+                        let msg = format!("Server returned HTTP {} for {}", status, display_url);
+                        ConnectivityResult::Unreachable(msg)
                     }
                 }
                 Err(e) => {
                     let msg = if e.is_timeout() {
                         "Connection timed out (10s)".to_string()
                     } else if e.is_connect() {
-                        format!("Cannot connect to {}", url)
+                        format!("Cannot connect to {}", display_url)
                     } else {
                         format!("{}", e)
                     };
@@ -896,13 +893,14 @@ fn test_api_key_connectivity(
 }
 
 /// Build the validation HTTP request based on provider type.
+/// Returns (display_url, request_result) where display_url is safe to show in error messages.
 fn build_validation_request(
     provider_key: &str,
     base_url: &str,
     api_key: &str,
     client: &reqwest::Client,
 ) -> (String, Result<reqwest::Request, reqwest::Error>) {
-    let (url, req_builder) = match provider_key {
+    let (display_url, req_builder) = match provider_key {
         "anthropic" => {
             let url = format!("{}/v1/models", base_url.trim_end_matches('/'));
             let req = client
@@ -913,8 +911,10 @@ fn build_validation_request(
         }
         "gemini" => {
             let url = format!("{}?key={}", base_url.trim_end_matches('/'), api_key);
+            // Don't expose API key in error messages
+            let display = format!("{}/models", base_url.trim_end_matches('/'));
             let req = client.get(&url);
-            (url, req.build())
+            (display, req.build())
         }
         // OpenAI-compatible providers: openai, openrouter, deepseek, groq, moonshot, minimax,
         // github_copilot, openai_codex, glm_coding_plan, etc.
@@ -927,7 +927,7 @@ fn build_validation_request(
             (url, req.build())
         }
     };
-    (url, req_builder)
+    (display_url, req_builder)
 }
 
 /// Try to extract model names from the validation response.
@@ -978,15 +978,7 @@ fn parse_openai_models(body: &str) -> Vec<String> {
 /// Extract a human-readable error message from an error response body.
 fn extract_error_message(body: &str) -> Option<String> {
     if let Ok(val) = serde_json::from_str::<serde_json::Value>(body) {
-        // OpenAI-style: { "error": { "message": "..." } }
-        if let Some(msg) = val
-            .get("error")
-            .and_then(|e| e.get("message"))
-            .and_then(|m| m.as_str())
-        {
-            return Some(msg.to_string());
-        }
-        // Anthropic-style: { "error": { "message": "..." } }
+        // { "error": { "message": "..." } } — OpenAI and Anthropic format
         if let Some(msg) = val
             .get("error")
             .and_then(|e| e.get("message"))

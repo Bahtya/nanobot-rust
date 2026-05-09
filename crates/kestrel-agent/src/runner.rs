@@ -15,6 +15,23 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
 use tracing::{debug, info, warn};
 
+/// Guard that aborts all remaining `JoinHandle`s when dropped.
+///
+/// When `message_timeout` fires and the parent future is dropped, this guard
+/// ensures spawned tool tasks are cancelled rather than left running as
+/// detached zombies.
+struct AbortOnDrop<T: Send + 'static> {
+    handles: Vec<tokio::task::JoinHandle<T>>,
+}
+
+impl<T: Send + 'static> Drop for AbortOnDrop<T> {
+    fn drop(&mut self) {
+        for h in self.handles.drain(..) {
+            h.abort();
+        }
+    }
+}
+
 /// Map a tool name to its display icon.
 fn tool_icon(name: &str) -> &'static str {
     match name {
@@ -594,14 +611,21 @@ impl AgentRunner {
     /// Read-only tools run concurrently as before. Mutating tools each
     /// acquire a shared mutex before executing, guaranteeing they run
     /// one at a time even when the LLM issues several in a single turn.
+    ///
+    /// All spawned tasks are wrapped in an `AbortOnDrop` guard so that
+    /// if the parent future is cancelled (e.g. message_timeout fires),
+    /// remaining tool tasks are immediately aborted instead of leaking.
     async fn execute_tools(&self, tool_calls: &[ToolCall]) -> Vec<(String, u64, bool)> {
-        let mut handles = Vec::new();
+        type ToolResult = (String, u64, bool);
+        let mut guard = AbortOnDrop::<ToolResult> {
+            handles: Vec::new(),
+        };
 
         for tc in tool_calls {
             let tool_name = tc.function.name.clone();
             let args_str = tc.function.arguments.clone();
             let tools = self.tools.clone();
-            let guard = self.mutating_guard.clone();
+            let mutating_guard = self.mutating_guard.clone();
             let is_mutating = self.tools.is_mutating(&tool_name);
 
             let handle = tokio::spawn(async move {
@@ -622,7 +646,7 @@ impl AgentRunner {
                 };
 
                 let result = if is_mutating {
-                    let _lock = guard.lock().await;
+                    let _lock = mutating_guard.lock().await;
                     match tools.execute(&tool_name, args).await {
                         Ok(result) => result,
                         Err(e) => format!("Tool error: {}", e),
@@ -638,7 +662,7 @@ impl AgentRunner {
                 (result, start.elapsed().as_millis() as u64, ok)
             });
 
-            handles.push(handle);
+            guard.handles.push(handle);
         }
 
         // Show each tool call with its icon and argument preview.
@@ -653,21 +677,39 @@ impl AgentRunner {
             self.emit_stream_chunk(display, false);
         }
 
-        let total = handles.len();
+        let total = guard.handles.len();
         let mut results: Vec<(String, u64, bool)> = Vec::with_capacity(total);
         let overall_start = std::time::Instant::now();
         let heartbeat_interval = std::time::Duration::from_secs(10);
         let tool_deadline = std::time::Duration::from_secs(self.tool_timeout_secs);
 
-        for (i, handle) in handles.into_iter().enumerate() {
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..total {
             // Poll this handle with a heartbeat timeout loop, bounded by tool_deadline.
-            let mut h = handle;
+            // Access handles by index so each `&mut` borrow is short-lived;
+            // the AbortOnDrop guard aborts remaining handles if this future is dropped.
             let tool_start = std::time::Instant::now();
             loop {
+                // Check for cancellation (e.g. /stop command or message_timeout)
+                if let Some(ref token) = self.cancel_token {
+                    if token.is_cancelled() {
+                        guard.handles[i].abort();
+                        results.push((
+                            format!(
+                                "Tool '{}' cancelled — agent run was interrupted",
+                                tool_calls[i].function.name
+                            ),
+                            tool_start.elapsed().as_millis() as u64,
+                            false,
+                        ));
+                        break;
+                    }
+                }
+
                 let remaining = tool_deadline.saturating_sub(tool_start.elapsed());
                 if remaining.is_zero() {
                     // Tool timeout exceeded — abort and report.
-                    h.abort();
+                    guard.handles[i].abort();
                     let elapsed = tool_start.elapsed().as_secs();
                     warn!(
                         trace_id = %self.trace_id.as_deref().unwrap_or("-"),
@@ -694,7 +736,7 @@ impl AgentRunner {
                 }
 
                 let poll_timeout = heartbeat_interval.min(remaining);
-                match tokio::time::timeout(poll_timeout, &mut h).await {
+                match tokio::time::timeout(poll_timeout, &mut guard.handles[i]).await {
                     Ok(join_res) => {
                         match join_res {
                             Ok((result, duration, ok)) => {
@@ -721,7 +763,7 @@ impl AgentRunner {
                     Err(_) => {
                         // Check if tool deadline has passed
                         if tool_start.elapsed() >= tool_deadline {
-                            h.abort();
+                            guard.handles[i].abort();
                             let elapsed = tool_start.elapsed().as_secs();
                             warn!(
                                 trace_id = %self.trace_id.as_deref().unwrap_or("-"),
@@ -760,6 +802,10 @@ impl AgentRunner {
                 }
             }
         }
+
+        // All handles polled — clear to prevent AbortOnDrop::drop from
+        // aborting already-completed tasks.
+        guard.handles.clear();
 
         results
     }

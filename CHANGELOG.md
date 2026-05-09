@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Bug Fixes
+- fix(agent): abort spawned tool tasks when `message_timeout` fires — previous code left `tokio::spawn`ed tasks running as detached zombies after the parent future was dropped; also adds `cancel_token` checking in the tool poll loop for faster cancellation on `/stop` (Issue #310)
+
 ## [v0.9.5] - 2026-05-10
 
 ### Bug Fixes
@@ -8,7 +13,6 @@
 ## [v0.9.4] - 2026-05-10
 
 ### Bug Fixes
-- fix(tools): enforce max_output_bytes limit during Lua print() capture to prevent unbounded memory growth — a script that generates large output could consume GBs of RAM before post-execution truncation (Issue #308)
 - fix(config): change default `tool_timeout` from 120s to 60s — previous default exceeded `message_timeout` (90s), making the per-tool timeout unreachable (Issue #303, PR #306)
 
 ## [v0.9.3] - 2026-05-10

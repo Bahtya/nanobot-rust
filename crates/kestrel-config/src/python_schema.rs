@@ -433,7 +433,7 @@ mod tests {
                     "max_tokens": 4096,
                     "max_iterations": 50,
                     "streaming": true,
-                    "tool_timeout": 120
+                    "tool_timeout": 60
                 }
             },
             "heartbeat": {"enabled": true, "interval_secs": 1800},

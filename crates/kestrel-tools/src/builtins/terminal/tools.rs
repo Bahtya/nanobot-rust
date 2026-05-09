@@ -217,12 +217,10 @@ impl Tool for TerminalSendInputTool {
 
         let sid = session_id.to_string();
         let input_owned = input.to_string();
-        tokio::task::spawn_blocking(move || {
-            mgr.send_input(&sid, &input_owned)
-        })
-        .await
-        .map_err(|e| ToolError::Execution(format!("Task join error: {}", e)))?
-        .map_err(|e| ToolError::Execution(format!("Failed to send input: {}", e)))?;
+        tokio::task::spawn_blocking(move || mgr.send_input(&sid, &input_owned))
+            .await
+            .map_err(|e| ToolError::Execution(format!("Task join error: {}", e)))?
+            .map_err(|e| ToolError::Execution(format!("Failed to send input: {}", e)))?;
 
         Ok(format!(
             "Sent {} bytes to session '{}'.",
@@ -305,12 +303,10 @@ impl Tool for TerminalReadOutputTool {
         );
 
         let sid = session_id.to_string();
-        let output = tokio::task::spawn_blocking(move || {
-            mgr.read_output(&sid, timeout_ms)
-        })
-        .await
-        .map_err(|e| ToolError::Execution(format!("Task join error: {}", e)))?
-        .map_err(|e| ToolError::Execution(format!("Failed to read output: {}", e)))?;
+        let output = tokio::task::spawn_blocking(move || mgr.read_output(&sid, timeout_ms))
+            .await
+            .map_err(|e| ToolError::Execution(format!("Task join error: {}", e)))?
+            .map_err(|e| ToolError::Execution(format!("Failed to read output: {}", e)))?;
 
         if output.is_empty() {
             Ok("(no new output)".to_string())
@@ -461,12 +457,10 @@ impl Tool for TerminalKillSessionTool {
         debug!(session_id = session_id, "Killing terminal session");
 
         let sid = session_id.to_string();
-        tokio::task::spawn_blocking(move || {
-            mgr.kill_session(&sid)
-        })
-        .await
-        .map_err(|e| ToolError::Execution(format!("Task join error: {}", e)))?
-        .map_err(|e| ToolError::Execution(format!("Failed to kill session: {}", e)))?;
+        tokio::task::spawn_blocking(move || mgr.kill_session(&sid))
+            .await
+            .map_err(|e| ToolError::Execution(format!("Task join error: {}", e)))?
+            .map_err(|e| ToolError::Execution(format!("Failed to kill session: {}", e)))?;
 
         Ok(format!("Killed terminal session '{}'.", session_id))
     }
@@ -554,12 +548,10 @@ impl Tool for TerminalResizeTool {
         );
 
         let sid = session_id.to_string();
-        tokio::task::spawn_blocking(move || {
-            mgr.resize_session(&sid, cols, rows)
-        })
-        .await
-        .map_err(|e| ToolError::Execution(format!("Task join error: {}", e)))?
-        .map_err(|e| ToolError::Execution(format!("Failed to resize session: {}", e)))?;
+        tokio::task::spawn_blocking(move || mgr.resize_session(&sid, cols, rows))
+            .await
+            .map_err(|e| ToolError::Execution(format!("Task join error: {}", e)))?
+            .map_err(|e| ToolError::Execution(format!("Failed to resize session: {}", e)))?;
 
         Ok(format!(
             "Resized session '{}' to {}x{}.",

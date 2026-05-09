@@ -1,7 +1,7 @@
 //! Single PTY terminal session backed by `portable-pty`.
 
 use anyhow::{Context, Result};
-use portable_pty::{native_pty_system, ChildProcess, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -38,7 +38,7 @@ const ALLOWED_SHELLS: &[&str] = &[
 pub fn validate_shell(shell: Option<&str>, dangerous: bool) -> Result<String> {
     let shell = shell
         .map(String::from)
-        .unwrap_or_else(|| kestrel_config::platform::get_shell_path());
+        .unwrap_or_else(kestrel_config::platform::get_shell_path);
 
     if dangerous {
         return Ok(shell);
@@ -51,9 +51,9 @@ pub fn validate_shell(shell: Option<&str>, dangerous: bool) -> Result<String> {
         .unwrap_or_default();
 
     // Check if the shell matches any allowed entry (either full path or just the file name)
-    let is_allowed = ALLOWED_SHELLS.iter().any(|allowed| {
-        shell == *allowed || file_name == *allowed || file_name == shell
-    });
+    let is_allowed = ALLOWED_SHELLS
+        .iter()
+        .any(|allowed| shell == *allowed || file_name == *allowed || file_name == shell);
 
     if !is_allowed {
         anyhow::bail!(
@@ -92,7 +92,7 @@ pub struct TerminalSession {
     cols: u16,
     rows: u16,
     master: Mutex<Option<Box<dyn MasterPty + Send>>>,
-    child: Mutex<Option<Box<dyn ChildProcess + Send>>>,
+    child: Mutex<Option<Box<dyn Child + Send + Sync>>>,
     writer: Mutex<Box<dyn Write + Send>>,
     output_buffer: Arc<Mutex<RingBuffer>>,
     alive: Arc<AtomicBool>,
@@ -103,7 +103,7 @@ pub struct TerminalSession {
 // is protected by Mutex or atomic operations:
 // - id, shell, cwd, cols, rows: String/u16, inherently Send+Sync
 // - master: Mutex<Option<Box<dyn MasterPty + Send>>> — Mutex provides Sync
-// - child: Mutex<Option<Box<dyn ChildProcess + Send>>> — Mutex provides Sync
+// - child: Mutex<Option<Box<dyn Child + Send + Sync>>> — Mutex provides Sync
 // - writer: Mutex<Box<dyn Write + Send>> — Mutex provides Sync
 // - output_buffer: Arc<Mutex<RingBuffer>> — Arc+Mutex provides Sync
 // - alive: Arc<AtomicBool> — Arc+Atomic provides Sync
@@ -502,7 +502,11 @@ mod tests {
     fn test_validate_shell_default() {
         // The default shell should always pass validation.
         let result = validate_shell(None, false);
-        assert!(result.is_ok(), "Default shell should be allowed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Default shell should be allowed: {:?}",
+            result
+        );
         assert!(!result.unwrap().is_empty());
     }
 
@@ -517,7 +521,10 @@ mod tests {
     fn test_validate_shell_rejects_unknown() {
         let result = validate_shell(Some("/usr/bin/suspicious_shell"), false);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("not in the allowed list"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("not in the allowed list"));
     }
 
     #[test]

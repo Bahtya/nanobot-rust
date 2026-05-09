@@ -3103,14 +3103,14 @@ listen_addr = "0.0.0.0:9091"
         let toml_str = r#"
 [agent]
 model = "gpt-4o"
-tool_timeout = 120
+tool_timeout = 60
 "#;
         let _env = EnvVarGuard::set("KESTREL_HOME", dir.path());
         let config_path = dir.path().join("config.toml");
         std::fs::write(&config_path, toml_str).unwrap();
 
         let result = ws_settings_timeout("tool_timeout 300");
-        assert!(result.contains("tool_timeout: 120s → 300s"));
+        assert!(result.contains("tool_timeout: 60s → 300s"));
     }
 
     #[test]

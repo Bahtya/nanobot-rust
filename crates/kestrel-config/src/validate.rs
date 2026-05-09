@@ -191,12 +191,19 @@ pub fn fill_defaults(config: &mut Config) -> Vec<String> {
         filled.push("agent.max_iterations".to_string());
     }
     if config.agent.tool_timeout == 0 {
-        config.agent.tool_timeout = 120;
+        config.agent.tool_timeout = 60;
         filled.push("agent.tool_timeout".to_string());
     }
     if config.agent.message_timeout == 0 {
         config.agent.message_timeout = 90;
         filled.push("agent.message_timeout".to_string());
+    }
+    if config.agent.tool_timeout > config.agent.message_timeout {
+        tracing::warn!(
+            tool_timeout = config.agent.tool_timeout,
+            message_timeout = config.agent.message_timeout,
+            "tool_timeout exceeds message_timeout — per-tool timeout will never trigger"
+        );
     }
 
     // Dream section
@@ -2128,7 +2135,7 @@ mod tests {
         assert_eq!(config.agent.model, "gpt-4o");
         assert_eq!(config.agent.max_tokens, 4096);
         assert_eq!(config.agent.max_iterations, 50);
-        assert_eq!(config.agent.tool_timeout, 120);
+        assert_eq!(config.agent.tool_timeout, 60);
         assert_eq!(config.dream.interval_secs, 7200);
         assert_eq!(config.heartbeat.interval_secs, 1800);
         assert_eq!(config.cron.tick_secs, 60);

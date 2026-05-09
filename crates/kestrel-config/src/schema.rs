@@ -1174,7 +1174,7 @@ fn default_max_iterations() -> usize {
 }
 
 fn default_tool_timeout() -> u64 {
-    120
+    60
 }
 
 const fn default_message_timeout() -> u64 {
@@ -1310,7 +1310,7 @@ log_format: text
         assert!(agent.workspace.is_none());
         assert!(agent.system_prompt.is_none());
         assert!(agent.streaming);
-        assert_eq!(agent.tool_timeout, 120);
+        assert_eq!(agent.tool_timeout, 60);
     }
 
     #[test]

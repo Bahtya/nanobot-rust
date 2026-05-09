@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.9.1] - 2026-05-10
+
+### Bug Fixes
+- fix(agent): enforce per-tool timeout in `AgentRunner::execute_tools` — tool calls that exceed the configured timeout are now aborted with descriptive error messages (Issue #286, PR #287)
+- fix(tools): terminal resize() now updates stored cols/rows — `terminal_list_sessions` returns correct dimensions after resize (Issue #288, PR #291)
+- fix(tools): ScriptTool os.date() no longer crashes on chrono-incompatible format specifiers — falls back to default format with a warning (Issue #289, PR #291)
+- fix(tools): terminal sessions auto-cleanup after 30-minute idle timeout — prevents orphaned sessions from leaking PTY file descriptors and memory (Issue #290, PR #294)
+
 ## [v0.9.0] - 2026-05-09
 
 ### New Features

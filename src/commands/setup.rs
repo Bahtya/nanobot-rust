@@ -137,32 +137,6 @@ impl WizardStep {
         }
     }
 
-    fn next(self) -> Option<WizardStep> {
-        match self {
-            Self::Provider => Some(Self::Telegram),
-            Self::Telegram => Some(Self::Feishu),
-            Self::Feishu => Some(Self::WebSocket),
-            Self::WebSocket => Some(Self::WeChat),
-            Self::WeChat => Some(Self::Review),
-            Self::Review => None,
-        }
-    }
-
-    fn prev(self) -> Option<WizardStep> {
-        match self {
-            Self::Provider => None,
-            Self::Telegram => Some(Self::Provider),
-            Self::Feishu => Some(Self::Telegram),
-            Self::WebSocket => Some(Self::Feishu),
-            Self::WeChat => Some(Self::WebSocket),
-            Self::Review => Some(Self::WeChat),
-        }
-    }
-
-    fn first() -> WizardStep {
-        WizardStep::Provider
-    }
-
     fn all() -> &'static [WizardStep] {
         &[
             WizardStep::Provider,
@@ -194,9 +168,9 @@ trait WizardIo {
     /// Show a confirmation with back option. Returns `None` if user chose back.
     fn confirm_or_back(&self, prompt: &str, default: bool) -> Result<Option<bool>> {
         let items = if default {
-            &["Yes", "No", BACK_OPTION] as &[&str]
+            &["Yes", "Skip (keep current)", BACK_OPTION] as &[&str]
         } else {
-            &["No", "Yes", BACK_OPTION] as &[&str]
+            &["Skip (keep current)", "Yes", BACK_OPTION] as &[&str]
         };
         let default_idx = 0;
         let choice = self.select(prompt, items, default_idx)?;
@@ -204,23 +178,6 @@ trait WizardIo {
             idx if items[idx] == BACK_OPTION => Ok(None),
             idx if items[idx] == "Yes" => Ok(Some(true)),
             _ => Ok(Some(false)),
-        }
-    }
-
-    /// Show a select with back option appended. Returns `None` if user chose back.
-    fn select_or_back(
-        &self,
-        prompt: &str,
-        items: &[&str],
-        default: usize,
-    ) -> Result<Option<usize>> {
-        let mut all_items: Vec<&str> = items.to_vec();
-        all_items.push(BACK_OPTION);
-        let choice = self.select(prompt, &all_items, default)?;
-        if all_items[choice] == BACK_OPTION {
-            Ok(None)
-        } else {
-            Ok(Some(choice))
         }
     }
 }
@@ -346,41 +303,23 @@ fn run_wizard(io: &dyn WizardIo, config_path: &Path) -> Result<()> {
         Config::default()
     };
 
-    // ── Quick vs Full setup mode (first run only) ────────────────
-    let quick_mode = if is_first_run {
-        let modes = &[
-            "Quick Setup — configure LLM provider only, start using in seconds",
-            "Full Setup  — configure all channels and advanced options",
-        ];
-        let mode = io.select("Choose setup mode", modes, 0)?;
-        mode == 0
-    } else {
-        false
-    };
-
-    // ── State machine loop ───────────────────────────────────────
-    let mut current_step = WizardStep::first();
-    let mut channel_status: [ChannelStatus; 5] = [ChannelStatus::Skipped; 5];
+    // ── State machine: Review-centric navigation ────────────────
+    // After banner + config load, user lands on Review menu.
+    // They can freely jump to any step, configure it, and return to Review.
+    let mut channel_status = build_channel_status(&config);
+    let mut current_step = WizardStep::Review;
 
     loop {
-        // In quick mode, skip directly to Review after Provider
-        if quick_mode && current_step != WizardStep::Provider && current_step != WizardStep::Review
-        {
-            current_step = WizardStep::Review;
-        }
-
         match current_step {
             WizardStep::Provider => {
                 print_step(io, current_step)?;
                 match configure_provider(io, &mut config)? {
-                    StepAction::Back => {
-                        // Provider is first step, cannot go back
-                    }
+                    StepAction::Back => {}
                     StepAction::Continue => {
                         channel_status[0] = ChannelStatus::Configured;
-                        current_step = current_step.next().unwrap();
                     }
                 }
+                current_step = WizardStep::Review;
             }
             WizardStep::Telegram => {
                 print_step(io, current_step)?;
@@ -393,13 +332,10 @@ fn run_wizard(io: &dyn WizardIo, config_path: &Path) -> Result<()> {
                     configure_telegram,
                     &mut channel_status[1],
                 )? {
-                    StepAction::Back => {
-                        current_step = current_step.prev().unwrap();
-                    }
-                    StepAction::Continue => {
-                        current_step = current_step.next().unwrap();
-                    }
+                    StepAction::Back => {}
+                    StepAction::Continue => {}
                 }
+                current_step = WizardStep::Review;
             }
             WizardStep::Feishu => {
                 print_step(io, current_step)?;
@@ -412,13 +348,10 @@ fn run_wizard(io: &dyn WizardIo, config_path: &Path) -> Result<()> {
                     configure_feishu,
                     &mut channel_status[2],
                 )? {
-                    StepAction::Back => {
-                        current_step = current_step.prev().unwrap();
-                    }
-                    StepAction::Continue => {
-                        current_step = current_step.next().unwrap();
-                    }
+                    StepAction::Back => {}
+                    StepAction::Continue => {}
                 }
+                current_step = WizardStep::Review;
             }
             WizardStep::WebSocket => {
                 print_step(io, current_step)?;
@@ -435,13 +368,10 @@ fn run_wizard(io: &dyn WizardIo, config_path: &Path) -> Result<()> {
                     configure_websocket,
                     &mut channel_status[3],
                 )? {
-                    StepAction::Back => {
-                        current_step = current_step.prev().unwrap();
-                    }
-                    StepAction::Continue => {
-                        current_step = current_step.next().unwrap();
-                    }
+                    StepAction::Back => {}
+                    StepAction::Continue => {}
                 }
+                current_step = WizardStep::Review;
             }
             WizardStep::WeChat => {
                 print_step(io, current_step)?;
@@ -454,47 +384,26 @@ fn run_wizard(io: &dyn WizardIo, config_path: &Path) -> Result<()> {
                     configure_weixin,
                     &mut channel_status[4],
                 )? {
-                    StepAction::Back => {
-                        current_step = current_step.prev().unwrap();
-                    }
-                    StepAction::Continue => {
-                        current_step = current_step.next().unwrap();
-                    }
+                    StepAction::Back => {}
+                    StepAction::Continue => {}
                 }
+                current_step = WizardStep::Review;
             }
             WizardStep::Review => {
+                // Refresh status from actual config state
+                channel_status = build_channel_status(&config);
                 print_review(io, &config, &channel_status)?;
 
-                // Show options to re-configure or save
-                let mut review_items: Vec<String> = WizardStep::all()
-                    .iter()
-                    .enumerate()
-                    .map(|(i, s)| {
-                        let num = s.step_number();
-                        let title = s.title();
-                        let status = match i {
-                            0 => "✓".to_string(),
-                            _ => match channel_status[i] {
-                                ChannelStatus::Configured => "configured".to_string(),
-                                ChannelStatus::Skipped => "skipped".to_string(),
-                            },
-                        };
-                        format!("{}. {} ({})", num, title, status)
-                    })
-                    .collect();
-                review_items.push("Save configuration".to_string());
-
-                // Build &str refs for select
+                let review_items = build_review_items(&channel_status);
                 let review_refs: Vec<&str> = review_items.iter().map(|s| s.as_str()).collect();
                 let default_save = review_items.len() - 1;
                 let choice = io.select(
-                    "Select a step to re-configure, or save",
+                    "Select a step to configure, or save",
                     &review_refs,
                     default_save,
                 )?;
 
                 if choice == default_save {
-                    // Save
                     if save_config(io, &config, config_path)? {
                         print_next_steps(io, &config)?;
                         return Ok(());
@@ -506,6 +415,60 @@ fn run_wizard(io: &dyn WizardIo, config_path: &Path) -> Result<()> {
             }
         }
     }
+}
+
+/// Build channel status from actual config state (not just wizard tracking).
+fn build_channel_status(config: &Config) -> [ChannelStatus; 5] {
+    [
+        if config.agent.provider.is_some() {
+            ChannelStatus::Configured
+        } else {
+            ChannelStatus::Skipped
+        },
+        if config.channels.telegram.is_some() {
+            ChannelStatus::Configured
+        } else {
+            ChannelStatus::Skipped
+        },
+        if config.channels.feishu.as_ref().is_some_and(|f| f.enabled) {
+            ChannelStatus::Configured
+        } else {
+            ChannelStatus::Skipped
+        },
+        if config
+            .channels
+            .websocket
+            .as_ref()
+            .is_some_and(|w| w.enabled)
+        {
+            ChannelStatus::Configured
+        } else {
+            ChannelStatus::Skipped
+        },
+        if config.channels.weixin.is_some() {
+            ChannelStatus::Configured
+        } else {
+            ChannelStatus::Skipped
+        },
+    ]
+}
+
+fn build_review_items(channel_status: &[ChannelStatus; 5]) -> Vec<String> {
+    let mut items: Vec<String> = WizardStep::all()
+        .iter()
+        .enumerate()
+        .map(|(i, s)| {
+            let num = s.step_number();
+            let title = s.title();
+            let status = match channel_status[i] {
+                ChannelStatus::Configured => "configured".to_string(),
+                ChannelStatus::Skipped => "not configured".to_string(),
+            };
+            format!("{}. {} ({})", num, title, status)
+        })
+        .collect();
+    items.push("Save configuration".to_string());
+    items
 }
 
 /// Result of a configure step: continue forward or go back.
@@ -532,10 +495,7 @@ fn configure_channel_step(
     match io.confirm_or_back(&prompt, has_existing)? {
         None => return Ok(StepAction::Back),
         Some(false) => {
-            io.write_line(&format!(
-                "  Skipped. Run `kestrel setup` anytime to configure {}.",
-                channel_name
-            ))?;
+            io.write_line("  Kept current configuration.")?;
             *status = ChannelStatus::Skipped;
             return Ok(StepAction::Continue);
         }
@@ -860,11 +820,7 @@ fn configure_provider(io: &dyn WizardIo, config: &mut Config) -> Result<StepActi
         .and_then(|p| PROVIDERS.iter().position(|info| info.key == p))
         .unwrap_or(0); // default to OpenAI (first)
 
-    let provider_idx =
-        match io.select_or_back("Select LLM provider", &display_names, default_idx)? {
-            None => return Ok(StepAction::Back),
-            Some(idx) => idx,
-        };
+    let provider_idx = io.select("Select LLM provider", &display_names, default_idx)?;
 
     let provider_key = PROVIDERS[provider_idx].key;
     config.agent.provider = Some(provider_key.to_string());
@@ -1546,8 +1502,8 @@ mod tests {
         let config_path = tmp.path().join("config.toml");
 
         let mock = MockWizard::new(vec![
-            // Quick mode selection
-            MockAction::Select { result: 0 }, // Quick Setup
+            // Review: select Provider (index 0)
+            MockAction::Select { result: 0 },
             // Step 1: Provider
             MockAction::Select { result: 0 }, // openai (first)
             MockAction::Input { result: "gpt-4o" },
@@ -1557,8 +1513,8 @@ mod tests {
             MockAction::Password {
                 result: "sk-test-key",
             },
-            // Review: Save
-            MockAction::Select { result: 5 }, // "Save configuration" (index 5 = last)
+            // Review: Save (index 5 = last)
+            MockAction::Select { result: 5 },
             MockAction::Confirm {
                 prompt_contains: "Write",
                 result: true,
@@ -1575,31 +1531,13 @@ mod tests {
     }
 
     #[test]
-    fn wizard_full_setup_all_skip() {
+    fn wizard_setup_only_feishu() {
+        // Test: user only configures Feishu, skips everything else
         let tmp = tempfile::tempdir().unwrap();
         let config_path = tmp.path().join("config.toml");
 
         let mock = MockWizard::new(vec![
-            // Full mode
-            MockAction::Select { result: 1 }, // Full Setup
-            // Step 1: Provider
-            MockAction::Select { result: 0 }, // openai
-            MockAction::Input { result: "gpt-4o" },
-            MockAction::Input {
-                result: "https://api.openai.com/v1",
-            },
-            MockAction::Password {
-                result: "sk-test-key",
-            },
-            // Step 2: Telegram (skip) — confirm_or_back [No, Yes, ↩], index 0 = No
-            MockAction::Select { result: 0 }, // "No"
-            // Step 3: Feishu (skip)
-            MockAction::Select { result: 0 }, // "No"
-            // Step 4: WebSocket (skip)
-            MockAction::Select { result: 0 }, // "No"
-            // Step 5: WeChat (skip)
-            MockAction::Select { result: 0 }, // "No"
-            // Review: Save
+            // Review: save directly without configuring anything
             MockAction::Select { result: 5 }, // Save
             MockAction::Confirm {
                 prompt_contains: "Write",
@@ -1610,9 +1548,10 @@ mod tests {
         run_wizard(&mock, &config_path).unwrap();
 
         assert!(config_path.exists());
+        // Default config should be saved
         let saved: Config =
             toml::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
-        assert_eq!(saved.agent.provider.as_deref(), Some("openai"));
+        assert!(saved.agent.provider.is_none());
     }
 
     #[test]
@@ -1630,9 +1569,10 @@ mod tests {
                 prompt_contains: "Update",
                 result: true,
             },
-            // Full mode (not first run, so mode selection is skipped)
-            // Step 1: Provider
-            MockAction::Select { result: 1 }, // anthropic (index 1)
+            // Review: select Provider (index 0)
+            MockAction::Select { result: 0 },
+            // Step 1: Provider — select anthropic (index 1)
+            MockAction::Select { result: 1 },
             MockAction::Input {
                 result: "claude-sonnet-4-20250514",
             },
@@ -1642,13 +1582,8 @@ mod tests {
             MockAction::Password {
                 result: "sk-ant-test",
             },
-            // Step 2-5: Skip all channels — confirm_or_back [No, Yes, ↩], index 0 = No
-            MockAction::Select { result: 0 }, // Telegram No
-            MockAction::Select { result: 0 }, // Feishu No
-            MockAction::Select { result: 0 }, // WebSocket No
-            MockAction::Select { result: 0 }, // WeChat No
-            // Review: Save
-            MockAction::Select { result: 5 }, // Save
+            // Back to Review: Save (index 5)
+            MockAction::Select { result: 5 },
             MockAction::Confirm {
                 prompt_contains: "Write",
                 result: true,
@@ -1724,13 +1659,11 @@ mod tests {
 
     #[test]
     fn wizard_step_ordering() {
-        assert_eq!(WizardStep::first(), WizardStep::Provider);
         assert_eq!(WizardStep::Provider.step_number(), 1);
         assert_eq!(WizardStep::Review.step_number(), 0);
-        assert_eq!(WizardStep::Provider.next(), Some(WizardStep::Telegram));
-        assert_eq!(WizardStep::Review.next(), None);
-        assert_eq!(WizardStep::Provider.prev(), None);
-        assert_eq!(WizardStep::Review.prev(), Some(WizardStep::WeChat));
+        assert_eq!(WizardStep::all().len(), 5);
+        assert_eq!(WizardStep::all()[0], WizardStep::Provider);
+        assert_eq!(WizardStep::all()[4], WizardStep::WeChat);
     }
 
     fn tg(token: &str) -> TelegramConfig {

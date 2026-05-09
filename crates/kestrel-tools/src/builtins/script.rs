@@ -620,8 +620,7 @@ impl Tool for ScriptTool {
         // binding bug that triggers a Rust panic instead of returning an error).
         let max_output = self.max_output_bytes;
         let exec_result: Result<(), ToolError> = tokio::task::block_in_place(|| {
-            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| lua.load(code).exec()))
-            {
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| lua.load(code).exec())) {
                 Ok(Ok(())) => Ok(()),
                 Ok(Err(e)) => Err(ToolError::Execution(format!("Lua error: {}", e))),
                 Err(panic) => {

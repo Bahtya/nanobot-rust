@@ -89,10 +89,10 @@ jobs:
           cargo install cargo-binstall
           cargo binstall cross --version 0.2.5 --no-confirm
 
-      - name: Install aarch64 protoc for cross container
+      - name: Install protoc for cross container
         if: matrix.target == 'aarch64-unknown-linux-musl'
         run: |
-          curl -L -o /tmp/protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v29.5/protoc-29.5-linux-aarch_64.zip
+          curl -L -o /tmp/protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v29.5/protoc-29.5-linux-x86_64.zip
           rm -rf /tmp/protoc
           unzip -q /tmp/protoc.zip -d /tmp/protoc
 

@@ -1,10 +1,14 @@
 # Changelog
 
+## [v0.9.4] - 2026-05-10
+
+### Bug Fixes
+- fix(config): change default `tool_timeout` from 120s to 60s — previous default exceeded `message_timeout` (90s), making the per-tool timeout unreachable (Issue #303, PR #306)
+
 ## [v0.9.3] - 2026-05-10
 
 ### Bug Fixes
 - fix(tools): add depth (max 10) and entry count (max 10,000) limits to `kestrel.list_dir` recursive mode to prevent filesystem enumeration DoS; gracefully skip unreadable directories instead of aborting (Issue #304, PR #305)
-- fix(config): change default `tool_timeout` from 120s to 60s — previous default exceeded `message_timeout` (90s), making the per-tool timeout unreachable (Issue #303)
 
 ## [v0.9.2] - 2026-05-10
 

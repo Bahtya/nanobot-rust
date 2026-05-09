@@ -126,8 +126,8 @@ impl TerminalManager {
     ) -> Result<String> {
         self.reap_idle_sessions();
 
-        let current_count = self.sessions.read().len();
-        if current_count >= self.max_sessions {
+        // Fast-path pre-check with read lock to avoid wasteful PTY spawn.
+        if self.sessions.read().len() >= self.max_sessions {
             anyhow::bail!(
                 "Maximum number of terminal sessions reached ({})",
                 self.max_sessions
@@ -139,7 +139,20 @@ impl TerminalManager {
         let session = TerminalSession::spawn(id.clone(), shell, cwd, cols, rows, self.dangerous)
             .with_context(|| format!("Failed to spawn terminal session '{}'", id))?;
 
-        self.sessions.write().insert(id.clone(), Arc::new(session));
+        // Authoritative check + insert under a single write lock to prevent
+        // TOCTOU race where concurrent calls could exceed max_sessions.
+        let mut sessions = self.sessions.write();
+        if sessions.len() >= self.max_sessions {
+            drop(sessions);
+            drop(session);
+            anyhow::bail!(
+                "Maximum number of terminal sessions reached ({})",
+                self.max_sessions
+            );
+        }
+        sessions.insert(id.clone(), Arc::new(session));
+        drop(sessions);
+
         info!("Created terminal session '{}'", id);
         Ok(id)
     }
@@ -296,5 +309,35 @@ mod tests {
         assert!(id.is_ok());
         assert_eq!(mgr.reap_idle_sessions(), 0);
         assert_eq!(mgr.len(), 1);
+    }
+
+    #[test]
+    fn test_concurrent_create_respects_limit() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let mgr = Arc::new(TerminalManager::with_config(3, true));
+        let mut handles = vec![];
+
+        // Spawn 6 threads each trying to create a session (limit is 3).
+        for _ in 0..6 {
+            let mgr = mgr.clone();
+            handles.push(thread::spawn(move || {
+                mgr.create_session(None, None, 80, 24).ok()
+            }));
+        }
+
+        let successes: Vec<_> = handles
+            .into_iter()
+            .filter_map(|h| h.join().ok().flatten())
+            .collect();
+
+        // At most 3 sessions should have been created.
+        assert!(
+            successes.len() <= 3,
+            "Expected at most 3 sessions, got {}",
+            successes.len()
+        );
+        assert_eq!(mgr.len(), successes.len());
     }
 }

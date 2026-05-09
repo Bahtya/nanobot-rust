@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.8.4] - 2026-05-09
+
+### Bug Fixes
+- fix(feishu): tenant_access_token parsing failed because the Feishu auth API returns `tenant_access_token` and `expire` at the top level of the JSON response, not nested inside a `data` field — this caused every gateway startup to fail with "Feishu token response missing data"
+
 ## [v0.8.3] - 2026-05-09
 
 ### Bug Fixes

@@ -1031,7 +1031,10 @@ mod tests {
         } else {
             "/etc/test"
         };
-        let code = format!("kestrel.write_file('{}', 'hacked')", blocked_path.replace('\\', "\\\\"));
+        let code = format!(
+            "kestrel.write_file('{}', 'hacked')",
+            blocked_path.replace('\\', "\\\\")
+        );
         let result = tool.execute(json!({"code": code})).await;
         // Should either error at Lua level or Rust level
         assert!(result.is_err() || result.unwrap().contains("not allowed"));

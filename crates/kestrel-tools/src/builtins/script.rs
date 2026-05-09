@@ -11,7 +11,7 @@ use mlua::{HookTriggers, Lua, LuaOptions, StdLib, VmState};
 use serde_json::{json, Value};
 use std::io::Write;
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, info, warn};
@@ -589,15 +589,22 @@ impl Tool for ScriptTool {
             .map_err(|e| ToolError::Execution(format!("Failed to set instruction hook: {}", e)))?;
         }
 
-        // Set up output capture buffer
+        // Set up output capture buffer with early size-limit enforcement to
+        // prevent unbounded memory growth from scripts that print large output.
         let stdout_buf: Arc<std::sync::Mutex<Vec<u8>>> =
             Arc::new(std::sync::Mutex::new(Vec::new()));
         let buf_clone = stdout_buf.clone();
+        let output_truncated = Arc::new(AtomicBool::new(false));
+        let truncated_flag = output_truncated.clone();
+        let max_output = self.max_output_bytes;
 
-        // Override print to write to our buffer
+        // Override print to write to our buffer (enforcing max_output_bytes)
         let globals = lua.globals();
         let print_capture = lua
             .create_function(move |_, args: mlua::MultiValue| {
+                if truncated_flag.load(Ordering::Relaxed) {
+                    return Ok(());
+                }
                 let parts: Vec<String> = args
                     .iter()
                     .map(|v| match v {
@@ -614,6 +621,10 @@ impl Tool for ScriptTool {
                     .collect();
                 let line = parts.join("\t");
                 let mut buf = buf_clone.lock().unwrap_or_else(|e| e.into_inner());
+                if buf.len() + line.len() + 1 > max_output {
+                    truncated_flag.store(true, Ordering::Relaxed);
+                    return Ok(());
+                }
                 buf.extend_from_slice(line.as_bytes());
                 buf.push(b'\n');
                 Ok(())
@@ -627,7 +638,6 @@ impl Tool for ScriptTool {
         // Execute the script — catch_unwind prevents Lua binding panics from
         // crashing the process (e.g., poisoned mutex in print, or any future
         // binding bug that triggers a Rust panic instead of returning an error).
-        let max_output = self.max_output_bytes;
         let exec_result: Result<(), ToolError> = tokio::task::block_in_place(|| {
             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| lua.load(code).exec())) {
                 Ok(Ok(())) => Ok(()),
@@ -650,13 +660,15 @@ impl Tool for ScriptTool {
         match &exec_result {
             Ok(()) => {
                 // Collect captured output
+                let was_truncated = output_truncated.load(Ordering::Relaxed);
                 let output = {
                     let buf = stdout_buf.lock().unwrap_or_else(|e| e.into_inner());
                     String::from_utf8_lossy(&buf).to_string()
                 };
 
                 let output_len = output.len();
-                let truncated = output_len > MAX_TOOL_OUTPUT_LENGTH || output_len > max_output;
+                let truncated =
+                    was_truncated || output_len > MAX_TOOL_OUTPUT_LENGTH || output_len > max_output;
 
                 info!(
                     duration_ms = elapsed_ms,
@@ -988,6 +1000,24 @@ mod tests {
         let result = tool.execute(json!({"code": "print('hello world')"})).await;
         assert!(result.is_ok());
         assert!(result.unwrap().contains("hello world"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_script_output_buffer_enforces_max_bytes() {
+        // Use a very small max_output_bytes to verify the buffer stops growing
+        let tool = ScriptTool::new().with_max_output_bytes(100);
+        // This script prints far more than 100 bytes
+        let code = "for i = 1, 10000 do print(string.rep('A', 100)) end";
+        let result = tool.execute(json!({"code": code})).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        // Output should be limited to ~100 bytes plus truncation suffix
+        assert!(
+            output.len() <= 200,
+            "output should be bounded by max_output_bytes, got {} bytes: {}",
+            output.len(),
+            &output[..output.len().min(100)]
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]

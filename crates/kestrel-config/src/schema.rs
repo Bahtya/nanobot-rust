@@ -445,11 +445,11 @@ pub struct FeishuConfig {
     #[serde(default)]
     pub mention_only: bool,
 
-    /// Connection mode: `"websocket"` or `"webhook"` (default: `"webhook"`).
+    /// Connection mode: `"websocket"` or `"webhook"` (default: `"websocket"`).
     ///
     /// WebSocket mode establishes a persistent outbound connection to Feishu,
     /// no public endpoint needed. Also reads from `FEISHU_CONNECTION_MODE` env var.
-    #[serde(default)]
+    #[serde(default = "default_feishu_connection_mode")]
     pub connection_mode: Option<String>,
 }
 
@@ -459,6 +459,9 @@ fn default_feishu_group_policy() -> String {
 
 fn default_feishu_allow_bots() -> String {
     "none".to_string()
+}
+fn default_feishu_connection_mode() -> Option<String> {
+    Some("websocket".to_string())
 }
 
 impl Default for FeishuConfig {
@@ -476,7 +479,7 @@ impl Default for FeishuConfig {
             allowed_users: Vec::new(),
             allow_bots: default_feishu_allow_bots(),
             mention_only: false,
-            connection_mode: None,
+            connection_mode: default_feishu_connection_mode(),
         }
     }
 }

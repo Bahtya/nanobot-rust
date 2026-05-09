@@ -284,6 +284,10 @@ fn merge_batch(messages: Vec<InboundMessage>) -> Option<InboundMessage> {
 // ---------------------------------------------------------------------------
 
 /// Top-level wrapper for Feishu API responses.
+///
+/// Most endpoints nest results in a `data` field, but the token endpoint
+/// (`auth/v3/tenant_access_token/internal`) returns `tenant_access_token`
+/// and `expire` at the top level.  We capture both shapes.
 #[derive(Debug, Deserialize)]
 struct FeishuResponse<T> {
     code: i64,
@@ -291,6 +295,12 @@ struct FeishuResponse<T> {
     msg: Option<String>,
     #[serde(default)]
     data: Option<T>,
+    /// Top-level token (returned by the token endpoint).
+    #[serde(default)]
+    tenant_access_token: Option<String>,
+    /// Top-level expire seconds (returned by the token endpoint).
+    #[serde(default)]
+    expire: Option<u64>,
 }
 
 /// Token response from `auth/v3/tenant_access_token/internal`.
@@ -1213,7 +1223,7 @@ impl FeishuChannel {
         let app_id = std::env::var("FEISHU_APP_ID").unwrap_or_default();
         let app_secret = std::env::var("FEISHU_APP_SECRET").unwrap_or_default();
         let connection_mode =
-            std::env::var("FEISHU_CONNECTION_MODE").unwrap_or_else(|_| "webhook".to_string());
+            std::env::var("FEISHU_CONNECTION_MODE").unwrap_or_else(|_| "websocket".to_string());
         Self {
             app_id,
             app_secret,
@@ -1246,7 +1256,7 @@ impl FeishuChannel {
             .connection_mode
             .clone()
             .or_else(|| std::env::var("FEISHU_CONNECTION_MODE").ok())
-            .unwrap_or_else(|| "webhook".to_string());
+            .unwrap_or_else(|| "websocket".to_string());
         let client = Self::build_client(proxy.as_deref());
         Self {
             app_id,
@@ -1304,21 +1314,34 @@ impl FeishuChannel {
             );
         }
 
-        let data = feishu_resp
+        // The token API returns tenant_access_token and expire at the top level,
+        // not inside a "data" wrapper.  Try the nested data field first (some
+        // endpoints use it), then fall back to the flattened response.
+        let token = if let Some(ref data) = feishu_resp.data {
+            data.tenant_access_token.clone()
+        } else {
+            feishu_resp.tenant_access_token.clone().context(
+                "Feishu token response missing data (neither data.tenant_access_token nor top-level tenant_access_token)",
+            )?
+        };
+        let expire = feishu_resp
             .data
-            .context("Feishu token response missing data")?;
+            .as_ref()
+            .map(|d| d.expire)
+            .or(feishu_resp.expire)
+            .unwrap_or(7200);
 
-        let expire_secs = data.expire.saturating_sub(TOKEN_REFRESH_MARGIN_SECS);
+        let expire_secs = expire.saturating_sub(TOKEN_REFRESH_MARGIN_SECS);
         let expires_at = Instant::now() + Duration::from_secs(expire_secs);
 
-        *self.access_token.lock() = Some(data.tenant_access_token.clone());
+        *self.access_token.lock() = Some(token.clone());
         *self.token_expires_at.lock() = expires_at;
 
         info!(
             "Feishu tenant_access_token refreshed, expires in {}s",
             expire_secs
         );
-        Ok(data.tenant_access_token)
+        Ok(token)
     }
 
     /// Add an emoji reaction to a message.

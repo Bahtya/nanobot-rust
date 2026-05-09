@@ -13,6 +13,7 @@ use kestrel_config::{
 use owo_colors::OwoColorize;
 use std::net::SocketAddr;
 use std::path::Path;
+use std::time::Duration;
 
 // ── Provider display info ──────────────────────────────────────
 
@@ -137,32 +138,6 @@ impl WizardStep {
         }
     }
 
-    fn next(self) -> Option<WizardStep> {
-        match self {
-            Self::Provider => Some(Self::Telegram),
-            Self::Telegram => Some(Self::Feishu),
-            Self::Feishu => Some(Self::WebSocket),
-            Self::WebSocket => Some(Self::WeChat),
-            Self::WeChat => Some(Self::Review),
-            Self::Review => None,
-        }
-    }
-
-    fn prev(self) -> Option<WizardStep> {
-        match self {
-            Self::Provider => None,
-            Self::Telegram => Some(Self::Provider),
-            Self::Feishu => Some(Self::Telegram),
-            Self::WebSocket => Some(Self::Feishu),
-            Self::WeChat => Some(Self::WebSocket),
-            Self::Review => Some(Self::WeChat),
-        }
-    }
-
-    fn first() -> WizardStep {
-        WizardStep::Provider
-    }
-
     fn all() -> &'static [WizardStep] {
         &[
             WizardStep::Provider,
@@ -194,9 +169,9 @@ trait WizardIo {
     /// Show a confirmation with back option. Returns `None` if user chose back.
     fn confirm_or_back(&self, prompt: &str, default: bool) -> Result<Option<bool>> {
         let items = if default {
-            &["Yes", "No", BACK_OPTION] as &[&str]
+            &["Yes", "Skip (keep current)", BACK_OPTION] as &[&str]
         } else {
-            &["No", "Yes", BACK_OPTION] as &[&str]
+            &["Skip (keep current)", "Yes", BACK_OPTION] as &[&str]
         };
         let default_idx = 0;
         let choice = self.select(prompt, items, default_idx)?;
@@ -204,23 +179,6 @@ trait WizardIo {
             idx if items[idx] == BACK_OPTION => Ok(None),
             idx if items[idx] == "Yes" => Ok(Some(true)),
             _ => Ok(Some(false)),
-        }
-    }
-
-    /// Show a select with back option appended. Returns `None` if user chose back.
-    fn select_or_back(
-        &self,
-        prompt: &str,
-        items: &[&str],
-        default: usize,
-    ) -> Result<Option<usize>> {
-        let mut all_items: Vec<&str> = items.to_vec();
-        all_items.push(BACK_OPTION);
-        let choice = self.select(prompt, &all_items, default)?;
-        if all_items[choice] == BACK_OPTION {
-            Ok(None)
-        } else {
-            Ok(Some(choice))
         }
     }
 }
@@ -346,41 +304,23 @@ fn run_wizard(io: &dyn WizardIo, config_path: &Path) -> Result<()> {
         Config::default()
     };
 
-    // ── Quick vs Full setup mode (first run only) ────────────────
-    let quick_mode = if is_first_run {
-        let modes = &[
-            "Quick Setup — configure LLM provider only, start using in seconds",
-            "Full Setup  — configure all channels and advanced options",
-        ];
-        let mode = io.select("Choose setup mode", modes, 0)?;
-        mode == 0
-    } else {
-        false
-    };
-
-    // ── State machine loop ───────────────────────────────────────
-    let mut current_step = WizardStep::first();
-    let mut channel_status: [ChannelStatus; 5] = [ChannelStatus::Skipped; 5];
+    // ── State machine: Review-centric navigation ────────────────
+    // After banner + config load, user lands on Review menu.
+    // They can freely jump to any step, configure it, and return to Review.
+    let mut channel_status = build_channel_status(&config);
+    let mut current_step = WizardStep::Review;
 
     loop {
-        // In quick mode, skip directly to Review after Provider
-        if quick_mode && current_step != WizardStep::Provider && current_step != WizardStep::Review
-        {
-            current_step = WizardStep::Review;
-        }
-
         match current_step {
             WizardStep::Provider => {
                 print_step(io, current_step)?;
                 match configure_provider(io, &mut config)? {
-                    StepAction::Back => {
-                        // Provider is first step, cannot go back
-                    }
+                    StepAction::Back => {}
                     StepAction::Continue => {
                         channel_status[0] = ChannelStatus::Configured;
-                        current_step = current_step.next().unwrap();
                     }
                 }
+                current_step = WizardStep::Review;
             }
             WizardStep::Telegram => {
                 print_step(io, current_step)?;
@@ -393,13 +333,10 @@ fn run_wizard(io: &dyn WizardIo, config_path: &Path) -> Result<()> {
                     configure_telegram,
                     &mut channel_status[1],
                 )? {
-                    StepAction::Back => {
-                        current_step = current_step.prev().unwrap();
-                    }
-                    StepAction::Continue => {
-                        current_step = current_step.next().unwrap();
-                    }
+                    StepAction::Back => {}
+                    StepAction::Continue => {}
                 }
+                current_step = WizardStep::Review;
             }
             WizardStep::Feishu => {
                 print_step(io, current_step)?;
@@ -412,13 +349,10 @@ fn run_wizard(io: &dyn WizardIo, config_path: &Path) -> Result<()> {
                     configure_feishu,
                     &mut channel_status[2],
                 )? {
-                    StepAction::Back => {
-                        current_step = current_step.prev().unwrap();
-                    }
-                    StepAction::Continue => {
-                        current_step = current_step.next().unwrap();
-                    }
+                    StepAction::Back => {}
+                    StepAction::Continue => {}
                 }
+                current_step = WizardStep::Review;
             }
             WizardStep::WebSocket => {
                 print_step(io, current_step)?;
@@ -435,13 +369,10 @@ fn run_wizard(io: &dyn WizardIo, config_path: &Path) -> Result<()> {
                     configure_websocket,
                     &mut channel_status[3],
                 )? {
-                    StepAction::Back => {
-                        current_step = current_step.prev().unwrap();
-                    }
-                    StepAction::Continue => {
-                        current_step = current_step.next().unwrap();
-                    }
+                    StepAction::Back => {}
+                    StepAction::Continue => {}
                 }
+                current_step = WizardStep::Review;
             }
             WizardStep::WeChat => {
                 print_step(io, current_step)?;
@@ -454,47 +385,26 @@ fn run_wizard(io: &dyn WizardIo, config_path: &Path) -> Result<()> {
                     configure_weixin,
                     &mut channel_status[4],
                 )? {
-                    StepAction::Back => {
-                        current_step = current_step.prev().unwrap();
-                    }
-                    StepAction::Continue => {
-                        current_step = current_step.next().unwrap();
-                    }
+                    StepAction::Back => {}
+                    StepAction::Continue => {}
                 }
+                current_step = WizardStep::Review;
             }
             WizardStep::Review => {
+                // Refresh status from actual config state
+                channel_status = build_channel_status(&config);
                 print_review(io, &config, &channel_status)?;
 
-                // Show options to re-configure or save
-                let mut review_items: Vec<String> = WizardStep::all()
-                    .iter()
-                    .enumerate()
-                    .map(|(i, s)| {
-                        let num = s.step_number();
-                        let title = s.title();
-                        let status = match i {
-                            0 => "✓".to_string(),
-                            _ => match channel_status[i] {
-                                ChannelStatus::Configured => "configured".to_string(),
-                                ChannelStatus::Skipped => "skipped".to_string(),
-                            },
-                        };
-                        format!("{}. {} ({})", num, title, status)
-                    })
-                    .collect();
-                review_items.push("Save configuration".to_string());
-
-                // Build &str refs for select
+                let review_items = build_review_items(&channel_status);
                 let review_refs: Vec<&str> = review_items.iter().map(|s| s.as_str()).collect();
                 let default_save = review_items.len() - 1;
                 let choice = io.select(
-                    "Select a step to re-configure, or save",
+                    "Select a step to configure, or save",
                     &review_refs,
                     default_save,
                 )?;
 
                 if choice == default_save {
-                    // Save
                     if save_config(io, &config, config_path)? {
                         print_next_steps(io, &config)?;
                         return Ok(());
@@ -506,6 +416,60 @@ fn run_wizard(io: &dyn WizardIo, config_path: &Path) -> Result<()> {
             }
         }
     }
+}
+
+/// Build channel status from actual config state (not just wizard tracking).
+fn build_channel_status(config: &Config) -> [ChannelStatus; 5] {
+    [
+        if config.agent.provider.is_some() {
+            ChannelStatus::Configured
+        } else {
+            ChannelStatus::Skipped
+        },
+        if config.channels.telegram.is_some() {
+            ChannelStatus::Configured
+        } else {
+            ChannelStatus::Skipped
+        },
+        if config.channels.feishu.as_ref().is_some_and(|f| f.enabled) {
+            ChannelStatus::Configured
+        } else {
+            ChannelStatus::Skipped
+        },
+        if config
+            .channels
+            .websocket
+            .as_ref()
+            .is_some_and(|w| w.enabled)
+        {
+            ChannelStatus::Configured
+        } else {
+            ChannelStatus::Skipped
+        },
+        if config.channels.weixin.is_some() {
+            ChannelStatus::Configured
+        } else {
+            ChannelStatus::Skipped
+        },
+    ]
+}
+
+fn build_review_items(channel_status: &[ChannelStatus; 5]) -> Vec<String> {
+    let mut items: Vec<String> = WizardStep::all()
+        .iter()
+        .enumerate()
+        .map(|(i, s)| {
+            let num = s.step_number();
+            let title = s.title();
+            let status = match channel_status[i] {
+                ChannelStatus::Configured => "configured".to_string(),
+                ChannelStatus::Skipped => "not configured".to_string(),
+            };
+            format!("{}. {} ({})", num, title, status)
+        })
+        .collect();
+    items.push("Save configuration".to_string());
+    items
 }
 
 /// Result of a configure step: continue forward or go back.
@@ -532,10 +496,7 @@ fn configure_channel_step(
     match io.confirm_or_back(&prompt, has_existing)? {
         None => return Ok(StepAction::Back),
         Some(false) => {
-            io.write_line(&format!(
-                "  Skipped. Run `kestrel setup` anytime to configure {}.",
-                channel_name
-            ))?;
+            io.write_line("  Kept current configuration.")?;
             *status = ChannelStatus::Skipped;
             return Ok(StepAction::Continue);
         }
@@ -848,9 +809,271 @@ fn validate_url(input: &str) -> Result<String> {
     Ok(url)
 }
 
+// ── Connectivity validation ────────────────────────────────────
+
+/// Result of a connectivity check.
+enum ConnectivityResult {
+    /// Successfully connected and authenticated.
+    Ok {
+        latency_ms: u64,
+        models: Vec<String>,
+    },
+    /// Connected to server but authentication failed (HTTP 401/403).
+    AuthFailed(String),
+    /// Server unreachable or other network error.
+    Unreachable(String),
+}
+
+/// Test API key validity by making a real request to the provider.
+///
+/// Most OpenAI-compatible providers support `GET /models` with Bearer auth.
+/// For Anthropic we use `GET /v1/models` with `x-api-key` header.
+fn test_api_key_connectivity(
+    provider_key: &str,
+    base_url: &str,
+    api_key: &str,
+) -> ConnectivityResult {
+    let rt = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt,
+        Err(e) => return ConnectivityResult::Unreachable(format!("Runtime error: {}", e)),
+    };
+
+    rt.block_on(async {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build();
+
+        let client = match client {
+            Ok(c) => c,
+            Err(e) => return ConnectivityResult::Unreachable(format!("Client error: {}", e)),
+        };
+
+        let start = std::time::Instant::now();
+
+        // Build the request based on provider type
+        let (display_url, req) = build_validation_request(provider_key, base_url, api_key, &client);
+
+        match req {
+            Ok(request) => match client.execute(request).await {
+                Ok(resp) => {
+                    let latency = start.elapsed().as_millis() as u64;
+                    let status = resp.status();
+
+                    if status.is_success() {
+                        let models = parse_models_from_response(provider_key, resp).await;
+                        ConnectivityResult::Ok {
+                            latency_ms: latency,
+                            models,
+                        }
+                    } else if status.as_u16() == 401 || status.as_u16() == 403 {
+                        let body = resp.text().await.unwrap_or_default();
+                        let msg = extract_error_message(&body)
+                            .unwrap_or_else(|| format!("HTTP {} — API key may be invalid", status));
+                        ConnectivityResult::AuthFailed(msg)
+                    } else {
+                        // Other HTTP errors — report with status code so user can diagnose
+                        let msg = format!("Server returned HTTP {} for {}", status, display_url);
+                        ConnectivityResult::Unreachable(msg)
+                    }
+                }
+                Err(e) => {
+                    let msg = if e.is_timeout() {
+                        "Connection timed out (10s)".to_string()
+                    } else if e.is_connect() {
+                        format!("Cannot connect to {}", display_url)
+                    } else {
+                        format!("{}", e)
+                    };
+                    ConnectivityResult::Unreachable(msg)
+                }
+            },
+            Err(e) => ConnectivityResult::Unreachable(format!("Request error: {}", e)),
+        }
+    })
+}
+
+/// Build the validation HTTP request based on provider type.
+/// Returns (display_url, request_result) where display_url is safe to show in error messages.
+fn build_validation_request(
+    provider_key: &str,
+    base_url: &str,
+    api_key: &str,
+    client: &reqwest::Client,
+) -> (String, Result<reqwest::Request, reqwest::Error>) {
+    let (display_url, req_builder) = match provider_key {
+        "anthropic" => {
+            let url = format!("{}/v1/models", base_url.trim_end_matches('/'));
+            let req = client
+                .get(&url)
+                .header("x-api-key", api_key)
+                .header("anthropic-version", "2023-06-01");
+            (url, req.build())
+        }
+        "gemini" => {
+            let url = format!("{}?key={}", base_url.trim_end_matches('/'), api_key);
+            // Don't expose API key in error messages
+            let display = format!("{}/models", base_url.trim_end_matches('/'));
+            let req = client.get(&url);
+            (display, req.build())
+        }
+        // OpenAI-compatible providers: openai, openrouter, deepseek, groq, moonshot, minimax,
+        // github_copilot, openai_codex, glm_coding_plan, etc.
+        _ => {
+            let base = base_url.trim_end_matches('/');
+            let url = format!("{}/models", base);
+            let req = client
+                .get(&url)
+                .header("Authorization", format!("Bearer {}", api_key));
+            (url, req.build())
+        }
+    };
+    (display_url, req_builder)
+}
+
+/// Try to extract model names from the validation response.
+async fn parse_models_from_response(provider_key: &str, resp: reqwest::Response) -> Vec<String> {
+    let body = resp.text().await.unwrap_or_default();
+
+    if provider_key == "gemini" {
+        // Gemini returns { "models": [ { "name": "models/gemini-2.5-pro", ... } ] }
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&body) {
+            if let Some(models) = val.get("models").and_then(|m| m.as_array()) {
+                return models
+                    .iter()
+                    .filter_map(|m| {
+                        m.get("name")
+                            .and_then(|n| n.as_str())
+                            .map(|n| n.trim_start_matches("models/").to_string())
+                    })
+                    .take(5)
+                    .collect();
+            }
+        }
+        return vec![];
+    }
+
+    if provider_key == "anthropic" {
+        // Anthropic /v1/models returns { "data": [ { "id": "claude-...", ... } ] }
+        return parse_openai_models(&body);
+    }
+
+    // OpenAI-compatible: { "data": [ { "id": "gpt-4o", ... } ] }
+    parse_openai_models(&body)
+}
+
+/// Parse model IDs from an OpenAI-style { "data": [ ... ] } response.
+fn parse_openai_models(body: &str) -> Vec<String> {
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(body) {
+        if let Some(data) = val.get("data").and_then(|d| d.as_array()) {
+            return data
+                .iter()
+                .filter_map(|m| m.get("id").and_then(|id| id.as_str()).map(String::from))
+                .take(5)
+                .collect();
+        }
+    }
+    vec![]
+}
+
+/// Extract a human-readable error message from an error response body.
+fn extract_error_message(body: &str) -> Option<String> {
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(body) {
+        // { "error": { "message": "..." } } — OpenAI and Anthropic format
+        if let Some(msg) = val
+            .get("error")
+            .and_then(|e| e.get("message"))
+            .and_then(|m| m.as_str())
+        {
+            return Some(msg.to_string());
+        }
+        // Fallback: { "message": "..." }
+        if let Some(msg) = val.get("message").and_then(|m| m.as_str()) {
+            return Some(msg.to_string());
+        }
+    }
+    None
+}
+
+/// Run connectivity validation after provider config is entered.
+/// Shows results to user and asks if they want to continue on failure.
+/// Accepts a connectivity test fn (for testability).
+fn run_connectivity_check(
+    io: &dyn WizardIo,
+    provider_key: &str,
+    base_url: &str,
+    api_key: &str,
+    test_fn: fn(&str, &str, &str) -> ConnectivityResult,
+) -> Result<()> {
+    // Skip for Ollama (local, no API key needed)
+    if provider_key == "ollama" {
+        return Ok(());
+    }
+
+    io.write_line("")?;
+    io.write_line(&format!("  {} Validating API key…", "⟳".cyan()))?;
+
+    match test_fn(provider_key, base_url, api_key) {
+        ConnectivityResult::Ok { latency_ms, models } => {
+            if models.is_empty() {
+                io.write_line(&format!(
+                    "  {} Connected! (latency: {}ms)",
+                    "✓".green(),
+                    latency_ms
+                ))?;
+            } else {
+                io.write_line(&format!(
+                    "  {} Connected! (latency: {}ms)",
+                    "✓".green(),
+                    latency_ms
+                ))?;
+                let models_str = models.join(", ");
+                io.write_line(&format!("    Available models: {}", models_str.dimmed()))?;
+            }
+        }
+        ConnectivityResult::AuthFailed(msg) => {
+            io.write_line(&format!(
+                "  {} API key validation failed: {}",
+                "✗".red(),
+                msg
+            ))?;
+            if !io.confirm("  Continue with this key anyway?", false)? {
+                bail!("Provider configuration cancelled.");
+            }
+        }
+        ConnectivityResult::Unreachable(msg) => {
+            io.write_line(&format!(
+                "  {} Could not verify API key: {}",
+                "⚠".yellow(),
+                msg
+            ))?;
+            io.write_line(&format!(
+                "    {}",
+                "The server may be unreachable from this network.".dimmed()
+            ))?;
+            if !io.confirm("  Continue anyway?", true)? {
+                bail!("Provider configuration cancelled.");
+            }
+        }
+    }
+
+    Ok(())
+}
+
 // ── Provider configuration ─────────────────────────────────────
 
 fn configure_provider(io: &dyn WizardIo, config: &mut Config) -> Result<StepAction> {
+    #[cfg(test)]
+    let test_fn: fn(&str, &str, &str) -> ConnectivityResult = mock_connectivity_ok;
+    #[cfg(not(test))]
+    let test_fn: fn(&str, &str, &str) -> ConnectivityResult = test_api_key_connectivity;
+    configure_provider_inner(io, config, test_fn)
+}
+
+fn configure_provider_inner(
+    io: &dyn WizardIo,
+    config: &mut Config,
+    connectivity_fn: fn(&str, &str, &str) -> ConnectivityResult,
+) -> Result<StepAction> {
     let display_names: Vec<&str> = PROVIDERS.iter().map(|p| p.display).collect();
 
     let default_idx = config
@@ -860,11 +1083,7 @@ fn configure_provider(io: &dyn WizardIo, config: &mut Config) -> Result<StepActi
         .and_then(|p| PROVIDERS.iter().position(|info| info.key == p))
         .unwrap_or(0); // default to OpenAI (first)
 
-    let provider_idx =
-        match io.select_or_back("Select LLM provider", &display_names, default_idx)? {
-            None => return Ok(StepAction::Back),
-            Some(idx) => idx,
-        };
+    let provider_idx = io.select("Select LLM provider", &display_names, default_idx)?;
 
     let provider_key = PROVIDERS[provider_idx].key;
     config.agent.provider = Some(provider_key.to_string());
@@ -913,6 +1132,17 @@ fn configure_provider(io: &dyn WizardIo, config: &mut Config) -> Result<StepActi
                 }
             }
         }
+    }
+
+    // Connectivity validation
+    let base_url = get_provider_url(config, provider_key)
+        .unwrap_or(PROVIDERS[provider_idx].default_url)
+        .to_string();
+    let api_key = get_provider_api_key(config, provider_key)
+        .unwrap_or("")
+        .to_string();
+    if !api_key.is_empty() && !base_url.is_empty() {
+        run_connectivity_check(io, provider_key, &base_url, &api_key, connectivity_fn)?;
     }
 
     Ok(StepAction::Continue)
@@ -1373,6 +1603,20 @@ fn set_provider_api_key(config: &mut Config, provider: &str, key: &str) {
     }
 }
 
+// ── Test helpers (cfg(test) only) ─────────────────────────────
+
+#[cfg(test)]
+fn mock_connectivity_ok(
+    _provider_key: &str,
+    _base_url: &str,
+    _api_key: &str,
+) -> ConnectivityResult {
+    ConnectivityResult::Ok {
+        latency_ms: 42,
+        models: vec!["gpt-4o".to_string(), "gpt-4o-mini".to_string()],
+    }
+}
+
 // ── Tests ──────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1546,8 +1790,8 @@ mod tests {
         let config_path = tmp.path().join("config.toml");
 
         let mock = MockWizard::new(vec![
-            // Quick mode selection
-            MockAction::Select { result: 0 }, // Quick Setup
+            // Review: select Provider (index 0)
+            MockAction::Select { result: 0 },
             // Step 1: Provider
             MockAction::Select { result: 0 }, // openai (first)
             MockAction::Input { result: "gpt-4o" },
@@ -1557,8 +1801,8 @@ mod tests {
             MockAction::Password {
                 result: "sk-test-key",
             },
-            // Review: Save
-            MockAction::Select { result: 5 }, // "Save configuration" (index 5 = last)
+            // Review: Save (index 5 = last)
+            MockAction::Select { result: 5 },
             MockAction::Confirm {
                 prompt_contains: "Write",
                 result: true,
@@ -1575,31 +1819,13 @@ mod tests {
     }
 
     #[test]
-    fn wizard_full_setup_all_skip() {
+    fn wizard_setup_only_feishu() {
+        // Test: user only configures Feishu, skips everything else
         let tmp = tempfile::tempdir().unwrap();
         let config_path = tmp.path().join("config.toml");
 
         let mock = MockWizard::new(vec![
-            // Full mode
-            MockAction::Select { result: 1 }, // Full Setup
-            // Step 1: Provider
-            MockAction::Select { result: 0 }, // openai
-            MockAction::Input { result: "gpt-4o" },
-            MockAction::Input {
-                result: "https://api.openai.com/v1",
-            },
-            MockAction::Password {
-                result: "sk-test-key",
-            },
-            // Step 2: Telegram (skip) — confirm_or_back [No, Yes, ↩], index 0 = No
-            MockAction::Select { result: 0 }, // "No"
-            // Step 3: Feishu (skip)
-            MockAction::Select { result: 0 }, // "No"
-            // Step 4: WebSocket (skip)
-            MockAction::Select { result: 0 }, // "No"
-            // Step 5: WeChat (skip)
-            MockAction::Select { result: 0 }, // "No"
-            // Review: Save
+            // Review: save directly without configuring anything
             MockAction::Select { result: 5 }, // Save
             MockAction::Confirm {
                 prompt_contains: "Write",
@@ -1610,9 +1836,10 @@ mod tests {
         run_wizard(&mock, &config_path).unwrap();
 
         assert!(config_path.exists());
+        // Default config should be saved
         let saved: Config =
             toml::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
-        assert_eq!(saved.agent.provider.as_deref(), Some("openai"));
+        assert!(saved.agent.provider.is_none());
     }
 
     #[test]
@@ -1630,9 +1857,10 @@ mod tests {
                 prompt_contains: "Update",
                 result: true,
             },
-            // Full mode (not first run, so mode selection is skipped)
-            // Step 1: Provider
-            MockAction::Select { result: 1 }, // anthropic (index 1)
+            // Review: select Provider (index 0)
+            MockAction::Select { result: 0 },
+            // Step 1: Provider — select anthropic (index 1)
+            MockAction::Select { result: 1 },
             MockAction::Input {
                 result: "claude-sonnet-4-20250514",
             },
@@ -1642,13 +1870,8 @@ mod tests {
             MockAction::Password {
                 result: "sk-ant-test",
             },
-            // Step 2-5: Skip all channels — confirm_or_back [No, Yes, ↩], index 0 = No
-            MockAction::Select { result: 0 }, // Telegram No
-            MockAction::Select { result: 0 }, // Feishu No
-            MockAction::Select { result: 0 }, // WebSocket No
-            MockAction::Select { result: 0 }, // WeChat No
-            // Review: Save
-            MockAction::Select { result: 5 }, // Save
+            // Back to Review: Save (index 5)
+            MockAction::Select { result: 5 },
             MockAction::Confirm {
                 prompt_contains: "Write",
                 result: true,
@@ -1724,13 +1947,11 @@ mod tests {
 
     #[test]
     fn wizard_step_ordering() {
-        assert_eq!(WizardStep::first(), WizardStep::Provider);
         assert_eq!(WizardStep::Provider.step_number(), 1);
         assert_eq!(WizardStep::Review.step_number(), 0);
-        assert_eq!(WizardStep::Provider.next(), Some(WizardStep::Telegram));
-        assert_eq!(WizardStep::Review.next(), None);
-        assert_eq!(WizardStep::Provider.prev(), None);
-        assert_eq!(WizardStep::Review.prev(), Some(WizardStep::WeChat));
+        assert_eq!(WizardStep::all().len(), 5);
+        assert_eq!(WizardStep::all()[0], WizardStep::Provider);
+        assert_eq!(WizardStep::all()[4], WizardStep::WeChat);
     }
 
     fn tg(token: &str) -> TelegramConfig {
@@ -1833,5 +2054,154 @@ mod tests {
         assert_eq!(weixin.allowed_users, vec!["u1"]);
         assert_eq!(weixin.group_allowed_users, vec!["g1"]);
         assert!(weixin.enabled);
+    }
+
+    // ── Connectivity validation tests ──────────────────────────
+
+    fn mock_connectivity_auth_fail(
+        _provider_key: &str,
+        _base_url: &str,
+        _api_key: &str,
+    ) -> ConnectivityResult {
+        ConnectivityResult::AuthFailed("HTTP 401 Unauthorized".to_string())
+    }
+
+    fn mock_connectivity_unreachable(
+        _provider_key: &str,
+        _base_url: &str,
+        _api_key: &str,
+    ) -> ConnectivityResult {
+        ConnectivityResult::Unreachable("Connection timed out".to_string())
+    }
+
+    #[test]
+    fn connectivity_check_ok_shows_models() {
+        let mock = MockWizard::new(vec![]);
+        let result = run_connectivity_check(
+            &mock,
+            "openai",
+            "https://api.openai.com/v1",
+            "sk-test-key",
+            mock_connectivity_ok,
+        );
+        assert!(result.is_ok());
+        let output = mock.output();
+        assert!(output.contains("Connected!"));
+        assert!(output.contains("gpt-4o"));
+    }
+
+    #[test]
+    fn connectivity_check_auth_fail_asks_continue() {
+        let mock = MockWizard::new(vec![MockAction::Confirm {
+            prompt_contains: "Continue",
+            result: true,
+        }]);
+        let result = run_connectivity_check(
+            &mock,
+            "openai",
+            "https://api.openai.com/v1",
+            "bad-key",
+            mock_connectivity_auth_fail,
+        );
+        assert!(result.is_ok());
+        let output = mock.output();
+        assert!(output.contains("validation failed"));
+    }
+
+    #[test]
+    fn connectivity_check_auth_fail_user_cancels() {
+        let mock = MockWizard::new(vec![MockAction::Confirm {
+            prompt_contains: "Continue",
+            result: false,
+        }]);
+        let result = run_connectivity_check(
+            &mock,
+            "openai",
+            "https://api.openai.com/v1",
+            "bad-key",
+            mock_connectivity_auth_fail,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn connectivity_check_unreachable_asks_continue() {
+        let mock = MockWizard::new(vec![MockAction::Confirm {
+            prompt_contains: "Continue",
+            result: true,
+        }]);
+        let result = run_connectivity_check(
+            &mock,
+            "openai",
+            "https://api.openai.com/v1",
+            "sk-test",
+            mock_connectivity_unreachable,
+        );
+        assert!(result.is_ok());
+        let output = mock.output();
+        assert!(output.contains("Could not verify"));
+    }
+
+    #[test]
+    fn connectivity_check_skips_ollama() {
+        let mock = MockWizard::new(vec![]);
+        let result = run_connectivity_check(
+            &mock,
+            "ollama",
+            "http://localhost:11434",
+            "",
+            mock_connectivity_ok,
+        );
+        assert!(result.is_ok());
+        // No output for Ollama (skipped)
+        assert!(mock.output().is_empty());
+    }
+
+    #[test]
+    fn parse_models_from_openai_response() {
+        let body = r#"{"data":[{"id":"gpt-4o"},{"id":"gpt-4o-mini"},{"id":"gpt-3.5-turbo"}]}"#;
+        let models = parse_openai_models(body);
+        assert_eq!(models, vec!["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"]);
+    }
+
+    #[test]
+    fn parse_models_empty_response() {
+        let models = parse_openai_models("not json");
+        assert!(models.is_empty());
+    }
+
+    #[test]
+    fn extract_error_message_from_openai_format() {
+        let body = r#"{"error":{"message":"Incorrect API key","type":"invalid_request_error"}}"#;
+        let msg = extract_error_message(body).unwrap();
+        assert_eq!(msg, "Incorrect API key");
+    }
+
+    #[test]
+    fn extract_error_message_no_message() {
+        let body = r#"{"status":"ok"}"#;
+        assert!(extract_error_message(body).is_none());
+    }
+
+    #[test]
+    fn configure_provider_with_connectivity() {
+        let mock = MockWizard::new(vec![
+            MockAction::Select { result: 0 }, // openai
+            MockAction::Input { result: "gpt-4o" },
+            MockAction::Input {
+                result: "https://api.openai.com/v1",
+            },
+            MockAction::Password {
+                result: "sk-testkey123456",
+            },
+        ]);
+
+        let mut config = Config::default();
+        configure_provider_inner(&mock, &mut config, mock_connectivity_ok).unwrap();
+
+        assert_eq!(config.agent.provider.as_deref(), Some("openai"));
+        assert_eq!(config.agent.model, "gpt-4o");
+        let output = mock.output();
+        assert!(output.contains("Connected!"));
     }
 }

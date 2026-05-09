@@ -1,5 +1,31 @@
 # Changelog
 
+## [v0.8.4] - 2026-05-09
+
+### Bug Fixes
+- fix(feishu): tenant_access_token parsing failed because the Feishu auth API returns `tenant_access_token` and `expire` at the top level of the JSON response, not nested inside a `data` field — this caused every gateway startup to fail with "Feishu token response missing data"
+
+## [v0.8.3] - 2026-05-09
+
+### Bug Fixes
+- fix(feishu): `connection_mode` now defaults to `"websocket"` instead of `"webhook"` (#281)
+  - `FeishuConfig::default()` sets `connection_mode = "websocket"`
+  - `FeishuChannel` fallback changed from `"webhook"` to `"websocket"`
+  - Users with existing configs need to add `connection_mode = "websocket"` to `[channels.feishu]`
+
+## [v0.8.2] - 2026-05-09
+
+### New Features
+- feat(setup): review-centric navigation — user can freely pick any step to configure (#278)
+  - Setup starts from Review menu, user jumps to any step independently
+  - No more forced linear walk through all steps
+  - Each step returns to Review after completion
+  - "Skip (keep current)" option for each channel step
+
+### Bug Fixes
+- fix(setup): remove misleading "Go back" from Provider selection list
+- fix(setup): properly track channel status from actual config state
+
 ## [v0.8.1] - 2026-05-09
 
 ### New Features

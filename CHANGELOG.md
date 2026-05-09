@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.9.5] - 2026-05-10
+
+### Bug Fixes
+- fix(tools): enforce max_output_bytes limit during Lua print() capture to prevent unbounded memory growth — a script that generates large output could consume GBs of RAM before post-execution truncation (Issue #308, PR #309)
+
 ## [v0.9.4] - 2026-05-10
 
 ### Bug Fixes

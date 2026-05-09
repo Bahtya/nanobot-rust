@@ -1,5 +1,22 @@
 # Changelog
 
+## [v0.8.1] - 2026-05-09
+
+### New Features
+- feat(setup): interactive wizard overhaul — back-navigation, Quick/Full setup, input validation, enhanced config summary (#278)
+  - State-machine loop with "Go back" on every step (#266)
+  - Quick Setup (provider only) vs Full Setup mode (#274)
+  - First-run initialization wizard vs update wizard banners (#268)
+  - Provider list with recommended markers and grouping (#270)
+  - API key format validation, URL scheme check (#272)
+  - Enhanced config summary with key first-3...last-4, channel status (#271)
+  - Unified channel confirmation prompts (#276)
+  - Next Steps guidance after save (#277)
+  - Graceful Ctrl+C interruption (#273)
+
+### Bug Fixes
+- fix(setup): step numbering duplicate — Step 5 appeared twice (#269)
+
 ## [v0.8.0] - 2026-05-08
 
 ### New Features

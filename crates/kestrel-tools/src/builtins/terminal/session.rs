@@ -203,7 +203,7 @@ impl TerminalSession {
             anyhow::bail!("Session '{}' is not alive", self.id);
         }
         debug!(session_id = %self.id, input_len = input.len(), "Writing input to PTY");
-        let mut writer = self.writer.lock().unwrap();
+        let mut writer = self.writer.lock().unwrap_or_else(|e| e.into_inner());
         writer
             .write_all(input.as_bytes())
             .context("Failed to write to PTY")?;
@@ -219,7 +219,7 @@ impl TerminalSession {
     pub fn read_output(&self, timeout_ms: Option<u64>) -> Result<String> {
         self.last_activity.store(epoch_secs(), Ordering::Relaxed);
         {
-            let mut buf = self.output_buffer.lock().unwrap();
+            let mut buf = self.output_buffer.lock().unwrap_or_else(|e| e.into_inner());
             if !buf.is_empty() {
                 let output = buf.drain_to_string();
                 debug!(session_id = %self.id, output_len = output.len(), "Returning buffered output");
@@ -233,7 +233,12 @@ impl TerminalSession {
             let deadline = std::time::Instant::now() + std::time::Duration::from_millis(ms);
             loop {
                 std::thread::sleep(std::time::Duration::from_millis(20));
-                let mut buf = self.output_buffer.lock().unwrap();
+                if !self.alive.load(Ordering::Relaxed) {
+                    debug!(session_id = %self.id, "Session killed while waiting for output");
+                    let mut buf = self.output_buffer.lock().unwrap_or_else(|e| e.into_inner());
+                    return Ok(buf.drain_to_string());
+                }
+                let mut buf = self.output_buffer.lock().unwrap_or_else(|e| e.into_inner());
                 if !buf.is_empty() || std::time::Instant::now() >= deadline {
                     let output = buf.drain_to_string();
                     debug!(session_id = %self.id, output_len = output.len(), "Returning waited output");
@@ -247,14 +252,14 @@ impl TerminalSession {
 
     /// Read all accumulated output without draining.
     pub fn peek_output(&self) -> String {
-        let buf = self.output_buffer.lock().unwrap();
+        let buf = self.output_buffer.lock().unwrap_or_else(|e| e.into_inner());
         buf.peek_string()
     }
 
     /// Resize the PTY.
     pub fn resize(&self, cols: u16, rows: u16) -> Result<()> {
         debug!(session_id = %self.id, cols = cols, rows = rows, "Resizing PTY");
-        let master = self.master.lock().unwrap();
+        let master = self.master.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(ref m) = *master {
             m.resize(PtySize {
                 rows,
@@ -290,7 +295,7 @@ impl TerminalSession {
         }
 
         // Drop the master PTY — on Unix this sends SIGHUP to the child.
-        let mut master = self.master.lock().unwrap();
+        let mut master = self.master.lock().unwrap_or_else(|e| e.into_inner());
         *master = None;
     }
 

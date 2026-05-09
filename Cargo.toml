@@ -137,6 +137,7 @@ dialoguer = "0.11"
 console = "0.15"
 owo-colors = "4"
 qrcode = { version = "0.14", default-features = false }
+ctrlc = "3"
 
 [dev-dependencies]
 async-trait = { workspace = true }

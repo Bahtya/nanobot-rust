@@ -1,4 +1,7 @@
 //! Setup command — interactive wizard for configuring Kestrel.
+//!
+//! Supports back-navigation via a state-machine loop, Quick/Full setup modes,
+//! input validation, and enhanced configuration summaries.
 
 use anyhow::{bail, Context, Result};
 use console::Term;
@@ -11,22 +14,172 @@ use owo_colors::OwoColorize;
 use std::net::SocketAddr;
 use std::path::Path;
 
-const PROVIDER_NAMES: &[&str] = &[
-    "anthropic",
-    "openai",
-    "openrouter",
-    "ollama",
-    "deepseek",
-    "gemini",
-    "groq",
-    "moonshot",
-    "minimax",
-    "github_copilot",
-    "openai_codex",
-    "glm_coding_plan",
+// ── Provider display info ──────────────────────────────────────
+
+struct ProviderInfo {
+    key: &'static str,
+    display: &'static str,
+    default_model: &'static str,
+    default_url: &'static str,
+}
+
+const PROVIDERS: &[ProviderInfo] = &[
+    ProviderInfo {
+        key: "openai",
+        display: "★ OpenAI",
+        default_model: "gpt-4o",
+        default_url: "https://api.openai.com/v1",
+    },
+    ProviderInfo {
+        key: "anthropic",
+        display: "★ Anthropic",
+        default_model: "claude-sonnet-4-20250514",
+        default_url: "https://api.anthropic.com",
+    },
+    ProviderInfo {
+        key: "openrouter",
+        display: "★ OpenRouter (multi-model)",
+        default_model: "anthropic/claude-sonnet-4-20250514",
+        default_url: "https://openrouter.ai/api/v1",
+    },
+    ProviderInfo {
+        key: "ollama",
+        display: "  Ollama (local models)",
+        default_model: "llama3",
+        default_url: "http://localhost:11434",
+    },
+    ProviderInfo {
+        key: "deepseek",
+        display: "  DeepSeek",
+        default_model: "deepseek-chat",
+        default_url: "https://api.deepseek.com",
+    },
+    ProviderInfo {
+        key: "gemini",
+        display: "  Gemini",
+        default_model: "gemini-2.5-pro",
+        default_url: "https://generativelanguage.googleapis.com/v1beta",
+    },
+    ProviderInfo {
+        key: "groq",
+        display: "  Groq",
+        default_model: "llama-3.3-70b-versatile",
+        default_url: "https://api.groq.com/openai/v1",
+    },
+    ProviderInfo {
+        key: "moonshot",
+        display: "  Moonshot (月之暗面)",
+        default_model: "moonshot-v1-8k",
+        default_url: "https://api.moonshot.cn/v1",
+    },
+    ProviderInfo {
+        key: "minimax",
+        display: "  MiniMax",
+        default_model: "MiniMax-Text-01",
+        default_url: "https://api.minimax.chat/v1",
+    },
+    ProviderInfo {
+        key: "github_copilot",
+        display: "  GitHub Copilot",
+        default_model: "gpt-4o",
+        default_url: "https://api.githubcopilot.com",
+    },
+    ProviderInfo {
+        key: "openai_codex",
+        display: "  OpenAI Codex",
+        default_model: "codex-mini",
+        default_url: "https://api.openai.com/v1",
+    },
+    ProviderInfo {
+        key: "glm_coding_plan",
+        display: "  GLM Coding Plan (智谱)",
+        default_model: "glm-5.1",
+        default_url: "https://open.bigmodel.cn/api/coding/paas/v4",
+    },
 ];
 
-const TOTAL_STEPS: usize = 6;
+const TOTAL_CONFIG_STEPS: usize = 5;
+
+const BACK_OPTION: &str = "↩ Go back";
+
+// ── Wizard step state machine ──────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WizardStep {
+    Provider,  // Step 1
+    Telegram,  // Step 2
+    Feishu,    // Step 3
+    WebSocket, // Step 4
+    WeChat,    // Step 5
+    Review,    // Final (no step number)
+}
+
+impl WizardStep {
+    fn step_number(self) -> usize {
+        match self {
+            Self::Provider => 1,
+            Self::Telegram => 2,
+            Self::Feishu => 3,
+            Self::WebSocket => 4,
+            Self::WeChat => 5,
+            Self::Review => 0,
+        }
+    }
+
+    fn title(self) -> &'static str {
+        match self {
+            Self::Provider => "Provider Configuration",
+            Self::Telegram => "Telegram Channel",
+            Self::Feishu => "Feishu / Lark Channel",
+            Self::WebSocket => "WebSocket Port",
+            Self::WeChat => "WeChat Channel",
+            Self::Review => "Review & Save",
+        }
+    }
+
+    fn next(self) -> Option<WizardStep> {
+        match self {
+            Self::Provider => Some(Self::Telegram),
+            Self::Telegram => Some(Self::Feishu),
+            Self::Feishu => Some(Self::WebSocket),
+            Self::WebSocket => Some(Self::WeChat),
+            Self::WeChat => Some(Self::Review),
+            Self::Review => None,
+        }
+    }
+
+    fn prev(self) -> Option<WizardStep> {
+        match self {
+            Self::Provider => None,
+            Self::Telegram => Some(Self::Provider),
+            Self::Feishu => Some(Self::Telegram),
+            Self::WebSocket => Some(Self::Feishu),
+            Self::WeChat => Some(Self::WebSocket),
+            Self::Review => Some(Self::WeChat),
+        }
+    }
+
+    fn first() -> WizardStep {
+        WizardStep::Provider
+    }
+
+    fn all() -> &'static [WizardStep] {
+        &[
+            WizardStep::Provider,
+            WizardStep::Telegram,
+            WizardStep::Feishu,
+            WizardStep::WebSocket,
+            WizardStep::WeChat,
+        ]
+    }
+}
+
+/// Whether a channel step was configured or skipped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChannelStatus {
+    Configured,
+    Skipped,
+}
 
 // ── Trait for interactive I/O (enables testability) ────────────
 
@@ -37,6 +190,39 @@ trait WizardIo {
     fn input_allow_empty(&self, prompt: &str) -> Result<String>;
     fn password(&self, prompt: &str) -> Result<String>;
     fn write_line(&self, line: &str) -> Result<()>;
+
+    /// Show a confirmation with back option. Returns `None` if user chose back.
+    fn confirm_or_back(&self, prompt: &str, default: bool) -> Result<Option<bool>> {
+        let items = if default {
+            &["Yes", "No", BACK_OPTION] as &[&str]
+        } else {
+            &["No", "Yes", BACK_OPTION] as &[&str]
+        };
+        let default_idx = 0;
+        let choice = self.select(prompt, items, default_idx)?;
+        match choice {
+            idx if items[idx] == BACK_OPTION => Ok(None),
+            idx if items[idx] == "Yes" => Ok(Some(true)),
+            _ => Ok(Some(false)),
+        }
+    }
+
+    /// Show a select with back option appended. Returns `None` if user chose back.
+    fn select_or_back(
+        &self,
+        prompt: &str,
+        items: &[&str],
+        default: usize,
+    ) -> Result<Option<usize>> {
+        let mut all_items: Vec<&str> = items.to_vec();
+        all_items.push(BACK_OPTION);
+        let choice = self.select(prompt, &all_items, default)?;
+        if all_items[choice] == BACK_OPTION {
+            Ok(None)
+        } else {
+            Ok(Some(choice))
+        }
+    }
 }
 
 // ── Production implementation using Term + dialoguer ───────────
@@ -93,44 +279,6 @@ impl WizardIo for TermWizard<'_> {
     }
 }
 
-// ── Provider dispatch macro (single source of truth) ───────────
-
-#[allow(unused_macros)]
-macro_rules! provider_field {
-    ($config:expr, $provider:expr, mut) => {
-        match $provider {
-            "anthropic" => Some(&mut $config.providers.anthropic),
-            "openai" => Some(&mut $config.providers.openai),
-            "openrouter" => Some(&mut $config.providers.openrouter),
-            "ollama" => Some(&mut $config.providers.ollama),
-            "deepseek" => Some(&mut $config.providers.deepseek),
-            "gemini" => Some(&mut $config.providers.gemini),
-            "groq" => Some(&mut $config.providers.groq),
-            "moonshot" => Some(&mut $config.providers.moonshot),
-            "minimax" => Some(&mut $config.providers.minimax),
-            "github_copilot" => Some(&mut $config.providers.github_copilot),
-            "openai_codex" => Some(&mut $config.providers.openai_codex),
-            _ => None,
-        }
-    };
-    ($config:expr, $provider:expr) => {
-        match $provider {
-            "anthropic" => Some(&$config.providers.anthropic),
-            "openai" => Some(&$config.providers.openai),
-            "openrouter" => Some(&$config.providers.openrouter),
-            "ollama" => Some(&$config.providers.ollama),
-            "deepseek" => Some(&$config.providers.deepseek),
-            "gemini" => Some(&$config.providers.gemini),
-            "groq" => Some(&$config.providers.groq),
-            "moonshot" => Some(&$config.providers.moonshot),
-            "minimax" => Some(&$config.providers.minimax),
-            "github_copilot" => Some(&$config.providers.github_copilot),
-            "openai_codex" => Some(&$config.providers.openai_codex),
-            _ => None,
-        }
-    };
-}
-
 // ── Entry point ────────────────────────────────────────────────
 
 pub fn run(_config: Config) -> Result<()> {
@@ -143,21 +291,33 @@ pub fn run(_config: Config) -> Result<()> {
     }
     let io = TermWizard::new(&term);
     let config_path = paths::get_config_path()?;
+
+    // Set up Ctrl+C handler for graceful exit
+    ctrlc::set_handler(|| {
+        println!();
+        println!(
+            "  {} Setup interrupted. Progress has not been saved.",
+            "!".yellow()
+        );
+        println!("  Run `kestrel setup` again to start over.");
+        std::process::exit(1);
+    })
+    .ok(); // Ignore error if handler already set
+
     run_wizard(&io, &config_path)
 }
 
-// ── Wizard flow ────────────────────────────────────────────────
+// ── Wizard flow (state machine) ────────────────────────────────
 
 fn run_wizard(io: &dyn WizardIo, config_path: &Path) -> Result<()> {
-    print_banner(io)?;
+    let is_first_run = !config_path.exists();
+    print_banner(io, is_first_run)?;
 
-    // ── Step 1: Check existing config ────────────────────────────
-    print_step(io, 1, "Existing Configuration")?;
-
+    // ── Load existing config or start fresh ──────────────────────
     let mut config = if config_path.exists() {
         match load_existing_config(config_path) {
             Ok(existing) => {
-                show_config_summary(io, &existing)?;
+                show_config_summary_simple(io, &existing)?;
                 if io.confirm("Update existing config?", true)? {
                     existing
                 } else {
@@ -183,94 +343,274 @@ fn run_wizard(io: &dyn WizardIo, config_path: &Path) -> Result<()> {
             }
         }
     } else {
-        io.write_line("  No config file found. Starting fresh.")?;
         Config::default()
     };
 
-    // ── Step 2: Provider configuration ───────────────────────────
-    print_step(io, 2, "Provider Configuration")?;
-    configure_provider(io, &mut config)?;
+    // ── Quick vs Full setup mode (first run only) ────────────────
+    let quick_mode = if is_first_run {
+        let modes = &[
+            "Quick Setup — configure LLM provider only, start using in seconds",
+            "Full Setup  — configure all channels and advanced options",
+        ];
+        let mode = io.select("Choose setup mode", modes, 0)?;
+        mode == 0
+    } else {
+        false
+    };
 
-    // ── Step 3: Telegram channel ─────────────────────────────────
-    print_step(io, 3, "Telegram Channel")?;
-    configure_telegram(io, &mut config)?;
+    // ── State machine loop ───────────────────────────────────────
+    let mut current_step = WizardStep::first();
+    let mut channel_status: [ChannelStatus; 5] = [ChannelStatus::Skipped; 5];
 
-    // ── Step 4: Feishu / Lark channel ────────────────────────────
-    print_step(io, 4, "Feishu / Lark Channel")?;
-    configure_feishu(io, &mut config)?;
+    loop {
+        // In quick mode, skip directly to Review after Provider
+        if quick_mode && current_step != WizardStep::Provider && current_step != WizardStep::Review
+        {
+            current_step = WizardStep::Review;
+        }
 
-    // ── Step 5: WebSocket port ───────────────────────────────────
-    print_step(io, 5, "WebSocket Port")?;
-    configure_websocket(io, &mut config)?;
+        match current_step {
+            WizardStep::Provider => {
+                print_step(io, current_step)?;
+                match configure_provider(io, &mut config)? {
+                    StepAction::Back => {
+                        // Provider is first step, cannot go back
+                    }
+                    StepAction::Continue => {
+                        channel_status[0] = ChannelStatus::Configured;
+                        current_step = current_step.next().unwrap();
+                    }
+                }
+            }
+            WizardStep::Telegram => {
+                print_step(io, current_step)?;
+                let has_existing = config.channels.telegram.is_some();
+                match configure_channel_step(
+                    io,
+                    &mut config,
+                    "Telegram",
+                    has_existing,
+                    configure_telegram,
+                    &mut channel_status[1],
+                )? {
+                    StepAction::Back => {
+                        current_step = current_step.prev().unwrap();
+                    }
+                    StepAction::Continue => {
+                        current_step = current_step.next().unwrap();
+                    }
+                }
+            }
+            WizardStep::Feishu => {
+                print_step(io, current_step)?;
+                let has_existing = config.channels.feishu.as_ref().is_some_and(|f| f.enabled);
+                match configure_channel_step(
+                    io,
+                    &mut config,
+                    "Feishu / Lark",
+                    has_existing,
+                    configure_feishu,
+                    &mut channel_status[2],
+                )? {
+                    StepAction::Back => {
+                        current_step = current_step.prev().unwrap();
+                    }
+                    StepAction::Continue => {
+                        current_step = current_step.next().unwrap();
+                    }
+                }
+            }
+            WizardStep::WebSocket => {
+                print_step(io, current_step)?;
+                let has_existing = config
+                    .channels
+                    .websocket
+                    .as_ref()
+                    .is_some_and(|w| w.enabled);
+                match configure_channel_step(
+                    io,
+                    &mut config,
+                    "WebSocket",
+                    has_existing,
+                    configure_websocket,
+                    &mut channel_status[3],
+                )? {
+                    StepAction::Back => {
+                        current_step = current_step.prev().unwrap();
+                    }
+                    StepAction::Continue => {
+                        current_step = current_step.next().unwrap();
+                    }
+                }
+            }
+            WizardStep::WeChat => {
+                print_step(io, current_step)?;
+                let has_existing = config.channels.weixin.is_some();
+                match configure_channel_step(
+                    io,
+                    &mut config,
+                    "WeChat",
+                    has_existing,
+                    configure_weixin,
+                    &mut channel_status[4],
+                )? {
+                    StepAction::Back => {
+                        current_step = current_step.prev().unwrap();
+                    }
+                    StepAction::Continue => {
+                        current_step = current_step.next().unwrap();
+                    }
+                }
+            }
+            WizardStep::Review => {
+                print_review(io, &config, &channel_status)?;
 
-    // ── Step 5: Weixin channel ───────────────────────────────────
-    print_step(io, 5, "WeChat Channel")?;
-    configure_weixin(io, &mut config)?;
+                // Show options to re-configure or save
+                let mut review_items: Vec<String> = WizardStep::all()
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| {
+                        let num = s.step_number();
+                        let title = s.title();
+                        let status = match i {
+                            0 => "✓".to_string(),
+                            _ => match channel_status[i] {
+                                ChannelStatus::Configured => "configured".to_string(),
+                                ChannelStatus::Skipped => "skipped".to_string(),
+                            },
+                        };
+                        format!("{}. {} ({})", num, title, status)
+                    })
+                    .collect();
+                review_items.push("Save configuration".to_string());
 
-    // ── Step 6: Validate & write ─────────────────────────────────
-    print_step(io, 6, "Save Configuration")?;
+                // Build &str refs for select
+                let review_refs: Vec<&str> = review_items.iter().map(|s| s.as_str()).collect();
+                let default_save = review_items.len() - 1;
+                let choice = io.select(
+                    "Select a step to re-configure, or save",
+                    &review_refs,
+                    default_save,
+                )?;
 
-    io.write_line(&format!("  Config path: {}", config_path.display()))?;
-    io.write_line("")?;
-    show_config_summary(io, &config)?;
-    io.write_line("")?;
+                if choice == default_save {
+                    // Save
+                    if save_config(io, &config, config_path)? {
+                        print_next_steps(io, &config)?;
+                        return Ok(());
+                    }
+                    // User cancelled save, stay in review
+                } else if choice < WizardStep::all().len() {
+                    current_step = WizardStep::all()[choice];
+                }
+            }
+        }
+    }
+}
 
-    if !io.confirm("Write this configuration?", true)? {
-        io.write_line(&format!("  {} Setup cancelled.", "!".yellow()))?;
-        return Ok(());
+/// Result of a configure step: continue forward or go back.
+enum StepAction {
+    Continue,
+    Back,
+}
+
+/// Generic wrapper for channel configuration steps with back support.
+fn configure_channel_step(
+    io: &dyn WizardIo,
+    config: &mut Config,
+    channel_name: &str,
+    has_existing: bool,
+    configure_fn: fn(&dyn WizardIo, &mut Config) -> Result<bool>,
+    status: &mut ChannelStatus,
+) -> Result<StepAction> {
+    let prompt = if has_existing {
+        format!("Update {} configuration?", channel_name)
+    } else {
+        format!("Set up {}?", channel_name)
+    };
+
+    match io.confirm_or_back(&prompt, has_existing)? {
+        None => return Ok(StepAction::Back),
+        Some(false) => {
+            io.write_line(&format!(
+                "  Skipped. Run `kestrel setup` anytime to configure {}.",
+                channel_name
+            ))?;
+            *status = ChannelStatus::Skipped;
+            return Ok(StepAction::Continue);
+        }
+        Some(true) => {}
     }
 
-    let home = config_path
-        .parent()
-        .context("Config path must have a parent directory")?;
-
-    std::fs::create_dir_all(home)
-        .with_context(|| format!("Failed to create config home: {}", home.display()))?;
-
-    loader::save_config(&config, config_path)?;
-
-    for dir in ["skills", "sessions", "learning"] {
-        let path = home.join(dir);
-        std::fs::create_dir_all(&path)
-            .with_context(|| format!("Failed to create directory: {}", path.display()))?;
+    match configure_fn(io, config) {
+        Ok(true) => {
+            *status = ChannelStatus::Configured;
+            Ok(StepAction::Continue)
+        }
+        Ok(false) => {
+            // Configure fn handled skip internally
+            *status = ChannelStatus::Skipped;
+            Ok(StepAction::Continue)
+        }
+        Err(e) => Err(e),
     }
+}
 
+// ── Banner & step printing ─────────────────────────────────────
+
+fn print_banner(io: &dyn WizardIo, is_first_run: bool) -> Result<()> {
     io.write_line("")?;
-    io.write_line(&format!(
-        "  {} Configuration saved to {}",
-        "✓".green(),
-        config_path.display()
-    ))?;
-    io.write_line(&format!(
-        "  {} Created directories: skills, sessions, learning",
-        "✓".green()
-    ))?;
-    io.write_line(&format!("  {} Setup complete!", "✓".green()))?;
-
+    if is_first_run {
+        io.write_line(&format!(
+            "  {} {}",
+            "▸".cyan(),
+            "Kestrel 初始化配置向导".bold().cyan()
+        ))?;
+        io.write_line("")?;
+        io.write_line("  Welcome to Kestrel! Let's set up your configuration.")?;
+        io.write_line("  You can re-run `kestrel setup` anytime to make changes.")?;
+    } else {
+        io.write_line(&format!(
+            "  {} {}",
+            "▸".cyan(),
+            "Kestrel 配置更新向导".bold().cyan()
+        ))?;
+        io.write_line("")?;
+        io.write_line("  Update your existing configuration.")?;
+    }
+    io.write_line("")?;
     Ok(())
 }
 
-fn print_banner(io: &dyn WizardIo) -> Result<()> {
+fn print_step(io: &dyn WizardIo, step: WizardStep) -> Result<()> {
+    io.write_line("")?;
+    let num = step.step_number();
+    io.write_line(&format!(
+        "  {} Step {}/{}: {}",
+        "▸".cyan(),
+        num,
+        TOTAL_CONFIG_STEPS,
+        step.title().bold()
+    ))?;
+    io.write_line(&format!("  {}", "─".repeat(40).dimmed()))?;
+    Ok(())
+}
+
+fn print_review(
+    io: &dyn WizardIo,
+    config: &Config,
+    channel_status: &[ChannelStatus; 5],
+) -> Result<()> {
     io.write_line("")?;
     io.write_line(&format!(
         "  {} {}",
         "▸".cyan(),
-        "Kestrel Setup Wizard".bold().cyan()
+        "Review & Save".bold().cyan()
     ))?;
+    io.write_line(&format!("  {}", "─".repeat(50).dimmed()))?;
     io.write_line("")?;
-    Ok(())
-}
-
-fn print_step(io: &dyn WizardIo, step: usize, title: &str) -> Result<()> {
+    show_config_summary(io, config, channel_status)?;
     io.write_line("")?;
-    io.write_line(&format!(
-        "  {} Step {}/{}: {}",
-        "▸".cyan(),
-        step,
-        TOTAL_STEPS,
-        title.bold()
-    ))?;
-    io.write_line(&format!("  {}", "─".repeat(40).dimmed()))?;
     Ok(())
 }
 
@@ -282,20 +622,97 @@ fn load_existing_config(path: &Path) -> Result<Config> {
     Ok(config)
 }
 
+// ── Token masking & config summary ─────────────────────────────
+
 fn mask_token(token: &str) -> String {
     if token.is_empty() {
         "(not set)".to_string()
-    } else if token.len() <= 3 {
+    } else if token.len() <= 8 {
         "(masked)".to_string()
     } else {
-        format!("{}…(masked)", &token[..3])
+        format!("{}…{}", &token[..3], &token[token.len() - 4..])
     }
 }
 
-fn show_config_summary(io: &dyn WizardIo, config: &Config) -> Result<()> {
+fn show_config_summary(
+    io: &dyn WizardIo,
+    config: &Config,
+    channel_status: &[ChannelStatus; 5],
+) -> Result<()> {
     let provider = config.agent.provider.as_deref().unwrap_or("default");
-    io.write_line(&format!("  Model:        {}", config.agent.model))?;
     io.write_line(&format!("  Provider:     {}", provider))?;
+    io.write_line(&format!("  Model:        {}", config.agent.model))?;
+
+    // Show base URL
+    if let Some(url) = config
+        .agent
+        .provider
+        .as_deref()
+        .and_then(|p| get_provider_url(config, p))
+    {
+        io.write_line(&format!("  Base URL:     {}", url))?;
+    }
+
+    // Show API key status
+    let key_status = config
+        .agent
+        .provider
+        .as_deref()
+        .and_then(|p| get_provider_api_key(config, p))
+        .map(mask_token)
+        .unwrap_or_else(|| "(not set)".to_string());
+    io.write_line(&format!("  API Key:      {}", key_status))?;
+
+    io.write_line(&format!("  Temperature:  {}", config.agent.temperature))?;
+    io.write_line(&format!("  Max tokens:   {}", config.agent.max_tokens))?;
+
+    io.write_line("")?;
+    io.write_line("  Channels:")?;
+
+    let channel_names = ["Telegram", "Feishu", "WebSocket", "WeChat"];
+    for (i, name) in channel_names.iter().enumerate() {
+        let status_str = match channel_status[i + 1] {
+            ChannelStatus::Configured => "✓ configured".green().to_string(),
+            ChannelStatus::Skipped => "✗ skipped".dimmed().to_string(),
+        };
+        io.write_line(&format!("    {}: {}", name, status_str))?;
+    }
+
+    // Show details for configured channels
+    if let Some(ref tg) = config.channels.telegram {
+        if !tg.token.is_empty() {
+            io.write_line(&format!("      Token: {}", mask_token(&tg.token)))?;
+        }
+    }
+
+    if let Some(ref ws) = config.channels.websocket {
+        if ws.enabled {
+            io.write_line(&format!("      Address: {}", ws.listen_addr))?;
+        }
+    }
+
+    if let Some(ref wx) = config.channels.weixin {
+        if wx.enabled {
+            let acct = wx.account_id.as_deref().unwrap_or("(unknown)");
+            io.write_line(&format!("      Account: {}", mask_token(acct)))?;
+        }
+    }
+
+    if let Some(ref fs) = config.channels.feishu {
+        if fs.enabled {
+            let app_id = fs.app_id.as_deref().unwrap_or("(unknown)");
+            io.write_line(&format!("      App ID: {}", mask_token(app_id)))?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Legacy summary without channel status (used for existing config review).
+fn show_config_summary_simple(io: &dyn WizardIo, config: &Config) -> Result<()> {
+    let provider = config.agent.provider.as_deref().unwrap_or("default");
+    io.write_line(&format!("  Provider:     {}", provider))?;
+    io.write_line(&format!("  Model:        {}", config.agent.model))?;
     io.write_line(&format!("  Temperature:  {}", config.agent.temperature))?;
     io.write_line(&format!("  Max tokens:   {}", config.agent.max_tokens))?;
     io.write_line(&format!("  Streaming:    {}", config.agent.streaming))?;
@@ -329,35 +746,130 @@ fn show_config_summary(io: &dyn WizardIo, config: &Config) -> Result<()> {
     Ok(())
 }
 
-fn configure_provider(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
+fn save_config(io: &dyn WizardIo, config: &Config, config_path: &Path) -> Result<bool> {
+    io.write_line(&format!("  Config path: {}", config_path.display()))?;
+
+    if !io.confirm("Write this configuration?", true)? {
+        io.write_line(&format!("  {} Save cancelled.", "!".yellow()))?;
+        return Ok(false);
+    }
+
+    let home = config_path
+        .parent()
+        .context("Config path must have a parent directory")?;
+
+    std::fs::create_dir_all(home)
+        .with_context(|| format!("Failed to create config home: {}", home.display()))?;
+
+    loader::save_config(config, config_path)?;
+
+    for dir in ["skills", "sessions", "learning"] {
+        let path = home.join(dir);
+        std::fs::create_dir_all(&path)
+            .with_context(|| format!("Failed to create directory: {}", path.display()))?;
+    }
+
+    io.write_line("")?;
+    io.write_line(&format!(
+        "  {} Configuration saved to {}",
+        "✓".green(),
+        config_path.display()
+    ))?;
+    io.write_line(&format!(
+        "  {} Created directories: skills, sessions, learning",
+        "✓".green()
+    ))?;
+    io.write_line(&format!("  {} Setup complete!", "✓".green()))?;
+
+    Ok(true)
+}
+
+fn print_next_steps(io: &dyn WizardIo, config: &Config) -> Result<()> {
+    io.write_line("")?;
+    io.write_line(&format!("  {} Next steps:", "▸".cyan()))?;
+    io.write_line("")?;
+    io.write_line("    1. Try it out:")?;
+    io.write_line("       kestrel agent")?;
+    io.write_line("")?;
+
+    let has_channel = config.channels.telegram.is_some()
+        || config.channels.feishu.is_some()
+        || config.channels.weixin.is_some()
+        || config.channels.websocket.is_some();
+
+    if has_channel {
+        io.write_line("    2. Start the gateway (connect to chat platforms):")?;
+        io.write_line("       kestrel gateway")?;
+        io.write_line("")?;
+    }
+
+    if config.channels.websocket.is_some() {
+        io.write_line("    3. Start the API server:")?;
+        io.write_line("       kestrel serve")?;
+        io.write_line("")?;
+    }
+
+    io.write_line("    Check system health:")?;
+    io.write_line("       kestrel doctor")?;
+    io.write_line("")?;
+    io.write_line("    Re-run setup anytime:")?;
+    io.write_line("       kestrel setup")?;
+    io.write_line("")?;
+    Ok(())
+}
+
+// ── Input validation ───────────────────────────────────────────
+
+fn validate_api_key(provider: &str, key: &str) -> Result<String> {
+    let key = key.trim().to_string();
+    if key.is_empty() {
+        bail!("API key cannot be empty");
+    }
+    match provider {
+        "openai" | "openai_codex" if !key.starts_with("sk-") => {
+            bail!("OpenAI API keys typically start with 'sk-'");
+        }
+        "anthropic" if !key.starts_with("sk-ant-") => {
+            bail!("Anthropic API keys typically start with 'sk-ant-'");
+        }
+        _ => {}
+    }
+    Ok(key)
+}
+
+fn validate_url(input: &str) -> Result<String> {
+    let url = input.trim().to_string();
+    if url.is_empty() {
+        return Ok(url);
+    }
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        bail!("URL must start with http:// or https://");
+    }
+    Ok(url)
+}
+
+// ── Provider configuration ─────────────────────────────────────
+
+fn configure_provider(io: &dyn WizardIo, config: &mut Config) -> Result<StepAction> {
+    let display_names: Vec<&str> = PROVIDERS.iter().map(|p| p.display).collect();
+
     let default_idx = config
         .agent
         .provider
         .as_deref()
-        .and_then(|p| PROVIDER_NAMES.iter().position(|&n| n == p))
-        .unwrap_or(1); // default to "openai"
+        .and_then(|p| PROVIDERS.iter().position(|info| info.key == p))
+        .unwrap_or(0); // default to OpenAI (first)
 
-    let provider_name = io.select("Select LLM provider", PROVIDER_NAMES, default_idx)?;
+    let provider_idx =
+        match io.select_or_back("Select LLM provider", &display_names, default_idx)? {
+            None => return Ok(StepAction::Back),
+            Some(idx) => idx,
+        };
 
-    let provider_key = PROVIDER_NAMES[provider_name];
+    let provider_key = PROVIDERS[provider_idx].key;
     config.agent.provider = Some(provider_key.to_string());
 
-    let default_model = match provider_key {
-        "anthropic" => "claude-sonnet-4-20250514",
-        "openai" => "gpt-4o",
-        "openrouter" => "anthropic/claude-sonnet-4-20250514",
-        "ollama" => "llama3",
-        "deepseek" => "deepseek-chat",
-        "gemini" => "gemini-2.5-pro",
-        "groq" => "llama-3.3-70b-versatile",
-        "moonshot" => "moonshot-v1-8k",
-        "minimax" => "MiniMax-Text-01",
-        "github_copilot" => "gpt-4o",
-        "openai_codex" => "codex-mini",
-        "glm_coding_plan" => "glm-5.1",
-        _ => "gpt-4o",
-    };
-
+    let default_model = PROVIDERS[provider_idx].default_model;
     let current_model = if config.agent.model.is_empty() {
         default_model
     } else {
@@ -365,56 +877,51 @@ fn configure_provider(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
     };
 
     let model: String = io.input_with_default("Model name", current_model)?;
-    config.agent.model = model;
+    config.agent.model = model.trim().to_string();
 
-    let default_url = match provider_key {
-        "anthropic" => "https://api.anthropic.com",
-        "openai" => "https://api.openai.com/v1",
-        "openrouter" => "https://openrouter.ai/api/v1",
-        "ollama" => "http://localhost:11434",
-        "deepseek" => "https://api.deepseek.com",
-        "gemini" => "https://generativelanguage.googleapis.com/v1beta",
-        "groq" => "https://api.groq.com/openai/v1",
-        "moonshot" => "https://api.moonshot.cn/v1",
-        "minimax" => "https://api.minimax.chat/v1",
-        "github_copilot" => "https://api.githubcopilot.com",
-        "openai_codex" => "https://api.openai.com/v1",
-        "glm_coding_plan" => "https://open.bigmodel.cn/api/coding/paas/v4",
-        _ => "",
-    };
-
+    let default_url = PROVIDERS[provider_idx].default_url;
     let current_url = get_provider_url(config, provider_key).unwrap_or(default_url);
 
     if !current_url.is_empty() {
         let base_url: String = io.input_with_default("Base URL", current_url)?;
+        let base_url = validate_url(&base_url)?;
         set_provider_url(config, provider_key, &base_url);
     } else {
         let base_url: String = io.input_allow_empty("Base URL (leave empty for default)")?;
+        let base_url = validate_url(&base_url)?;
         if !base_url.is_empty() {
             set_provider_url(config, provider_key, &base_url);
         }
     }
 
-    let api_key: String = io.password("API key")?;
-    if !api_key.is_empty() {
-        set_provider_api_key(config, provider_key, &api_key);
+    loop {
+        let api_key: String = io.password("API key")?;
+        match validate_api_key(provider_key, &api_key) {
+            Ok(key) => {
+                set_provider_api_key(config, provider_key, &key);
+                break;
+            }
+            Err(e) => {
+                io.write_line(&format!("  {} {}", "!".yellow(), e))?;
+                if !io.confirm("Try again?", true)? {
+                    // Accept whatever was entered
+                    let key = api_key.trim().to_string();
+                    if !key.is_empty() {
+                        set_provider_api_key(config, provider_key, &key);
+                    }
+                    break;
+                }
+            }
+        }
     }
 
-    Ok(())
+    Ok(StepAction::Continue)
 }
 
-fn configure_telegram(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
-    let setup_tg = if config.channels.telegram.is_some() {
-        io.confirm("Configure Telegram bot?", true)?
-    } else {
-        io.confirm("Set up a Telegram bot?", false)?
-    };
+// ── Channel configurations ─────────────────────────────────────
 
-    if !setup_tg {
-        io.write_line("  Skipped.")?;
-        return Ok(());
-    }
-
+/// Configure Telegram. Returns true if configured, false if skipped.
+fn configure_telegram(io: &dyn WizardIo, config: &mut Config) -> Result<bool> {
     let current_token = config
         .channels
         .telegram
@@ -428,9 +935,10 @@ fn configure_telegram(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
         io.input_with_default("Bot token (from @BotFather)", current_token)?
     };
 
+    let token = token.trim().to_string();
     if token.is_empty() {
         io.write_line("  No token provided, skipping Telegram.")?;
-        return Ok(());
+        return Ok(false);
     }
 
     let allowed: String = loop {
@@ -471,7 +979,6 @@ fn configure_telegram(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
             .collect()
     };
 
-    // Preserve existing values for fields not explicitly configured in the wizard.
     let (admin_users, enabled, streaming, proxy) = config
         .channels
         .telegram
@@ -495,23 +1002,12 @@ fn configure_telegram(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
         proxy,
     });
 
-    Ok(())
+    io.write_line(&format!("  {} Telegram configured.", "✓".green()))?;
+    Ok(true)
 }
 
-fn configure_feishu(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
-    let has_existing = config.channels.feishu.as_ref().is_some_and(|f| f.enabled);
-
-    let setup = if has_existing {
-        io.confirm("Reconfigure Feishu / Lark?", true)?
-    } else {
-        io.confirm("Set up Feishu / Lark?", false)?
-    };
-
-    if !setup {
-        io.write_line("  Skipped.")?;
-        return Ok(());
-    }
-
+/// Configure Feishu. Returns true if configured, false if skipped.
+fn configure_feishu(io: &dyn WizardIo, config: &mut Config) -> Result<bool> {
     let domain_options = ["Feishu (飞书)", "Lark (international)"];
     let idx = io.select("Select platform", &domain_options, 0)?;
     let domain = if idx == 1 { "lark" } else { "feishu" };
@@ -521,14 +1017,11 @@ fn configure_feishu(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
         .build()
         .context("Failed to create tokio runtime")?;
 
-    // TODO: Creating a nested tokio runtime here means this cannot be called
-    // from within an existing async context (e.g. tests). A future refactor
-    // could make `run_wizard` async or accept a runtime handle.
     let result = match rt.block_on(super::feishu_onboarding::run_onboarding(domain)) {
         Ok(r) => r,
         Err(e) => {
             io.write_line(&format!("  {} Feishu setup skipped: {}", "!".yellow(), e))?;
-            return Ok(());
+            return Ok(false);
         }
     };
 
@@ -546,24 +1039,18 @@ fn configure_feishu(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
         ..Default::default()
     });
 
-    Ok(())
+    io.write_line(&format!("  {} Feishu configured.", "✓".green()))?;
+    Ok(true)
 }
 
-fn configure_websocket(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
+/// Configure WebSocket. Returns true if configured, false if skipped.
+fn configure_websocket(io: &dyn WizardIo, config: &mut Config) -> Result<bool> {
     let default_addr = config
         .channels
         .websocket
         .as_ref()
         .map(|ws| ws.listen_addr.as_str())
         .unwrap_or("127.0.0.1:8090");
-
-    let enable = io.confirm("Enable WebSocket channel?", false)?;
-
-    if !enable {
-        config.channels.websocket = None;
-        io.write_line("  Skipped.")?;
-        return Ok(());
-    }
 
     let listen_addr: String = loop {
         let input = io.input_with_default("Listen address", default_addr)?;
@@ -588,21 +1075,12 @@ fn configure_websocket(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
         max_message_size: 1048576,
     });
 
-    Ok(())
+    io.write_line(&format!("  {} WebSocket configured.", "✓".green()))?;
+    Ok(true)
 }
 
-fn configure_weixin(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
-    let setup_wx = if config.channels.weixin.is_some() {
-        io.confirm("Configure WeChat channel?", true)?
-    } else {
-        io.confirm("Set up a WeChat channel?", false)?
-    };
-
-    if !setup_wx {
-        io.write_line("  Skipped.")?;
-        return Ok(());
-    }
-
+/// Configure WeChat. Returns true if configured, false if skipped.
+fn configure_weixin(io: &dyn WizardIo, config: &mut Config) -> Result<bool> {
     let choices = &[
         "Scan QR code with WeChat (recommended)",
         "Enter credentials manually",
@@ -616,7 +1094,6 @@ fn configure_weixin(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
                 "  QR scan setup requires running `kestrel setup weixin` in a terminal.",
             )?;
             io.write_line("  Please run that command separately, then return to this wizard.")?;
-            // Re-enable the channel when QR login credentials already exist.
             if let Some(ref mut wx) = config.channels.weixin {
                 if wx.account_id.is_some() && wx.bot_token.is_some() {
                     wx.enabled = true;
@@ -624,14 +1101,15 @@ fn configure_weixin(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
                         "  {} Existing WeChat credentials detected and enabled.",
                         "✓".green()
                     ))?;
+                    return Ok(true);
                 }
             }
-            // If no credentials yet, just leave channel unconfigured
             if config.channels.weixin.is_none() {
                 io.write_line(
                     "  No WeChat credentials found yet. Run `kestrel setup weixin` first.",
                 )?;
             }
+            Ok(false)
         }
         1 => {
             let current_account = config
@@ -648,7 +1126,7 @@ fn configure_weixin(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
 
             if account_id.trim().is_empty() {
                 io.write_line("  No account ID provided, skipping WeChat.")?;
-                return Ok(());
+                return Ok(false);
             }
 
             let current_token = config
@@ -665,10 +1143,9 @@ fn configure_weixin(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
 
             if bot_token.trim().is_empty() {
                 io.write_line("  No bot token provided, skipping WeChat.")?;
-                return Ok(());
+                return Ok(false);
             }
 
-            // Preserve existing fields
             let (
                 app_id,
                 app_secret,
@@ -716,17 +1193,17 @@ fn configure_weixin(io: &dyn WizardIo, config: &mut Config) -> Result<()> {
                 enabled: true,
             });
 
-            io.write_line(&format!("  {} WeChat credentials saved.", "✓".green()))?;
+            io.write_line(&format!("  {} WeChat configured.", "✓".green()))?;
+            Ok(true)
         }
         _ => {
             io.write_line("  Skipped.")?;
+            Ok(false)
         }
     }
-
-    Ok(())
 }
 
-// ── Provider field helpers (using macro) ───────────────────────
+// ── Provider field helpers ─────────────────────────────────────
 
 fn get_provider_entry_mut<'a>(
     config: &'a mut Config,
@@ -854,6 +1331,26 @@ fn get_provider_url<'a>(config: &'a Config, provider: &str) -> Option<&'a str> {
     entry.and_then(|e| e.base_url.as_deref())
 }
 
+fn get_provider_api_key<'a>(config: &'a Config, provider: &str) -> Option<&'a str> {
+    let entry = match provider {
+        "anthropic" => config.providers.anthropic.as_ref(),
+        "openai" => config.providers.openai.as_ref(),
+        "openrouter" => config.providers.openrouter.as_ref(),
+        "ollama" => config.providers.ollama.as_ref(),
+        "deepseek" => config.providers.deepseek.as_ref(),
+        "gemini" => config.providers.gemini.as_ref(),
+        "groq" => config.providers.groq.as_ref(),
+        "moonshot" => config.providers.moonshot.as_ref(),
+        "minimax" => config.providers.minimax.as_ref(),
+        "github_copilot" => config.providers.github_copilot.as_ref(),
+        "openai_codex" => config.providers.openai_codex.as_ref(),
+        "opencode_go" => config.providers.opencode_go.as_ref(),
+        "glm_coding_plan" => config.providers.glm_coding_plan.as_ref(),
+        _ => None,
+    };
+    entry.and_then(|e| e.api_key.as_deref())
+}
+
 fn set_provider_url(config: &mut Config, provider: &str, url: &str) {
     ensure_provider_entry(config, provider);
     if let Some(entry) = get_provider_entry_mut(config, provider) {
@@ -875,6 +1372,8 @@ fn set_provider_api_key(config: &mut Config, provider: &str, key: &str) {
         };
     }
 }
+
+// ── Tests ──────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -1035,7 +1534,6 @@ mod tests {
 
         run_wizard(&mock, &config_path).unwrap();
 
-        // Config should be unchanged
         assert_eq!(
             std::fs::read_to_string(&config_path).unwrap(),
             template_toml()
@@ -1043,13 +1541,15 @@ mod tests {
     }
 
     #[test]
-    fn wizard_fresh_setup() {
+    fn wizard_fresh_quick_setup() {
         let tmp = tempfile::tempdir().unwrap();
         let config_path = tmp.path().join("config.toml");
 
         let mock = MockWizard::new(vec![
-            // Step 2: Provider
-            MockAction::Select { result: 1 }, // openai
+            // Quick mode selection
+            MockAction::Select { result: 0 }, // Quick Setup
+            // Step 1: Provider
+            MockAction::Select { result: 0 }, // openai (first)
             MockAction::Input { result: "gpt-4o" },
             MockAction::Input {
                 result: "https://api.openai.com/v1",
@@ -1057,27 +1557,8 @@ mod tests {
             MockAction::Password {
                 result: "sk-test-key",
             },
-            // Step 3: Telegram (skip)
-            MockAction::Confirm {
-                prompt_contains: "Telegram",
-                result: false,
-            },
-            // Step 4: Feishu (skip)
-            MockAction::Confirm {
-                prompt_contains: "Feishu",
-                result: false,
-            },
-            // Step 5: WebSocket (skip)
-            MockAction::Confirm {
-                prompt_contains: "WebSocket",
-                result: false,
-            },
-            // Step 5: WeChat (skip)
-            MockAction::Confirm {
-                prompt_contains: "WeChat",
-                result: false,
-            },
-            // Step 6: Save
+            // Review: Save
+            MockAction::Select { result: 5 }, // "Save configuration" (index 5 = last)
             MockAction::Confirm {
                 prompt_contains: "Write",
                 result: true,
@@ -1094,6 +1575,47 @@ mod tests {
     }
 
     #[test]
+    fn wizard_full_setup_all_skip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config_path = tmp.path().join("config.toml");
+
+        let mock = MockWizard::new(vec![
+            // Full mode
+            MockAction::Select { result: 1 }, // Full Setup
+            // Step 1: Provider
+            MockAction::Select { result: 0 }, // openai
+            MockAction::Input { result: "gpt-4o" },
+            MockAction::Input {
+                result: "https://api.openai.com/v1",
+            },
+            MockAction::Password {
+                result: "sk-test-key",
+            },
+            // Step 2: Telegram (skip) — confirm_or_back [No, Yes, ↩], index 0 = No
+            MockAction::Select { result: 0 }, // "No"
+            // Step 3: Feishu (skip)
+            MockAction::Select { result: 0 }, // "No"
+            // Step 4: WebSocket (skip)
+            MockAction::Select { result: 0 }, // "No"
+            // Step 5: WeChat (skip)
+            MockAction::Select { result: 0 }, // "No"
+            // Review: Save
+            MockAction::Select { result: 5 }, // Save
+            MockAction::Confirm {
+                prompt_contains: "Write",
+                result: true,
+            },
+        ]);
+
+        run_wizard(&mock, &config_path).unwrap();
+
+        assert!(config_path.exists());
+        let saved: Config =
+            toml::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+        assert_eq!(saved.agent.provider.as_deref(), Some("openai"));
+    }
+
+    #[test]
     fn wizard_overwrite_existing_config() {
         let tmp = tempfile::tempdir().unwrap();
         let config_path = tmp.path().join("config.toml");
@@ -1103,13 +1625,14 @@ mod tests {
         loader::save_config(&existing, &config_path).unwrap();
 
         let mock = MockWizard::new(vec![
-            // Step 1: Overwrite
+            // Update existing
             MockAction::Confirm {
                 prompt_contains: "Update",
                 result: true,
             },
-            // Step 2: Provider
-            MockAction::Select { result: 0 }, // anthropic
+            // Full mode (not first run, so mode selection is skipped)
+            // Step 1: Provider
+            MockAction::Select { result: 1 }, // anthropic (index 1)
             MockAction::Input {
                 result: "claude-sonnet-4-20250514",
             },
@@ -1119,27 +1642,13 @@ mod tests {
             MockAction::Password {
                 result: "sk-ant-test",
             },
-            // Step 3: Telegram (skip)
-            MockAction::Confirm {
-                prompt_contains: "Telegram",
-                result: false,
-            },
-            // Step 4: Feishu (skip)
-            MockAction::Confirm {
-                prompt_contains: "Feishu",
-                result: false,
-            },
-            // Step 5: WebSocket (skip)
-            MockAction::Confirm {
-                prompt_contains: "WebSocket",
-                result: false,
-            },
-            // Step 5: WeChat (skip)
-            MockAction::Confirm {
-                prompt_contains: "WeChat",
-                result: false,
-            },
-            // Step 6: Save
+            // Step 2-5: Skip all channels — confirm_or_back [No, Yes, ↩], index 0 = No
+            MockAction::Select { result: 0 }, // Telegram No
+            MockAction::Select { result: 0 }, // Feishu No
+            MockAction::Select { result: 0 }, // WebSocket No
+            MockAction::Select { result: 0 }, // WeChat No
+            // Review: Save
+            MockAction::Select { result: 5 }, // Save
             MockAction::Confirm {
                 prompt_contains: "Write",
                 result: true,
@@ -1154,6 +1663,76 @@ mod tests {
         assert_eq!(saved.agent.model, "claude-sonnet-4-20250514");
     }
 
+    #[test]
+    fn token_masking_short_tokens() {
+        assert_eq!(mask_token("ab"), "(masked)");
+        assert_eq!(mask_token(""), "(not set)");
+    }
+
+    #[test]
+    fn token_masking_long_token() {
+        let masked = mask_token("sk-proj-abcdefghijklmnop-b2cF");
+        assert!(masked.starts_with("sk-"));
+        assert!(masked.ends_with("b2cF"));
+        assert!(masked.contains("…"));
+    }
+
+    #[test]
+    fn validate_api_key_openai() {
+        assert!(validate_api_key("openai", "sk-test123").is_ok());
+        assert!(validate_api_key("openai", "bad-key").is_err());
+    }
+
+    #[test]
+    fn validate_api_key_anthropic() {
+        assert!(validate_api_key("anthropic", "sk-ant-test123").is_ok());
+        assert!(validate_api_key("anthropic", "bad-key").is_err());
+    }
+
+    #[test]
+    fn validate_api_key_other_providers() {
+        assert!(validate_api_key("ollama", "any-key").is_ok());
+    }
+
+    #[test]
+    fn validate_api_key_empty() {
+        assert!(validate_api_key("openai", "").is_err());
+    }
+
+    #[test]
+    fn validate_url_valid() {
+        assert_eq!(
+            validate_url("https://api.openai.com/v1").unwrap(),
+            "https://api.openai.com/v1"
+        );
+        assert_eq!(
+            validate_url("http://localhost:11434").unwrap(),
+            "http://localhost:11434"
+        );
+    }
+
+    #[test]
+    fn validate_url_empty() {
+        assert_eq!(validate_url("").unwrap(), "");
+    }
+
+    #[test]
+    fn validate_url_invalid() {
+        assert!(validate_url("not-a-url").is_err());
+        assert!(validate_url("ftp://example.com").is_err());
+    }
+
+    #[test]
+    fn wizard_step_ordering() {
+        assert_eq!(WizardStep::first(), WizardStep::Provider);
+        assert_eq!(WizardStep::Provider.step_number(), 1);
+        assert_eq!(WizardStep::Review.step_number(), 0);
+        assert_eq!(WizardStep::Provider.next(), Some(WizardStep::Telegram));
+        assert_eq!(WizardStep::Review.next(), None);
+        assert_eq!(WizardStep::Provider.prev(), None);
+        assert_eq!(WizardStep::Review.prev(), Some(WizardStep::WeChat));
+    }
+
     fn tg(token: &str) -> TelegramConfig {
         TelegramConfig {
             token: token.to_string(),
@@ -1166,25 +1745,12 @@ mod tests {
     }
 
     #[test]
-    fn token_masking_short_tokens() {
-        let mut config = Config::default();
-        config.channels.telegram = Some(tg("ab"));
-
-        let mock = MockWizard::new(vec![]);
-        show_config_summary(&mock, &config).unwrap();
-
-        let output = mock.output();
-        assert!(output.contains("(masked)"));
-        assert!(!output.contains("ab…"));
-    }
-
-    #[test]
     fn token_masking_empty_token() {
         let mut config = Config::default();
         config.channels.telegram = Some(tg(""));
 
         let mock = MockWizard::new(vec![]);
-        show_config_summary(&mock, &config).unwrap();
+        show_config_summary_simple(&mock, &config).unwrap();
 
         let output = mock.output();
         assert!(output.contains("(not set)"));
@@ -1192,13 +1758,7 @@ mod tests {
 
     #[test]
     fn configure_weixin_qr_enables_existing_credentials() {
-        let mock = MockWizard::new(vec![
-            MockAction::Confirm {
-                prompt_contains: "WeChat",
-                result: true,
-            },
-            MockAction::Select { result: 0 },
-        ]);
+        let mock = MockWizard::new(vec![MockAction::Select { result: 0 }]);
         let mut config = Config::default();
         config.channels.weixin = Some(WeixinConfig {
             app_id: None,
@@ -1228,10 +1788,6 @@ mod tests {
     #[test]
     fn configure_weixin_manual_preserves_existing_fields() {
         let mock = MockWizard::new(vec![
-            MockAction::Confirm {
-                prompt_contains: "WeChat",
-                result: true,
-            },
             MockAction::Select { result: 1 },
             MockAction::Input {
                 result: "wxid_new@im.bot",

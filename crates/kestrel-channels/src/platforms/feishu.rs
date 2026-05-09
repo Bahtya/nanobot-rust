@@ -1213,7 +1213,7 @@ impl FeishuChannel {
         let app_id = std::env::var("FEISHU_APP_ID").unwrap_or_default();
         let app_secret = std::env::var("FEISHU_APP_SECRET").unwrap_or_default();
         let connection_mode =
-            std::env::var("FEISHU_CONNECTION_MODE").unwrap_or_else(|_| "webhook".to_string());
+            std::env::var("FEISHU_CONNECTION_MODE").unwrap_or_else(|_| "websocket".to_string());
         Self {
             app_id,
             app_secret,
@@ -1246,7 +1246,7 @@ impl FeishuChannel {
             .connection_mode
             .clone()
             .or_else(|| std::env::var("FEISHU_CONNECTION_MODE").ok())
-            .unwrap_or_else(|| "webhook".to_string());
+            .unwrap_or_else(|| "websocket".to_string());
         let client = Self::build_client(proxy.as_deref());
         Self {
             app_id,

@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.8.3] - 2026-05-09
+
+### Bug Fixes
+- fix(feishu): `connection_mode` now defaults to `"websocket"` instead of `"webhook"` (#281)
+  - `FeishuConfig::default()` sets `connection_mode = "websocket"`
+  - `FeishuChannel` fallback changed from `"webhook"` to `"websocket"`
+  - Users with existing configs need to add `connection_mode = "websocket"` to `[channels.feishu]`
+
 ## [v0.8.2] - 2026-05-09
 
 ### New Features

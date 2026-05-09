@@ -3,22 +3,33 @@
 ## [v0.9.0] - 2026-05-09
 
 ### New Features
-- feat(setup): API key and URL connectivity validation during setup (#275, PR #282)
-  - Real HTTP request to provider endpoint to validate API key after entry
-  - Parse and display available model names on success
-  - Auth failure (401/403) with user-friendly messaging and option to continue
-  - Network error handling with option to proceed
-  - Provider-specific request builders for OpenAI, Anthropic, and Gemini
-  - Skip validation for Ollama (local, no API key needed)
-- feat(tools): built-in Lua script engine — ScriptTool (#279)
-  - Cross-platform scripting via Lua 5.4 sandbox
-  - Structured tracing logs, instruction count limit, safe os.* subset
-  - Optimized descriptions to guide AI tool selection
-- feat(tools): built-in terminal multiplexer — portable-pty (#280)
+- feat(setup): API key and URL connectivity validation during setup (Issue #275, PR #282)
+  - Real provider API validation after API key entry, with latency display on success
+  - Parse and display available model names when the provider responds successfully
+  - Clear auth failure (401/403) and network error prompts, with option to continue
+  - URL reachability checks plus provider-specific request builders for OpenAI-compatible, Anthropic, and Gemini endpoints
+  - Skip validation for Ollama because it is a local provider without API key requirements
+- feat(tools): built-in Lua script engine - ScriptTool (PR #279)
+  - Cross-platform Lua 5.4 scripting for string processing, JSON handling, and file IO
+  - Sandboxed runtime with blocked unsafe APIs, instruction count limit, and guarded write paths
+  - Structured tracing logs and improved tool descriptions to guide AI between `exec` and `script`
+- feat(tools): built-in terminal multiplexer - portable-pty (PR #280)
+  - Six `terminal_*` tools for session create, input, output, listing, resize, and kill operations
+  - Persistent cross-platform PTY sessions with ring-buffered output for long-running interactive workflows
+  - Automatic tool registration plus structured session lifecycle logging
 
 ### Bug Fixes
-- fix(feishu): rewrite WebSocket long-connection to use endpoint discovery + protobuf (#284)
-- fix(logging): add trace_id to all message processing log outputs (#285)
+- fix(feishu): rewrite WebSocket long-connection to use endpoint discovery + protobuf (PR #284)
+  - Replace hardcoded WebSocket URL with Feishu endpoint discovery API
+  - Switch frame handling from JSON auth messages to protobuf Frame protocol
+  - Handle control/data frames, protobuf pong responses, and event acknowledgments
+  - Reuse the existing HTTP client for endpoint discovery and proxy-aware connectivity
+- fix(logging): add trace_id to all message processing log outputs (PR #285)
+  - End-to-end `trace_id` coverage across channels, agent loop, providers, and streaming
+  - Generate missing inbound trace IDs for Feishu and Weixin message processing paths
+
+### CI/CD
+- fix(ci): install `protoc` in cross container for musl build
 
 ## [v0.8.4] - 2026-05-09
 

@@ -1,5 +1,18 @@
 # Changelog
 
+## [v0.8.2] - 2026-05-09
+
+### New Features
+- feat(setup): review-centric navigation — user can freely pick any step to configure (#278)
+  - Setup starts from Review menu, user jumps to any step independently
+  - No more forced linear walk through all steps
+  - Each step returns to Review after completion
+  - "Skip (keep current)" option for each channel step
+
+### Bug Fixes
+- fix(setup): remove misleading "Go back" from Provider selection list
+- fix(setup): properly track channel status from actual config state
+
 ## [v0.8.1] - 2026-05-09
 
 ### New Features

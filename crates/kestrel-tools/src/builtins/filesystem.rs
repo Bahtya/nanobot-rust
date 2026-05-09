@@ -8,6 +8,7 @@ use tokio::io::AsyncWriteExt;
 const FILESYSTEM_IO_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_MAX_LIST_DIR_DEPTH: usize = 10;
 const DEFAULT_MAX_LIST_DIR_ENTRIES: usize = 10_000;
+const MAX_READ_FILE_SIZE: u64 = 10 * 1024 * 1024; // 10 MB
 
 // ─── ReadFileTool ────────────────────────────────────────────
 
@@ -53,18 +54,35 @@ impl Tool for ReadFileTool {
             .as_str()
             .ok_or_else(|| ToolError::Validation("Missing 'path' parameter".to_string()))?;
 
-        let content = tokio::time::timeout(
-            std::time::Duration::from_secs(FILESYSTEM_IO_TIMEOUT_SECS),
-            tokio::fs::read_to_string(path),
-        )
-        .await
-        .map_err(|_| {
-            ToolError::Execution(format!(
-                "File read timed out after {}s",
-                FILESYSTEM_IO_TIMEOUT_SECS
-            ))
-        })?
-        .map_err(|e| ToolError::Execution(format!("Failed to read file: {}", e)))?;
+        let timeout_dur = std::time::Duration::from_secs(FILESYSTEM_IO_TIMEOUT_SECS);
+
+        let metadata = tokio::time::timeout(timeout_dur, tokio::fs::metadata(path))
+            .await
+            .map_err(|_| {
+                ToolError::Execution(format!(
+                    "File metadata check timed out after {}s",
+                    FILESYSTEM_IO_TIMEOUT_SECS
+                ))
+            })?
+            .map_err(|e| ToolError::Execution(format!("Failed to read file: {}", e)))?;
+
+        if metadata.len() > MAX_READ_FILE_SIZE {
+            return Err(ToolError::Execution(format!(
+                "File too large ({} bytes, max {} bytes). Use 'offset' and 'limit' to read portions.",
+                metadata.len(),
+                MAX_READ_FILE_SIZE
+            )));
+        }
+
+        let content = tokio::time::timeout(timeout_dur, tokio::fs::read_to_string(path))
+            .await
+            .map_err(|_| {
+                ToolError::Execution(format!(
+                    "File read timed out after {}s",
+                    FILESYSTEM_IO_TIMEOUT_SECS
+                ))
+            })?
+            .map_err(|e| ToolError::Execution(format!("Failed to read file: {}", e)))?;
 
         let lines: Vec<&str> = content.lines().collect();
         let offset = args["offset"].as_u64().unwrap_or(0) as usize;
@@ -276,6 +294,24 @@ impl Tool for EditFileTool {
         let replace_all = args["replace_all"].as_bool().unwrap_or(false);
 
         let timeout_dur = std::time::Duration::from_secs(FILESYSTEM_IO_TIMEOUT_SECS);
+
+        let metadata = tokio::time::timeout(timeout_dur, tokio::fs::metadata(path))
+            .await
+            .map_err(|_| {
+                ToolError::Execution(format!(
+                    "File metadata check timed out after {}s",
+                    FILESYSTEM_IO_TIMEOUT_SECS
+                ))
+            })?
+            .map_err(|e| ToolError::Execution(format!("Failed to read file: {}", e)))?;
+
+        if metadata.len() > MAX_READ_FILE_SIZE {
+            return Err(ToolError::Execution(format!(
+                "File too large to edit ({} bytes, max {} bytes)",
+                metadata.len(),
+                MAX_READ_FILE_SIZE
+            )));
+        }
 
         let content = tokio::time::timeout(timeout_dur, tokio::fs::read_to_string(path))
             .await
@@ -562,6 +598,71 @@ mod tests {
             }))
             .await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_read_file_rejects_oversized() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("big.txt");
+        // Create a sparse file that reports > MAX_READ_FILE_SIZE
+        use tokio::io::AsyncSeekExt;
+        let mut f = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(&file_path)
+            .await
+            .unwrap();
+        f.seek(std::io::SeekFrom::Start(MAX_READ_FILE_SIZE + 1))
+            .await
+            .unwrap();
+        f.write_all(b"X").await.unwrap();
+        drop(f);
+
+        let tool = ReadFileTool::new();
+        let result = tool
+            .execute(json!({
+                "path": file_path.to_str().unwrap()
+            }))
+            .await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("too large"),
+            "expected 'too large', got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_edit_file_rejects_oversized() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("big_edit.txt");
+        use tokio::io::AsyncSeekExt;
+        let mut f = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(&file_path)
+            .await
+            .unwrap();
+        f.seek(std::io::SeekFrom::Start(MAX_READ_FILE_SIZE + 1))
+            .await
+            .unwrap();
+        f.write_all(b"X").await.unwrap();
+        drop(f);
+
+        let tool = EditFileTool::new();
+        let result = tool
+            .execute(json!({
+                "path": file_path.to_str().unwrap(),
+                "old_text": "X",
+                "new_text": "Y"
+            }))
+            .await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("too large"),
+            "expected 'too large', got: {err}"
+        );
     }
 
     #[tokio::test]

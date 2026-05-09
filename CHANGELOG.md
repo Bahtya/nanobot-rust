@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.9.10] - 2026-05-10
+
+### Bug Fixes
+- fix(tools): add file size check (10MB limit) to `read_file` and `edit_file` tools — previously these tools would read the entire file into memory regardless of size, allowing a large file read to OOM the daemon (Issue #318, PR #319)
+
 ## [v0.9.9] - 2026-05-10
 
 ### Bug Fixes

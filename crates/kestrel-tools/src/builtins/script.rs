@@ -887,7 +887,7 @@ mod tests {
         assert!(tool.dangerous);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_script_missing_code() {
         let tool = ScriptTool::new();
         let result = tool.execute(json!({})).await;
@@ -895,7 +895,7 @@ mod tests {
         assert!(result.unwrap_err().to_string().contains("Missing 'code'"));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_script_hello_world() {
         let tool = ScriptTool::new();
         let result = tool.execute(json!({"code": "print('hello world')"})).await;
@@ -903,7 +903,7 @@ mod tests {
         assert!(result.unwrap().contains("hello world"));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_script_string_operations() {
         let tool = ScriptTool::new();
         let result = tool
@@ -913,7 +913,7 @@ mod tests {
         assert!(result.unwrap().contains("result: 50"));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_script_table_operations() {
         let tool = ScriptTool::new();
         let result = tool
@@ -925,7 +925,7 @@ mod tests {
         assert!(result.unwrap().contains("1,2,3"));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_script_json_decode_encode() {
         let tool = ScriptTool::new();
         let result = tool
@@ -937,7 +937,7 @@ mod tests {
         assert!(output.contains("42"));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_script_json_encode() {
         let tool = ScriptTool::new();
         let result = tool
@@ -949,7 +949,7 @@ mod tests {
         assert!(output.contains("world"));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_script_platform() {
         let tool = ScriptTool::new();
         let result = tool
@@ -963,7 +963,7 @@ mod tests {
         assert!(output.contains("linux") || output.contains("macos") || output.contains("android"));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_script_sandbox_blocks_io() {
         let tool = ScriptTool::new();
         let result = tool
@@ -973,7 +973,7 @@ mod tests {
         assert!(err_msg.contains("nil") || err_msg.contains("error"));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_script_sandbox_blocks_os_execute() {
         let tool = ScriptTool::new();
         // Our safe os table has no execute method, so this should error
@@ -983,14 +983,14 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_script_sandbox_blocks_require() {
         let tool = ScriptTool::new();
         let result = tool.execute(json!({"code": "require('os')"})).await;
         assert!(result.is_err());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_script_read_file() {
         let dir = tempfile::tempdir().unwrap();
         let file_path = dir.path().join("test.txt");
@@ -1008,7 +1008,7 @@ mod tests {
         assert!(output.contains("line3"));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_script_write_file() {
         let dir = tempfile::tempdir().unwrap();
         let file_path = dir.path().join("output.txt");
@@ -1023,7 +1023,7 @@ mod tests {
         assert_eq!(content, "hello from lua");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_script_write_file_blocked_system_path() {
         let tool = ScriptTool::new();
         let result = tool
@@ -1033,7 +1033,7 @@ mod tests {
         assert!(result.is_err() || result.unwrap().contains("not allowed"));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_script_list_dir() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("a.txt"), "").unwrap();
@@ -1052,7 +1052,7 @@ mod tests {
         assert!(output.contains("b.rs"));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_script_exists() {
         let dir = tempfile::tempdir().unwrap();
         let file_path = dir.path().join("exists.txt");
@@ -1071,7 +1071,7 @@ mod tests {
         assert!(output.contains("false"));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_script_math_and_loop() {
         let tool = ScriptTool::new();
         let result = tool
@@ -1083,7 +1083,7 @@ mod tests {
         assert!(result.unwrap().contains("5050"));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_script_env() {
         let tool = ScriptTool::new();
         let code = r#"

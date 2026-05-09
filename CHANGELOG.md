@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Bug Fixes
+- fix(tools): wrap Lua script execution in catch_unwind to prevent Rust-side panics from crashing the process; also make all internal Mutex locks poison-resistant (Issue #300)
+- fix(tools): fix TOCTOU race in terminal_create_session — concurrent calls could exceed max_sessions limit (Issue #296, PR #299)
+- fix(memory): tantivy QueryParser now uses parse_query_lenient() to handle field-like syntax in user messages gracefully (Issue #292, PR #293)
+
 ## [v0.9.1] - 2026-05-10
 
 ### Bug Fixes

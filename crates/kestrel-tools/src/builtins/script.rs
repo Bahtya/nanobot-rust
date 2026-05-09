@@ -190,7 +190,7 @@ impl ScriptTool {
             let clock_start = Arc::new(std::sync::Mutex::new(std::time::Instant::now()));
             let os_clock_fn = lua
                 .create_function(move |_, _: ()| {
-                    let start = clock_start.lock().unwrap();
+                    let start = clock_start.lock().unwrap_or_else(|e| e.into_inner());
                     Ok(start.elapsed().as_secs_f64())
                 })
                 .map_err(|e| ToolError::Execution(format!("Failed to create os.clock: {}", e)))?;
@@ -604,7 +604,7 @@ impl Tool for ScriptTool {
                     })
                     .collect();
                 let line = parts.join("\t");
-                let mut buf = buf_clone.lock().unwrap();
+                let mut buf = buf_clone.lock().unwrap_or_else(|e| e.into_inner());
                 buf.extend_from_slice(line.as_bytes());
                 buf.push(b'\n');
                 Ok(())
@@ -615,13 +615,27 @@ impl Tool for ScriptTool {
             .set("print", print_capture)
             .map_err(|e| ToolError::Execution(format!("Failed to set print: {}", e)))?;
 
-        // Execute the script
+        // Execute the script — catch_unwind prevents Lua binding panics from
+        // crashing the process (e.g., poisoned mutex in print, or any future
+        // binding bug that triggers a Rust panic instead of returning an error).
         let max_output = self.max_output_bytes;
-        let exec_result: Result<(), ToolError> =
-            tokio::task::block_in_place(|| match lua.load(code).exec() {
-                Ok(()) => Ok(()),
-                Err(e) => Err(ToolError::Execution(format!("Lua error: {}", e))),
-            });
+        let exec_result: Result<(), ToolError> = tokio::task::block_in_place(|| {
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| lua.load(code).exec()))
+            {
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(e)) => Err(ToolError::Execution(format!("Lua error: {}", e))),
+                Err(panic) => {
+                    let msg = if let Some(s) = panic.downcast_ref::<String>() {
+                        s.clone()
+                    } else if let Some(s) = panic.downcast_ref::<&str>() {
+                        s.to_string()
+                    } else {
+                        "unknown panic".to_string()
+                    };
+                    Err(ToolError::Execution(format!("Lua panic: {}", msg)))
+                }
+            }
+        });
 
         let elapsed_ms = start.elapsed().as_millis();
 
@@ -629,7 +643,7 @@ impl Tool for ScriptTool {
             Ok(()) => {
                 // Collect captured output
                 let output = {
-                    let buf = stdout_buf.lock().unwrap();
+                    let buf = stdout_buf.lock().unwrap_or_else(|e| e.into_inner());
                     String::from_utf8_lossy(&buf).to_string()
                 };
 

@@ -44,9 +44,7 @@ impl TerminalManager {
         let session = TerminalSession::spawn(id.clone(), shell, cwd, cols, rows)
             .with_context(|| format!("Failed to spawn terminal session '{}'", id))?;
 
-        self.sessions
-            .write()
-            .insert(id.clone(), Arc::new(session));
+        self.sessions.write().insert(id.clone(), Arc::new(session));
         info!("Created terminal session '{}'", id);
         Ok(id)
     }
@@ -100,7 +98,12 @@ impl TerminalManager {
         let session = sessions
             .get(session_id)
             .context(format!("Session '{}' not found", session_id))?;
-        debug!(session_id = session_id, cols = cols, rows = rows, "Resizing terminal session via manager");
+        debug!(
+            session_id = session_id,
+            cols = cols,
+            rows = rows,
+            "Resizing terminal session via manager"
+        );
         session.resize(cols, rows)
     }
 

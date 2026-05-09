@@ -504,10 +504,12 @@ impl Tool for TerminalResizeTool {
             .ok_or_else(|| ToolError::Validation("Missing 'session_id'".to_string()))?;
         let cols = args["cols"]
             .as_u64()
-            .ok_or_else(|| ToolError::Validation("Missing 'cols'".to_string()))? as u16;
+            .ok_or_else(|| ToolError::Validation("Missing 'cols'".to_string()))?
+            as u16;
         let rows = args["rows"]
             .as_u64()
-            .ok_or_else(|| ToolError::Validation("Missing 'rows'".to_string()))? as u16;
+            .ok_or_else(|| ToolError::Validation("Missing 'rows'".to_string()))?
+            as u16;
 
         debug!(
             session_id = session_id,
@@ -531,7 +533,10 @@ impl Tool for TerminalResizeTool {
 // ═══════════════════════════════════════════════════════════════════
 
 /// Register all terminal tools with a shared `TerminalManager`.
-pub fn register_terminal_tools(registry: &crate::registry::ToolRegistry, mgr: Arc<TerminalManager>) {
+pub fn register_terminal_tools(
+    registry: &crate::registry::ToolRegistry,
+    mgr: Arc<TerminalManager>,
+) {
     registry.register(TerminalCreateSessionTool::new().with_manager(mgr.clone()));
     registry.register(TerminalSendInputTool::new().with_manager(mgr.clone()));
     registry.register(TerminalReadOutputTool::new().with_manager(mgr.clone()));

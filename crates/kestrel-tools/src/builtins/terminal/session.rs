@@ -85,9 +85,7 @@ impl TerminalSession {
         let reader = master
             .try_clone_reader()
             .context("Failed to clone PTY reader")?;
-        let writer = master
-            .take_writer()
-            .context("Failed to take PTY writer")?;
+        let writer = master.take_writer().context("Failed to take PTY writer")?;
 
         let output_buffer = Arc::new(Mutex::new(RingBuffer::new(MAX_BUFFER_SIZE)));
         let alive = Arc::new(AtomicBool::new(true));

@@ -14,7 +14,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::debug;
+use tracing::{debug, info, warn};
 
 const DEFAULT_SCRIPT_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_MAX_OUTPUT_BYTES: usize = 1024 * 1024;
@@ -100,6 +100,9 @@ impl ScriptTool {
 
     /// Create a sandboxed Lua VM with restricted standard libraries.
     fn create_sandboxed_vm(&self) -> Result<Lua, ToolError> {
+        if self.dangerous {
+            info!("Creating script VM in dangerous mode — all standard libraries enabled");
+        }
         let safe_libs = if self.dangerous {
             // Dangerous mode: all standard libraries
             StdLib::ALL
@@ -251,6 +254,12 @@ impl ScriptTool {
                     let content_len = content.len();
                     let prev = wc.fetch_add(content_len, Ordering::SeqCst);
                     if prev + content_len > max_write_bytes {
+                        warn!(
+                            path,
+                            write_bytes = prev + content_len,
+                            max_write_bytes,
+                            "Script write limit exceeded"
+                        );
                         return Err(mlua::Error::external(format!(
                             "Write limit exceeded: {} bytes (max {})",
                             prev + content_len,
@@ -259,6 +268,10 @@ impl ScriptTool {
                     }
                     let file_count = wfc.fetch_add(1, Ordering::SeqCst) + 1;
                     if file_count > max_write_files {
+                        warn!(
+                            path,
+                            file_count, max_write_files, "Script file count limit exceeded"
+                        );
                         return Err(mlua::Error::external(format!(
                             "File count limit exceeded: {} files (max {})",
                             file_count, max_write_files
@@ -501,9 +514,11 @@ impl Tool for ScriptTool {
         let timeout_secs = args["timeout"].as_u64().unwrap_or(self.timeout.as_secs());
 
         debug!(
-            "Executing Lua script ({} chars, timeout: {}s)",
-            code.len(),
-            timeout_secs
+            code_len = code.len(),
+            timeout_secs,
+            dangerous = self.dangerous,
+            max_instructions = self.max_instructions,
+            "Script execution starting"
         );
 
         let lua = self.create_sandboxed_vm()?;
@@ -517,6 +532,10 @@ impl Tool for ScriptTool {
                 move |_lua, _debug| {
                     let count = instruction_counter.fetch_add(1000, Ordering::Relaxed);
                     if count >= max_instructions {
+                        warn!(
+                            instruction_count = count,
+                            max_instructions, "Script instruction limit exceeded, aborting"
+                        );
                         return Err(mlua::Error::external(format!(
                             "Instruction limit exceeded (max {})",
                             max_instructions
@@ -564,16 +583,9 @@ impl Tool for ScriptTool {
             .map_err(|e| ToolError::Execution(format!("Failed to set print: {}", e)))?;
 
         // Execute the script with timeout
-        // Lua is not Send, so we execute on the current thread with a manual timeout check.
-        // For truly async timeout, we use tokio::task::block_in_place which doesn't require Send.
         let max_output = self.max_output_bytes;
+        let start = std::time::Instant::now();
         let exec_result: Result<(), ToolError> = tokio::task::block_in_place(|| {
-            // Set up an alarm-based timeout for blocking execution
-            let start = std::time::Instant::now();
-
-            // We wrap execution in a thread that we can join with a timeout
-            // Note: Lua cannot be sent between threads. Execute directly but
-            // check elapsed time before execution.
             if start.elapsed() > Duration::from_secs(timeout_secs) {
                 return Err(ToolError::Timeout(format!(
                     "Script timed out after {}s",
@@ -581,35 +593,59 @@ impl Tool for ScriptTool {
                 )));
             }
 
-            // Execute the Lua script directly
             match lua.load(code).exec() {
                 Ok(()) => Ok(()),
                 Err(e) => Err(ToolError::Execution(format!("Lua error: {}", e))),
             }
         });
 
-        exec_result?;
+        let elapsed_ms = start.elapsed().as_millis();
 
-        // Collect captured output
-        let output = {
-            let buf = stdout_buf.lock().unwrap();
-            String::from_utf8_lossy(&buf).to_string()
-        };
+        match &exec_result {
+            Ok(()) => {
+                // Collect captured output
+                let output = {
+                    let buf = stdout_buf.lock().unwrap();
+                    String::from_utf8_lossy(&buf).to_string()
+                };
 
-        if output.is_empty() {
-            Ok("(script completed, no output)".to_string())
-        } else if output.len() > MAX_TOOL_OUTPUT_LENGTH {
-            let mut truncated = output[..MAX_TOOL_OUTPUT_LENGTH].to_string();
-            truncated.push_str("\n... (output truncated)");
-            Ok(truncated)
-        } else if output.len() > max_output {
-            Ok(format!(
-                "{}\n... (output truncated at {} bytes)",
-                &output[..max_output.min(output.len())],
-                max_output
-            ))
-        } else {
-            Ok(output)
+                let output_len = output.len();
+                let truncated = output_len > MAX_TOOL_OUTPUT_LENGTH || output_len > max_output;
+
+                info!(
+                    duration_ms = elapsed_ms,
+                    output_len,
+                    truncated,
+                    dangerous = self.dangerous,
+                    "Script execution completed"
+                );
+
+                if output.is_empty() {
+                    Ok("(script completed, no output)".to_string())
+                } else if output.len() > MAX_TOOL_OUTPUT_LENGTH {
+                    let mut truncated_output = output[..MAX_TOOL_OUTPUT_LENGTH].to_string();
+                    truncated_output.push_str("\n... (output truncated)");
+                    Ok(truncated_output)
+                } else if output.len() > max_output {
+                    Ok(format!(
+                        "{}\n... (output truncated at {} bytes)",
+                        &output[..max_output.min(output.len())],
+                        max_output
+                    ))
+                } else {
+                    Ok(output)
+                }
+            }
+            Err(e) => {
+                warn!(
+                    duration_ms = elapsed_ms,
+                    error = %e,
+                    dangerous = self.dangerous,
+                    "Script execution failed"
+                );
+                exec_result?;
+                unreachable!()
+            }
         }
     }
 }
@@ -624,6 +660,11 @@ fn validate_write_path(path: &str) -> Result<(), mlua::Error> {
     {
         for blocked in BLOCKED_WRITE_PATHS_UNIX {
             if p.starts_with(blocked) {
+                warn!(
+                    path,
+                    blocked_system_path = *blocked,
+                    "Script write blocked: system path"
+                );
                 return Err(mlua::Error::external(format!(
                     "Write to system path '{}' is not allowed",
                     path
@@ -637,6 +678,11 @@ fn validate_write_path(path: &str) -> Result<(), mlua::Error> {
         let lower = path.to_lowercase();
         for blocked in BLOCKED_WRITE_PATHS_WINDOWS {
             if lower.starts_with(&blocked.to_lowercase()) {
+                warn!(
+                    path,
+                    blocked_system_path = *blocked,
+                    "Script write blocked: system path"
+                );
                 return Err(mlua::Error::external(format!(
                     "Write to system path '{}' is not allowed",
                     path
@@ -650,6 +696,11 @@ fn validate_write_path(path: &str) -> Result<(), mlua::Error> {
         let lower = file_name.to_lowercase();
         for blocked in BLOCKED_HOME_SUBPATHS {
             if lower == *blocked {
+                warn!(
+                    path,
+                    sensitive_component = *blocked,
+                    "Script write blocked: sensitive path"
+                );
                 return Err(mlua::Error::external(format!(
                     "Write to sensitive path '{}' is not allowed",
                     path
@@ -673,6 +724,11 @@ fn validate_write_path(path: &str) -> Result<(), mlua::Error> {
             .collect();
         for blocked in BLOCKED_HOME_SUBPATHS {
             if components.iter().any(|c| c == *blocked) {
+                warn!(
+                    path,
+                    sensitive_component = *blocked,
+                    "Script write blocked: sensitive path in components"
+                );
                 return Err(mlua::Error::external(format!(
                     "Write to sensitive path '{}' is not allowed",
                     path

@@ -186,9 +186,7 @@ impl TantivyStore {
         if let Some(ref text) = query.text {
             if !text.is_empty() {
                 let parser = QueryParser::for_index(&self.index, vec![self.content_field]);
-                let parsed = parser
-                    .parse_query(text)
-                    .map_err(|e| MemoryError::SearchEngine(format!("query parse error: {e}")))?;
+                let (parsed, _errors) = parser.parse_query_lenient(text);
                 clauses.push((Occur::Must, parsed));
             }
         }
@@ -709,6 +707,35 @@ mod tests {
         );
         let result = store.store(entry).await;
         assert!(result.is_ok());
+    }
+
+    // -- Regression: field-like query syntax should not panic (#292) ---------
+
+    #[tokio::test]
+    async fn test_search_with_field_like_syntax_does_not_error() {
+        let (store, _dir) = make_test_store().await;
+        store
+            .store(MemoryEntry::new(
+                "Lua script execution result",
+                MemoryCategory::Fact,
+            ))
+            .await
+            .unwrap();
+
+        // These queries contain tantivy field syntax (`code:`, `script:`)
+        // which used to cause parse errors before the fix.
+        let tricky_queries = [
+            "code='print(\"hello\")'",
+            "script: run this",
+            "timeout: 30s",
+            "field:value AND other:thing",
+            "code:script:timeout:",
+        ];
+
+        for q in &tricky_queries {
+            let result = store.search(&MemoryQuery::new().with_text(q)).await;
+            assert!(result.is_ok(), "query '{q}' should not error: {:?}", result);
+        }
     }
 
     // -- Concurrent write test --------------------------------------------

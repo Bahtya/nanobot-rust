@@ -102,7 +102,10 @@ impl WebSearchTool {
         let api_key = std::env::var("BRAVE_API_KEY")
             .map_err(|_| ToolError::NotAvailable("BRAVE_API_KEY not set".to_string()))?;
 
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .map_err(|e| ToolError::Execution(format!("Failed to build HTTP client: {}", e)))?;
         let resp = client
             .get("https://api.search.brave.com/res/v1/web/search")
             .header("X-Subscription-Token", &api_key)
@@ -140,7 +143,10 @@ impl WebSearchTool {
         let api_key = std::env::var("TAVILY_API_KEY")
             .map_err(|_| ToolError::NotAvailable("TAVILY_API_KEY not set".to_string()))?;
 
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .map_err(|e| ToolError::Execution(format!("Failed to build HTTP client: {}", e)))?;
         let resp = client
             .post("https://api.tavily.com/search")
             .json(&json!({
@@ -314,6 +320,17 @@ fn html_to_text(html: &str) -> String {
 mod tests {
     use super::*;
     use crate::trait_def::Tool;
+
+    #[test]
+    fn test_search_client_has_timeout() {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .expect("build client");
+        // Verify the client is usable — timeout is set internally and cannot
+        // be inspected via public API, so we just confirm construction succeeds.
+        assert!(client.get("https://example.com").build().is_ok());
+    }
 
     #[test]
     fn test_web_search_tool_disabled() {

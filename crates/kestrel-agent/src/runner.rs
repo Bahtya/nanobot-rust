@@ -80,6 +80,8 @@ pub struct AgentRunner {
     trace_id: Option<String>,
     /// Cancellation token for graceful abort via /stop.
     cancel_token: Option<tokio_util::sync::CancellationToken>,
+    /// Per-tool execution timeout in seconds (from config.agent.tool_timeout).
+    tool_timeout_secs: u64,
 }
 
 impl AgentRunner {
@@ -88,6 +90,7 @@ impl AgentRunner {
         providers: Arc<ProviderRegistry>,
         tools: Arc<ToolRegistry>,
     ) -> Self {
+        let tool_timeout_secs = config.agent.tool_timeout;
         Self {
             config,
             providers,
@@ -98,6 +101,7 @@ impl AgentRunner {
             session_key: None,
             trace_id: None,
             cancel_token: None,
+            tool_timeout_secs,
         }
     }
 
@@ -653,12 +657,44 @@ impl AgentRunner {
         let mut results: Vec<(String, u64, bool)> = Vec::with_capacity(total);
         let overall_start = std::time::Instant::now();
         let heartbeat_interval = std::time::Duration::from_secs(10);
+        let tool_deadline = std::time::Duration::from_secs(self.tool_timeout_secs);
 
         for (i, handle) in handles.into_iter().enumerate() {
-            // Poll this handle with a heartbeat timeout loop.
+            // Poll this handle with a heartbeat timeout loop, bounded by tool_deadline.
             let mut h = handle;
+            let tool_start = std::time::Instant::now();
             loop {
-                match tokio::time::timeout(heartbeat_interval, &mut h).await {
+                let remaining = tool_deadline.saturating_sub(tool_start.elapsed());
+                if remaining.is_zero() {
+                    // Tool timeout exceeded — abort and report.
+                    h.abort();
+                    let elapsed = tool_start.elapsed().as_secs();
+                    warn!(
+                        trace_id = %self.trace_id.as_deref().unwrap_or("-"),
+                        tool_name = %tool_calls[i].function.name,
+                        timeout_secs = self.tool_timeout_secs,
+                        elapsed_secs = elapsed,
+                        "Tool timed out"
+                    );
+                    self.emit_event(AgentEvent::ToolResult {
+                        session_key: self.session_key.clone().unwrap_or_default(),
+                        tool_name: tool_calls[i].function.name.clone(),
+                        duration_ms: tool_start.elapsed().as_millis() as u64,
+                        trace_id: self.trace_id.clone(),
+                    });
+                    results.push((
+                        format!(
+                            "Tool '{}' timed out after {}s (limit: {}s)",
+                            tool_calls[i].function.name, elapsed, self.tool_timeout_secs
+                        ),
+                        tool_start.elapsed().as_millis() as u64,
+                        false,
+                    ));
+                    break;
+                }
+
+                let poll_timeout = heartbeat_interval.min(remaining);
+                match tokio::time::timeout(poll_timeout, &mut h).await {
                     Ok(join_res) => {
                         match join_res {
                             Ok((result, duration, ok)) => {
@@ -683,13 +719,40 @@ impl AgentRunner {
                         break;
                     }
                     Err(_) => {
-                        // Timeout — emit heartbeat and keep waiting on the same handle.
+                        // Check if tool deadline has passed
+                        if tool_start.elapsed() >= tool_deadline {
+                            h.abort();
+                            let elapsed = tool_start.elapsed().as_secs();
+                            warn!(
+                                trace_id = %self.trace_id.as_deref().unwrap_or("-"),
+                                tool_name = %tool_calls[i].function.name,
+                                timeout_secs = self.tool_timeout_secs,
+                                elapsed_secs = elapsed,
+                                "Tool timed out"
+                            );
+                            self.emit_event(AgentEvent::ToolResult {
+                                session_key: self.session_key.clone().unwrap_or_default(),
+                                tool_name: tool_calls[i].function.name.clone(),
+                                duration_ms: tool_start.elapsed().as_millis() as u64,
+                                trace_id: self.trace_id.clone(),
+                            });
+                            results.push((
+                                format!(
+                                    "Tool '{}' timed out after {}s (limit: {}s)",
+                                    tool_calls[i].function.name, elapsed, self.tool_timeout_secs
+                                ),
+                                tool_start.elapsed().as_millis() as u64,
+                                false,
+                            ));
+                            break;
+                        }
+                        // Heartbeat — emit progress and keep waiting.
                         let elapsed = overall_start.elapsed().as_secs();
-                        let remaining = total - i;
+                        let remaining_tools = total - i;
                         self.emit_stream_chunk(
                             format!(
                                 "\n\u{23f3} Still running... ({}s elapsed, {} pending)\n",
-                                elapsed, remaining
+                                elapsed, remaining_tools
                             ),
                             false,
                         );
@@ -759,7 +822,9 @@ mod tests {
     }
 
     fn make_runner(tools: ToolRegistry) -> AgentRunner {
-        let config = Arc::new(Config::default());
+        let mut config = Config::default();
+        config.agent.provider = Some("mock".to_string());
+        let config = Arc::new(config);
         let providers = Arc::new(ProviderRegistry::new());
         let tools = Arc::new(tools);
         AgentRunner::new(config, providers, tools)
@@ -924,6 +989,37 @@ mod tests {
         assert!(
             *duration_ms >= 40,
             "per-tool duration should reflect actual execution time, got {duration_ms}ms"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_tool_timeout_enforced() {
+        let mut config = Config::default();
+        config.agent.tool_timeout = 1; // 1 second timeout
+        config.agent.provider = Some("mock".to_string());
+        let config = Arc::new(config);
+        let providers = Arc::new(ProviderRegistry::new());
+        let registry = ToolRegistry::new();
+        registry.register(
+            CountingTool::new("slow_tool", false, Arc::new(AtomicUsize::new(0)))
+                .with_work_duration(std::time::Duration::from_secs(30)),
+        );
+        let tools = Arc::new(registry);
+
+        let runner = AgentRunner::new(config, providers, tools);
+        let calls = vec![tool_call("slow_tool", 1)];
+        let results = runner.execute_tools(&calls).await;
+
+        assert_eq!(results.len(), 1);
+        let (result_text, _, ok) = &results[0];
+        assert!(!ok, "timed-out tool should report failure");
+        assert!(
+            result_text.contains("timed out"),
+            "result should mention timeout: got '{result_text}'"
+        );
+        assert!(
+            result_text.contains("slow_tool"),
+            "result should name the tool: got '{result_text}'"
         );
     }
 

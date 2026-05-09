@@ -51,6 +51,15 @@ impl TerminalSession {
         cols: u16,
         rows: u16,
     ) -> Result<Self> {
+        debug!(
+            id = %id,
+            shell = shell.as_deref().unwrap_or("default"),
+            cwd = cwd.unwrap_or("-"),
+            cols = cols,
+            rows = rows,
+            "Spawning PTY session"
+        );
+
         let pty_system = native_pty_system();
 
         let pair = pty_system
@@ -105,6 +114,7 @@ impl TerminalSession {
         if !self.alive.load(Ordering::Relaxed) {
             anyhow::bail!("Session '{}' is not alive", self.id);
         }
+        debug!(session_id = %self.id, input_len = input.len(), "Writing input to PTY");
         let mut writer = self.writer.lock().await;
         writer
             .write_all(input.as_bytes())
@@ -123,6 +133,7 @@ impl TerminalSession {
         if buf.is_empty() {
             drop(buf);
             if let Some(ms) = timeout_ms {
+                debug!(session_id = %self.id, timeout_ms = ms, "Waiting for PTY output");
                 // Poll with short intervals until timeout or data arrives.
                 let deadline = std::time::Instant::now() + std::time::Duration::from_millis(ms);
                 loop {
@@ -130,6 +141,7 @@ impl TerminalSession {
                     let buf = self.output_buffer.lock().await;
                     if !buf.is_empty() || std::time::Instant::now() >= deadline {
                         let output = buf.drain_to_string();
+                        debug!(session_id = %self.id, output_len = output.len(), "Returning waited output");
                         return Ok(output);
                     }
                 }
@@ -137,7 +149,9 @@ impl TerminalSession {
             return Ok(String::new());
         }
 
-        Ok(buf.drain_to_string())
+        let output = buf.drain_to_string();
+        debug!(session_id = %self.id, output_len = output.len(), "Returning buffered output");
+        Ok(output)
     }
 
     /// Read all accumulated output without draining.
@@ -148,6 +162,7 @@ impl TerminalSession {
 
     /// Resize the PTY.
     pub fn resize(&self, cols: u16, rows: u16) -> Result<()> {
+        debug!(session_id = %self.id, cols = cols, rows = rows, "Resizing PTY");
         self.master
             .resize(PtySize {
                 rows,
@@ -160,6 +175,7 @@ impl TerminalSession {
 
     /// Kill the session (close PTY, signal process).
     pub fn kill(&self) {
+        debug!(session_id = %self.id, "Killing PTY session");
         self.alive.store(false, Ordering::Relaxed);
         // Closing the master PTY will send SIGHUP to the child process on Unix.
         // On Windows, ConPTY handles cleanup.

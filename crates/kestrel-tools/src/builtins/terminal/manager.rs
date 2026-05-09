@@ -6,7 +6,7 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tracing::info;
+use tracing::{debug, info};
 
 static SESSION_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -104,6 +104,7 @@ impl TerminalManager {
         let session = sessions
             .get(session_id)
             .context(format!("Session '{}' not found", session_id))?;
+        debug!(session_id = session_id, cols = cols, rows = rows, "Resizing terminal session via manager");
         session.resize(cols, rows)
     }
 

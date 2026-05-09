@@ -14,6 +14,7 @@ use crate::trait_def::{Tool, ToolError};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::sync::Arc;
+use tracing::debug;
 
 use super::manager::TerminalManager;
 
@@ -102,10 +103,19 @@ impl Tool for TerminalCreateSessionTool {
         let cols = args["cols"].as_u64().unwrap_or(80) as u16;
         let rows = args["rows"].as_u64().unwrap_or(24) as u16;
 
+        debug!(
+            shell = shell.as_deref().unwrap_or("default"),
+            cwd = cwd.unwrap_or("-"),
+            cols = cols,
+            rows = rows,
+            "Creating terminal session"
+        );
+
         let id = mgr
             .create_session(shell, cwd, cols, rows)
             .map_err(|e| ToolError::Execution(format!("Failed to create session: {}", e)))?;
 
+        debug!(session_id = %id, "Terminal session created");
         Ok(format!(
             "Created terminal session '{}' ({}x{}). Use terminal_send_input \
              to send commands and terminal_read_output to read results.",
@@ -179,6 +189,12 @@ impl Tool for TerminalSendInputTool {
         let input = args["input"]
             .as_str()
             .ok_or_else(|| ToolError::Validation("Missing 'input'".to_string()))?;
+
+        debug!(
+            session_id = session_id,
+            input_len = input.len(),
+            "Sending input to terminal session"
+        );
 
         mgr.send_input(session_id, input)
             .await
@@ -257,6 +273,12 @@ impl Tool for TerminalReadOutputTool {
             .ok_or_else(|| ToolError::Validation("Missing 'session_id'".to_string()))?;
         let timeout_ms = args["timeout_ms"].as_u64();
 
+        debug!(
+            session_id = session_id,
+            timeout_ms = timeout_ms.unwrap_or(0),
+            "Reading output from terminal session"
+        );
+
         let output = mgr
             .read_output(session_id, timeout_ms)
             .await
@@ -265,6 +287,11 @@ impl Tool for TerminalReadOutputTool {
         if output.is_empty() {
             Ok("(no new output)".to_string())
         } else {
+            debug!(
+                session_id = session_id,
+                output_len = output.len(),
+                "Returning terminal output"
+            );
             Ok(output)
         }
     }
@@ -319,6 +346,8 @@ impl Tool for TerminalListSessionsTool {
     async fn execute(&self, _args: Value) -> Result<String, ToolError> {
         let mgr = require_manager(&self.mgr)?;
         let sessions = mgr.list_sessions();
+
+        debug!(session_count = sessions.len(), "Listing terminal sessions");
 
         if sessions.is_empty() {
             return Ok("No active terminal sessions.".to_string());
@@ -401,6 +430,8 @@ impl Tool for TerminalKillSessionTool {
             .as_str()
             .ok_or_else(|| ToolError::Validation("Missing 'session_id'".to_string()))?;
 
+        debug!(session_id = session_id, "Killing terminal session");
+
         mgr.kill_session(session_id)
             .map_err(|e| ToolError::Execution(format!("Failed to kill session: {}", e)))?;
 
@@ -479,6 +510,13 @@ impl Tool for TerminalResizeTool {
         let rows = args["rows"]
             .as_u64()
             .ok_or_else(|| ToolError::Validation("Missing 'rows'".to_string()))? as u16;
+
+        debug!(
+            session_id = session_id,
+            cols = cols,
+            rows = rows,
+            "Resizing terminal session"
+        );
 
         mgr.resize_session(session_id, cols, rows)
             .map_err(|e| ToolError::Execution(format!("Failed to resize session: {}", e)))?;

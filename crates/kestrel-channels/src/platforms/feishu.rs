@@ -44,6 +44,7 @@ mod pbbp2 {
 // ---------------------------------------------------------------------------
 
 const FEISHU_BASE_URL: &str = "https://open.feishu.cn/open-apis";
+const FEISHU_DOMAIN: &str = "https://open.feishu.cn";
 const FEISHU_WS_ENDPOINT_PATH: &str = "/callback/ws/endpoint";
 const TOKEN_REFRESH_MARGIN_SECS: u64 = 300; // refresh 5 min before expiry
 const _FEISHU_DEDUP_TTL_SECS: u64 = 86400; // 24 hours
@@ -1797,11 +1798,7 @@ async fn discover_ws_endpoint(
     app_id: &str,
     app_secret: &str,
 ) -> Result<String> {
-    let url = format!(
-        "{}{}",
-        FEISHU_BASE_URL.replace("/open-apis", ""),
-        FEISHU_WS_ENDPOINT_PATH
-    );
+    let url = format!("{FEISHU_DOMAIN}{FEISHU_WS_ENDPOINT_PATH}");
     let body = serde_json::json!({
         "AppID": app_id,
         "AppSecret": app_secret,
@@ -1844,11 +1841,27 @@ async fn discover_ws_endpoint(
     Ok(ws_url)
 }
 
-/// Build a new protobuf ping Frame.
+/// Build a new protobuf ping Frame (client heartbeat).
 fn new_ping_frame(service_id: u64) -> pbbp2::Frame {
     let header = pbbp2::Header {
         key: HEADER_TYPE.to_string(),
         value: MSG_TYPE_PING.to_string(),
+    };
+    pbbp2::Frame {
+        service: service_id as i32,
+        method: FRAME_TYPE_CONTROL,
+        seq_id: 0,
+        log_id: 0,
+        headers: vec![header],
+        ..Default::default()
+    }
+}
+
+/// Build a new protobuf pong Frame (response to server ping).
+fn new_pong_frame(service_id: u64) -> pbbp2::Frame {
+    let header = pbbp2::Header {
+        key: HEADER_TYPE.to_string(),
+        value: MSG_TYPE_PONG.to_string(),
     };
     pbbp2::Frame {
         service: service_id as i32,
@@ -1970,7 +1983,7 @@ async fn ws_connect_and_listen(
                                 MSG_TYPE_PING => {
                                     debug!("[feishu:ws] received server ping");
                                     // Respond with pong frame.
-                                    let pong = new_ping_frame(service_id);
+                                    let pong = new_pong_frame(service_id);
                                     let mut pong_buf = Vec::with_capacity(pong.encoded_len());
                                     pong.encode(&mut pong_buf)
                                         .map_err(|e| {

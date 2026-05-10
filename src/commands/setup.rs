@@ -812,6 +812,7 @@ fn validate_url(input: &str) -> Result<String> {
 // ── Connectivity validation ────────────────────────────────────
 
 /// Result of a connectivity check.
+#[cfg_attr(test, allow(dead_code))]
 enum ConnectivityResult {
     /// Successfully connected and authenticated.
     Ok {
@@ -828,6 +829,7 @@ enum ConnectivityResult {
 ///
 /// Most OpenAI-compatible providers support `GET /models` with Bearer auth.
 /// For Anthropic we use `GET /v1/models` with `x-api-key` header.
+#[cfg_attr(test, allow(dead_code))]
 fn test_api_key_connectivity(
     provider_key: &str,
     base_url: &str,
@@ -894,6 +896,7 @@ fn test_api_key_connectivity(
 
 /// Build the validation HTTP request based on provider type.
 /// Returns (display_url, request_result) where display_url is safe to show in error messages.
+#[cfg_attr(test, allow(dead_code))]
 fn build_validation_request(
     provider_key: &str,
     base_url: &str,
@@ -931,6 +934,7 @@ fn build_validation_request(
 }
 
 /// Try to extract model names from the validation response.
+#[cfg_attr(test, allow(dead_code))]
 async fn parse_models_from_response(provider_key: &str, resp: reqwest::Response) -> Vec<String> {
     let body = resp.text().await.unwrap_or_default();
 

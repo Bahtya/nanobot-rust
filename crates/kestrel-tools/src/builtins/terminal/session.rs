@@ -434,7 +434,7 @@ impl TerminalSession {
     ) -> Result<ScreenSnapshot> {
         let current_input_seq = self.input_sequence.load(Ordering::Relaxed);
         let observed_input_seq = self.observed_input_sequence.load(Ordering::Relaxed);
-        let baseline_hash = {
+        let mut baseline_hash = {
             let emulator = self.emulator.lock().unwrap_or_else(|e| e.into_inner());
             let current_hash = emulator.state_hash();
             let should_reset_baseline = (!self.screen_observed.load(Ordering::Relaxed)
@@ -466,6 +466,20 @@ impl TerminalSession {
                 let emulator = self.emulator.lock().unwrap_or_else(|e| e.into_inner());
                 let current_hash = emulator.state_hash();
                 if current_hash == baseline_hash {
+                    if std::time::Instant::now() >= deadline {
+                        anyhow::bail!(
+                            "Timeout waiting for screen change ({}ms elapsed)",
+                            timeout_ms
+                        );
+                    }
+                    continue;
+                }
+                if current_input_seq == 0 {
+                    baseline_hash = current_hash;
+                    self.last_observed_screen_hash
+                        .store(current_hash, Ordering::Relaxed);
+                    self.observed_input_sequence.store(0, Ordering::Relaxed);
+                    self.screen_observed.store(true, Ordering::Relaxed);
                     if std::time::Instant::now() >= deadline {
                         anyhow::bail!(
                             "Timeout waiting for screen change ({}ms elapsed)",

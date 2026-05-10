@@ -574,6 +574,22 @@ impl WebSocketChannel {
                     // tungstenite auto-replies with pong
                     continue;
                 }
+                Ok(WsMessage::Binary(_)) => {
+                    info!(
+                        "WebSocket binary message from {} — not supported",
+                        client_id
+                    );
+                    let err = WsEnvelope::error(
+                        "binary_not_supported",
+                        "Binary messages are not supported. Send text messages with JSON payload.",
+                    );
+                    if let Ok(json) = err.to_json() {
+                        if let Some(client_tx) = clients.get(&client_id) {
+                            let _ = client_tx.send(json);
+                        }
+                    }
+                    continue;
+                }
                 Ok(_) => continue,
                 Err(e) => {
                     warn!("WebSocket read error for {}: {}", client_id, e);

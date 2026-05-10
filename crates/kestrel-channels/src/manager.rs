@@ -121,11 +121,20 @@ impl ChannelManager {
                     {
                         Ok(result) => {
                             if !result.success {
-                                warn!(
-                                    trace_id = %trace_id.as_deref().unwrap_or("-"),
-                                    "Failed to send message to {} via {}: {:?}",
-                                    msg.chat_id, channel_name, result.error
-                                );
+                                let err_msg = result.error.as_deref().unwrap_or("unknown error");
+                                if err_msg.contains("not connected") {
+                                    warn!(
+                                        trace_id = %trace_id.as_deref().unwrap_or("-"),
+                                        "Client gone before response: {} via {}",
+                                        msg.chat_id, channel_name
+                                    );
+                                } else {
+                                    error!(
+                                        trace_id = %trace_id.as_deref().unwrap_or("-"),
+                                        "Failed to send message to {} via {}: {:?}",
+                                        msg.chat_id, channel_name, result.error
+                                    );
+                                }
                             }
                         }
                         Err(e) => {

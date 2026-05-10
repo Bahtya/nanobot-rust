@@ -604,19 +604,8 @@ mod tests {
     async fn test_read_file_rejects_oversized() {
         let dir = tempfile::tempdir().unwrap();
         let file_path = dir.path().join("big.txt");
-        // Create a sparse file that reports > MAX_READ_FILE_SIZE
-        use tokio::io::AsyncSeekExt;
-        let mut f = tokio::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .open(&file_path)
-            .await
-            .unwrap();
-        f.seek(std::io::SeekFrom::Start(MAX_READ_FILE_SIZE + 1))
-            .await
-            .unwrap();
-        f.write_all(b"X").await.unwrap();
-        drop(f);
+        let f = std::fs::File::create(&file_path).unwrap();
+        f.set_len(MAX_READ_FILE_SIZE + 1).unwrap();
 
         let tool = ReadFileTool::new();
         let result = tool
@@ -636,18 +625,8 @@ mod tests {
     async fn test_edit_file_rejects_oversized() {
         let dir = tempfile::tempdir().unwrap();
         let file_path = dir.path().join("big_edit.txt");
-        use tokio::io::AsyncSeekExt;
-        let mut f = tokio::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .open(&file_path)
-            .await
-            .unwrap();
-        f.seek(std::io::SeekFrom::Start(MAX_READ_FILE_SIZE + 1))
-            .await
-            .unwrap();
-        f.write_all(b"X").await.unwrap();
-        drop(f);
+        let f = std::fs::File::create(&file_path).unwrap();
+        f.set_len(MAX_READ_FILE_SIZE + 1).unwrap();
 
         let tool = EditFileTool::new();
         let result = tool

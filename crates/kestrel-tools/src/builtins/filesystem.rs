@@ -9,6 +9,7 @@ const FILESYSTEM_IO_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_MAX_LIST_DIR_DEPTH: usize = 10;
 const DEFAULT_MAX_LIST_DIR_ENTRIES: usize = 10_000;
 const MAX_READ_FILE_SIZE: u64 = 10 * 1024 * 1024; // 10 MB
+const MAX_WRITE_FILE_SIZE: usize = 10 * 1024 * 1024; // 10 MB
 
 // ─── ReadFileTool ────────────────────────────────────────────
 
@@ -154,6 +155,14 @@ impl Tool for WriteFileTool {
             .as_str()
             .ok_or_else(|| ToolError::Validation("Missing 'content'".to_string()))?;
         let append = args["append"].as_bool().unwrap_or(false);
+
+        if content.len() > MAX_WRITE_FILE_SIZE {
+            return Err(ToolError::Execution(format!(
+                "Content too large ({} bytes, max {} bytes)",
+                content.len(),
+                MAX_WRITE_FILE_SIZE
+            )));
+        }
 
         let timeout_dur = std::time::Duration::from_secs(FILESYSTEM_IO_TIMEOUT_SECS);
 
@@ -661,6 +670,26 @@ mod tests {
 
         let content = tokio::fs::read_to_string(&file_path).await.unwrap();
         assert_eq!(content, "hello world");
+    }
+
+    #[tokio::test]
+    async fn test_write_file_rejects_oversized_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("big_write.txt");
+
+        let tool = WriteFileTool::new();
+        let result = tool
+            .execute(json!({
+                "path": file_path.to_str().unwrap(),
+                "content": "A".repeat(MAX_WRITE_FILE_SIZE + 1)
+            }))
+            .await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("too large"),
+            "expected 'too large', got: {err}"
+        );
     }
 
     #[tokio::test]

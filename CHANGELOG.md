@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.9.12] - 2026-05-10
+
+### Bug Fixes
+- fix(tools): add content size limit (10MB) to `write_file` tool — previously an agent could write arbitrarily large files to disk, only the read/edit tools had size limits (Issue #322)
+
 ## [v0.9.11] - 2026-05-10
 
 ### Bug Fixes

@@ -724,7 +724,7 @@ mod tests {
 
         // Wait briefly for output, then read
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-        let output = read
+        let _output = read
             .execute(json!({
                 "session_id": session_id,
                 "timeout_ms": 500

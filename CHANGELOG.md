@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.9.15] - 2026-05-10
+
+### Bug Fixes
+- fix(channels): wire up WebSocket streaming consumer — `run_ws_stream_consumer` was never spawned in production, so streaming chunks (WS.5) were never delivered to clients
+- fix(channels): add `session_id` to WebSocket welcome message — clients now receive both `client_id` and `session_id` on connect (WS.3)
+- fix(channels): add `done` signal after outbound response messages — clients can now reliably detect when an agent response is complete (WS.7)
+- fix(channels): inject MessageBus into WebSocket channel via `set_bus()` — enables streaming chunk delivery alongside final outbound messages
+
 ## [v0.9.14] - 2026-05-10
 
 ### Bug Fixes

@@ -60,7 +60,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use dashmap::DashMap;
-use kestrel_bus::events::InboundMessage;
+use kestrel_bus::events::{AgentEvent, InboundMessage};
 use kestrel_core::{MessageType, Platform, SessionSource, VERSION};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -272,6 +272,8 @@ pub struct WebSocketChannel {
     auth_required: bool,
     /// Expected auth token (if auth is required).
     auth_token: Option<String>,
+    /// Broadcast sender for emitting agent events (e.g. InterruptRequested on disconnect).
+    event_tx: Option<tokio::sync::broadcast::Sender<AgentEvent>>,
     /// Pre-bound TCP listener for zero-port-contention tests.
     #[cfg(test)]
     pre_bound_listener: Option<TcpListener>,
@@ -288,6 +290,7 @@ impl WebSocketChannel {
             clients: Arc::new(DashMap::new()),
             auth_required: false,
             auth_token: None,
+            event_tx: None,
             #[cfg(test)]
             pre_bound_listener: None,
         }
@@ -303,6 +306,7 @@ impl WebSocketChannel {
             clients: Arc::new(DashMap::new()),
             auth_required: false,
             auth_token: None,
+            event_tx: None,
             #[cfg(test)]
             pre_bound_listener: None,
         }
@@ -322,6 +326,7 @@ impl WebSocketChannel {
             clients: Arc::new(DashMap::new()),
             auth_required,
             auth_token: token,
+            event_tx: None,
             #[cfg(test)]
             pre_bound_listener: None,
         }
@@ -330,6 +335,11 @@ impl WebSocketChannel {
     /// Number of currently connected clients.
     pub fn client_count(&self) -> usize {
         self.clients.len()
+    }
+
+    /// Set the event sender for emitting agent events (e.g. InterruptRequested on disconnect).
+    pub fn set_event_tx(&mut self, tx: tokio::sync::broadcast::Sender<AgentEvent>) {
+        self.event_tx = Some(tx);
     }
 
     /// Send a text reply envelope to a WebSocket client.
@@ -388,6 +398,7 @@ impl WebSocketChannel {
         clients: Arc<DashMap<String, mpsc::UnboundedSender<String>>>,
         auth_required: bool,
         auth_token: Option<String>,
+        event_tx: Option<tokio::sync::broadcast::Sender<AgentEvent>>,
     ) {
         use futures::StreamExt;
 
@@ -468,6 +479,7 @@ impl WebSocketChannel {
             let read_clients = clients.clone();
             let read_running = running.clone();
             let read_auth_token = auth_token.clone();
+            let read_event_tx = event_tx.clone();
 
             let write_client_id = client_id.clone();
             let write_clients = clients.clone();
@@ -493,6 +505,7 @@ impl WebSocketChannel {
                     read_running,
                     initial_state,
                     read_auth_token,
+                    read_event_tx,
                 )
                 .await;
             });
@@ -506,6 +519,7 @@ impl WebSocketChannel {
     ///
     /// Handles authentication flow: if `auth_state` is `Pending`, the first
     /// message must be an `{"type":"auth","token":"xxx"}` envelope.
+    #[allow(clippy::too_many_arguments)]
     async fn read_loop(
         stream: futures::stream::SplitStream<
             tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
@@ -516,6 +530,7 @@ impl WebSocketChannel {
         running: Arc<AtomicBool>,
         mut auth_state: AuthState,
         auth_token: Option<String>,
+        event_tx: Option<tokio::sync::broadcast::Sender<AgentEvent>>,
     ) {
         use futures::StreamExt;
         use tokio_tungstenite::tungstenite::Message as WsMessage;
@@ -799,6 +814,18 @@ impl WebSocketChannel {
         // Client disconnected — clean up.
         clients.remove(&client_id);
         info!("WebSocket client disconnected: {}", client_id);
+
+        // Cancel any in-progress agent processing for this session.
+        if let Some(ref tx) = event_tx {
+            let session_key = format!("websocket:{}", client_id);
+            let _ = tx.send(AgentEvent::InterruptRequested {
+                session_key: session_key.clone(),
+            });
+            debug!(
+                "Emitted InterruptRequested for disconnected client {}",
+                session_key
+            );
+        }
     }
 
     /// Write loop for a single client — forwards outbound messages to the
@@ -877,6 +904,7 @@ impl BaseChannel for WebSocketChannel {
             let listen_addr = listener.local_addr()?.to_string();
             let auth_required = self.auth_required;
             let auth_token = self.auth_token.clone();
+            let event_tx = self.event_tx.clone();
             tokio::spawn(async move {
                 Self::run_accept_loop(
                     listener,
@@ -885,6 +913,7 @@ impl BaseChannel for WebSocketChannel {
                     clients,
                     auth_required,
                     auth_token,
+                    event_tx,
                 )
                 .await;
                 info!("WebSocket server on {} stopped", listen_addr);
@@ -1046,6 +1075,10 @@ impl BaseChannel for WebSocketChannel {
 
     fn set_message_handler(&mut self, handler: mpsc::Sender<InboundMessage>) {
         self.message_handler = Some(handler);
+    }
+
+    fn set_event_sender(&mut self, tx: tokio::sync::broadcast::Sender<AgentEvent>) {
+        self.set_event_tx(tx);
     }
 }
 

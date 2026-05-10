@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use kestrel_bus::events::InboundMessage;
+use kestrel_bus::events::{AgentEvent, InboundMessage};
 use kestrel_core::Platform;
 use tracing::debug;
 
@@ -116,4 +116,7 @@ pub trait BaseChannel: Send + Sync {
 
     /// Set the message handler for inbound messages.
     fn set_message_handler(&mut self, handler: tokio::sync::mpsc::Sender<InboundMessage>);
+
+    /// Set the event sender for emitting agent events.
+    fn set_event_sender(&mut self, _tx: tokio::sync::broadcast::Sender<AgentEvent>) {}
 }

@@ -66,6 +66,9 @@ impl ChannelManager {
         let bus = self.bus.clone();
         channel.set_message_handler(bus.inbound_sender());
 
+        // Inject event sender so channels can emit events (e.g. InterruptRequested).
+        channel.set_event_sender(bus.event_sender());
+
         let connected = channel.connect().await?;
         if connected {
             info!("Channel '{}' connected", name);

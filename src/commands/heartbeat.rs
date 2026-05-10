@@ -24,7 +24,13 @@ pub async fn run(config: Config, dangerous: bool) -> Result<()> {
     info!("Providers: {:?}", provider_registry.provider_names());
 
     let tool_registry = kestrel_tools::ToolRegistry::new();
-    builtins::register_all_with_config(&tool_registry, builtins::BuiltinsConfig { dangerous });
+    builtins::register_all_with_config(
+        &tool_registry,
+        builtins::BuiltinsConfig {
+            dangerous,
+            ..builtins::BuiltinsConfig::default()
+        },
+    );
     info!("Tools: {:?}", tool_registry.tool_names());
 
     let mut heartbeat = HeartbeatService::with_registries(

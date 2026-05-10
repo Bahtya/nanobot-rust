@@ -20,7 +20,13 @@ pub async fn run(config: Config, initial_message: Option<String>, dangerous: boo
     let session_manager = SessionManager::new(home)?;
     let provider_registry = ProviderRegistry::from_config(&config)?;
     let tool_registry = kestrel_tools::ToolRegistry::new();
-    builtins::register_all_with_config(&tool_registry, builtins::BuiltinsConfig { dangerous });
+    builtins::register_all_with_config(
+        &tool_registry,
+        builtins::BuiltinsConfig {
+            dangerous,
+            ..builtins::BuiltinsConfig::default()
+        },
+    );
 
     info!("Providers: {:?}", provider_registry.provider_names());
     info!("Tools: {:?}", tool_registry.tool_names());

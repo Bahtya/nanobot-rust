@@ -30,7 +30,13 @@ pub async fn run(config: Config, port_override: Option<u16>, dangerous: bool) ->
 
     // ── Tool registry ─────────────────────────────────────────
     let tool_registry = kestrel_tools::ToolRegistry::new();
-    builtins::register_all_with_config(&tool_registry, builtins::BuiltinsConfig { dangerous });
+    builtins::register_all_with_config(
+        &tool_registry,
+        builtins::BuiltinsConfig {
+            dangerous,
+            ..builtins::BuiltinsConfig::default()
+        },
+    );
     info!("Tools: {:?}", tool_registry.tool_names());
 
     // ── Agent loop (background, for bus-based messages) ───────

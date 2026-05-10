@@ -19,8 +19,20 @@ use std::sync::Arc;
 /// Configuration applied when registering built-in tools.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BuiltinsConfig {
+    /// Security profile for the Lua script engine.
+    ///
+    /// Defaults to [`script::ScriptProfile::Safe`].
+    pub script_profile: script::ScriptProfile,
     /// When true, disable exec sandbox restrictions intended for untrusted environments.
     pub dangerous: bool,
+}
+
+impl BuiltinsConfig {
+    /// Create config with the given script profile.
+    pub fn with_script_profile(mut self, profile: script::ScriptProfile) -> Self {
+        self.script_profile = profile;
+        self
+    }
 }
 
 /// Register all built-in tools into the registry.
@@ -48,7 +60,7 @@ pub fn register_all_with_config(registry: &ToolRegistry, config: BuiltinsConfig)
     register_terminal_tools(registry, config.dangerous);
 
     #[cfg(feature = "lua-script")]
-    registry.register(script::ScriptTool::new().dangerous(config.dangerous));
+    registry.register(script::ScriptTool::new().with_profile(config.script_profile));
 }
 
 /// Register memory tools that require a memory store.

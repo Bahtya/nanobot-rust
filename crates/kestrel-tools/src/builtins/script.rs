@@ -10,6 +10,7 @@ use kestrel_core::MAX_TOOL_OUTPUT_LENGTH;
 use mlua::{HookTriggers, Lua, LuaOptions, StdLib, VmState};
 use serde_json::{json, Value};
 use std::io::Write;
+use std::ops::{BitOr, BitOrAssign};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -42,6 +43,138 @@ const BLOCKED_WRITE_PATHS_WINDOWS: &[&str] = &[
 /// Sensitive paths relative to home directory.
 const BLOCKED_HOME_SUBPATHS: &[&str] = &[".ssh", ".gnupg", ".gitconfig"];
 
+// ---------------------------------------------------------------------------
+// Capability / Profile model
+// ---------------------------------------------------------------------------
+
+/// Fine-grained bitflags controlling which host APIs are available to Lua scripts.
+///
+/// Capabilities are checked at VM initialization time: only the APIs whose
+/// corresponding capability bit is set are injected into the `kestrel.*`
+/// global table. The `ALL_STD_LIBS` flag additionally enables the full set
+/// of Lua standard libraries (removing the sandbox).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScriptCapability(u64);
+
+impl ScriptCapability {
+    /// Read files and list directories (`read_file`, `list_dir`, `exists`, `stat`).
+    pub const FS_READ: Self = Self(1 << 0);
+    /// Write files (`write_file`, `append_file`).
+    pub const FS_WRITE: Self = Self(1 << 1);
+    /// Delete files and directories (`remove`).
+    pub const FS_DELETE: Self = Self(1 << 2);
+    /// Create directories (`mkdir`).
+    pub const FS_MKDIR: Self = Self(1 << 3);
+    /// JSON encode / decode (`json_decode`, `json_encode`).
+    pub const JSON: Self = Self(1 << 4);
+    /// Read environment variables (`env`).
+    pub const ENV_READ: Self = Self(1 << 5);
+    /// HTTP requests (reserved for future `http_get` / `http_post` APIs).
+    pub const HTTP: Self = Self(1 << 6);
+    /// Allow HTTP to private / loopback networks (requires `HTTP`).
+    pub const HTTP_PRIVATE_NET: Self = Self(1 << 7);
+    /// Built-in module system (reserved for future `require()` host modules).
+    pub const BUILTIN_MODULES: Self = Self(1 << 8);
+    /// Enable all Lua standard libraries (disables sandbox).
+    pub const ALL_STD_LIBS: Self = Self(1 << 9);
+
+    /// All capability bits (excluding `ALL_STD_LIBS`).
+    pub const ALL_HOST_APIS: Self = Self(
+        (1 << 0)
+            | (1 << 1)
+            | (1 << 2)
+            | (1 << 3)
+            | (1 << 4)
+            | (1 << 5)
+            | (1 << 6)
+            | (1 << 7)
+            | (1 << 8),
+    );
+
+    /// Every capability including `ALL_STD_LIBS`.
+    pub const ALL: Self = Self((1 << 10) - 1);
+
+    /// Empty — no capabilities at all.
+    pub const NONE: Self = Self(0);
+
+    /// Returns `true` if *all* bits in `other` are set in `self`.
+    pub fn contains(self, other: Self) -> bool {
+        (self.0 & other.0) == other.0
+    }
+
+    /// Returns the raw bitmask value.
+    pub fn bits(self) -> u64 {
+        self.0
+    }
+}
+
+impl BitOr for ScriptCapability {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
+}
+
+impl BitOrAssign for ScriptCapability {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
+    }
+}
+
+/// Named security profile that maps to a preset set of [`ScriptCapability`] flags.
+///
+/// Profiles are the primary configuration interface. Each profile expands to
+/// a fixed set of capability bits that can also be inspected or extended
+/// programmatically via [`ScriptProfile::capabilities`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScriptProfile {
+    /// Sandbox with safe host APIs (read, write, delete, mkdir, json, env).
+    /// Instruction limits and timeouts are enforced. Full Lua stdlib is NOT
+    /// available; dangerous globals (`io`, `require`, `dofile`, `loadfile`,
+    /// `package`) are removed.
+    #[default]
+    Safe,
+    /// Trusted: same host APIs as Safe plus reserved future capabilities
+    /// (`HTTP`, `BUILTIN_MODULES`). Still sandboxed (no full stdlib).
+    Trusted,
+    /// Dangerous: all capabilities + full Lua stdlib. No instruction limits,
+    /// no sandboxing.
+    Dangerous,
+}
+
+impl ScriptProfile {
+    /// Return the capability set for this profile.
+    pub fn capabilities(self) -> ScriptCapability {
+        match self {
+            Self::Safe => {
+                ScriptCapability::FS_READ
+                    | ScriptCapability::FS_WRITE
+                    | ScriptCapability::FS_DELETE
+                    | ScriptCapability::FS_MKDIR
+                    | ScriptCapability::JSON
+                    | ScriptCapability::ENV_READ
+            }
+            Self::Trusted => ScriptCapability::ALL_HOST_APIS,
+            Self::Dangerous => ScriptCapability::ALL,
+        }
+    }
+}
+
+impl From<bool> for ScriptProfile {
+    /// Backward-compatible conversion: `true` → `Dangerous`, `false` → `Safe`.
+    fn from(dangerous: bool) -> Self {
+        if dangerous {
+            Self::Dangerous
+        } else {
+            Self::Safe
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ScriptTool
+// ---------------------------------------------------------------------------
+
 /// Built-in Lua script engine tool.
 ///
 /// Provides a cross-platform sandboxed Lua execution environment that
@@ -54,11 +187,11 @@ pub struct ScriptTool {
     max_write_bytes: usize,
     max_write_files: usize,
     max_instructions: usize,
-    dangerous: bool,
+    capabilities: ScriptCapability,
 }
 
 impl ScriptTool {
-    /// Create a new ScriptTool with safe defaults.
+    /// Create a new ScriptTool with safe defaults (Safe profile).
     pub fn new() -> Self {
         Self {
             timeout: Duration::from_secs(DEFAULT_SCRIPT_TIMEOUT_SECS),
@@ -66,14 +199,31 @@ impl ScriptTool {
             max_write_bytes: DEFAULT_MAX_WRITE_BYTES,
             max_write_files: DEFAULT_MAX_WRITE_FILES,
             max_instructions: DEFAULT_MAX_INSTRUCTIONS,
-            dangerous: false,
+            capabilities: ScriptProfile::Safe.capabilities(),
         }
     }
 
-    /// Disable sandbox restrictions for trusted environments.
+    /// Backward-compatible helper: `true` → Dangerous, `false` → Safe.
     pub fn dangerous(mut self, dangerous: bool) -> Self {
-        self.dangerous = dangerous;
+        self.capabilities = ScriptProfile::from(dangerous).capabilities();
         self
+    }
+
+    /// Set the security profile, replacing the current capabilities.
+    pub fn with_profile(mut self, profile: ScriptProfile) -> Self {
+        self.capabilities = profile.capabilities();
+        self
+    }
+
+    /// Set exact capabilities (overrides profile-based defaults).
+    pub fn with_capabilities(mut self, caps: ScriptCapability) -> Self {
+        self.capabilities = caps;
+        self
+    }
+
+    /// Returns `true` if the full Lua stdlib is enabled (dangerous mode).
+    fn is_full_stdlib(&self) -> bool {
+        self.capabilities.contains(ScriptCapability::ALL_STD_LIBS)
     }
 
     /// Override the default execution timeout.
@@ -102,20 +252,19 @@ impl ScriptTool {
 
     /// Create a sandboxed Lua VM with restricted standard libraries.
     fn create_sandboxed_vm(&self) -> Result<Lua, ToolError> {
-        if self.dangerous {
-            info!("Creating script VM in dangerous mode — all standard libraries enabled");
+        let full_stdlib = self.is_full_stdlib();
+        if full_stdlib {
+            info!("Creating script VM with full stdlib (dangerous profile)");
         }
-        let safe_libs = if self.dangerous {
-            // Dangerous mode: all standard libraries
+        let safe_libs = if full_stdlib {
             StdLib::ALL
         } else {
-            // Safe mode: only non-dangerous libraries (no PACKAGE to prevent loader abuse)
             StdLib::STRING | StdLib::TABLE | StdLib::MATH | StdLib::UTF8
         };
 
         let lua = unsafe { Lua::unsafe_new_with(safe_libs, LuaOptions::default()) };
 
-        if !self.dangerous {
+        if !full_stdlib {
             // Remove dangerous globals, but preserve safe os.* subset
             let globals = lua.globals();
             globals
@@ -151,16 +300,12 @@ impl ScriptTool {
                     let dt = chrono::DateTime::from_timestamp(time_val, 0)
                         .unwrap_or(chrono::DateTime::UNIX_EPOCH);
                     let format = fmt.unwrap_or_else(|| "%Y-%m-%d %H:%M:%S".to_string());
-                    // chrono::format() panics on unknown specifiers, so we use
-                    // DelayedFormat's fallible cousin via format_items + write.
-                    // For simplicity we catch the panic via a wrapper.
                     let formatted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         dt.format(&format).to_string()
                     }));
                     match formatted {
                         Ok(s) => lua.create_string(&s),
                         Err(_) => {
-                            // Fallback: use a safe default format instead of crashing
                             let fallback = dt.format("%Y-%m-%d %H:%M:%S").to_string();
                             warn!(
                                 format_spec = %format,
@@ -212,253 +357,283 @@ impl ScriptTool {
     }
 
     /// Inject the `kestrel` global table with safe helper functions.
+    ///
+    /// Each API is only injected when the corresponding capability bit is set
+    /// in `self.capabilities`. If a capability is missing, attempting to call
+    /// the function from Lua will produce a "nil value" error.
     fn inject_kestrel_api(&self, lua: &Lua) -> Result<(), ToolError> {
         let kestrel_table = lua
             .create_table()
             .map_err(|e| ToolError::Execution(format!("Failed to create kestrel table: {}", e)))?;
 
+        let caps = self.capabilities;
+
         // --- kestrel.read_file(path [, offset, limit]) ---
-        let max_output = self.max_output_bytes;
-        let read_file_fn = lua
-            .create_function(
-                move |lua, (path, offset, limit): (String, Option<usize>, Option<usize>)| {
-                    let content = std::fs::read_to_string(&path).map_err(|e| {
-                        mlua::Error::external(format!("Failed to read {}: {}", path, e))
-                    })?;
+        if caps.contains(ScriptCapability::FS_READ) {
+            let max_output = self.max_output_bytes;
+            let read_file_fn = lua
+                .create_function(
+                    move |lua, (path, offset, limit): (String, Option<usize>, Option<usize>)| {
+                        let content = std::fs::read_to_string(&path).map_err(|e| {
+                            mlua::Error::external(format!("Failed to read {}: {}", path, e))
+                        })?;
 
-                    let lines: Vec<&str> = content.lines().collect();
-                    let off = offset.unwrap_or(0);
-                    let lim = limit;
+                        let lines: Vec<&str> = content.lines().collect();
+                        let off = offset.unwrap_or(0);
+                        let lim = limit;
 
-                    let selected: String = if lim.is_some() || off > 0 {
-                        let iter = lines.iter().skip(off);
-                        let taken: Vec<&str> = if let Some(l) = lim {
-                            iter.take(l).copied().collect()
+                        let selected: String = if lim.is_some() || off > 0 {
+                            let iter = lines.iter().skip(off);
+                            let taken: Vec<&str> = if let Some(l) = lim {
+                                iter.take(l).copied().collect()
+                            } else {
+                                iter.copied().collect()
+                            };
+                            taken.join("\n")
                         } else {
-                            iter.copied().collect()
+                            content
                         };
-                        taken.join("\n")
-                    } else {
-                        content
-                    };
 
-                    let truncated = if selected.len() > max_output {
-                        &selected[..max_output]
-                    } else {
-                        &selected
-                    };
+                        let truncated = if selected.len() > max_output {
+                            &selected[..max_output]
+                        } else {
+                            &selected
+                        };
 
-                    lua.create_string(truncated)
-                },
-            )
-            .map_err(|e| ToolError::Execution(format!("Failed to create read_file: {}", e)))?;
-        kestrel_table
-            .set("read_file", read_file_fn)
-            .map_err(|e| ToolError::Execution(format!("Failed to set read_file: {}", e)))?;
+                        lua.create_string(truncated)
+                    },
+                )
+                .map_err(|e| ToolError::Execution(format!("Failed to create read_file: {}", e)))?;
+            kestrel_table
+                .set("read_file", read_file_fn)
+                .map_err(|e| ToolError::Execution(format!("Failed to set read_file: {}", e)))?;
+        }
 
         // --- kestrel.write_file(path, content [, append]) ---
-        let max_write_bytes = self.max_write_bytes;
-        let max_write_files = self.max_write_files;
-        let write_counter = Arc::new(AtomicUsize::new(0));
-        let write_file_counter = Arc::new(AtomicUsize::new(0));
+        if caps.contains(ScriptCapability::FS_WRITE) {
+            let max_write_bytes = self.max_write_bytes;
+            let max_write_files = self.max_write_files;
+            let write_counter = Arc::new(AtomicUsize::new(0));
+            let write_file_counter = Arc::new(AtomicUsize::new(0));
 
-        let wc = write_counter.clone();
-        let wfc = write_file_counter.clone();
-        let write_file_fn = lua
-            .create_function(
-                move |_, (path, content, append): (String, String, Option<bool>)| {
-                    // Path validation
-                    validate_write_path(&path)?;
+            let wc = write_counter.clone();
+            let wfc = write_file_counter.clone();
+            let write_file_fn = lua
+                .create_function(
+                    move |_, (path, content, append): (String, String, Option<bool>)| {
+                        // Path validation
+                        validate_write_path(&path)?;
 
-                    // Write limits
-                    let content_len = content.len();
-                    let prev = wc.fetch_add(content_len, Ordering::SeqCst);
-                    if prev + content_len > max_write_bytes {
-                        warn!(
-                            path,
-                            write_bytes = prev + content_len,
-                            max_write_bytes,
-                            "Script write limit exceeded"
-                        );
-                        return Err(mlua::Error::external(format!(
-                            "Write limit exceeded: {} bytes (max {})",
-                            prev + content_len,
-                            max_write_bytes
-                        )));
-                    }
-                    let file_count = wfc.fetch_add(1, Ordering::SeqCst) + 1;
-                    if file_count > max_write_files {
-                        warn!(
-                            path,
-                            file_count, max_write_files, "Script file count limit exceeded"
-                        );
-                        return Err(mlua::Error::external(format!(
-                            "File count limit exceeded: {} files (max {})",
-                            file_count, max_write_files
-                        )));
-                    }
+                        // Write limits
+                        let content_len = content.len();
+                        let prev = wc.fetch_add(content_len, Ordering::SeqCst);
+                        if prev + content_len > max_write_bytes {
+                            warn!(
+                                path,
+                                write_bytes = prev + content_len,
+                                max_write_bytes,
+                                "Script write limit exceeded"
+                            );
+                            return Err(mlua::Error::external(format!(
+                                "Write limit exceeded: {} bytes (max {})",
+                                prev + content_len,
+                                max_write_bytes
+                            )));
+                        }
+                        let file_count = wfc.fetch_add(1, Ordering::SeqCst) + 1;
+                        if file_count > max_write_files {
+                            warn!(
+                                path,
+                                file_count, max_write_files, "Script file count limit exceeded"
+                            );
+                            return Err(mlua::Error::external(format!(
+                                "File count limit exceeded: {} files (max {})",
+                                file_count, max_write_files
+                            )));
+                        }
 
-                    // Create parent directory if needed
-                    if let Some(parent) = Path::new(&path).parent() {
-                        if !parent.as_os_str().is_empty() {
-                            std::fs::create_dir_all(parent).map_err(|e| {
-                                mlua::Error::external(format!("Failed to create dir: {}", e))
+                        // Create parent directory if needed
+                        if let Some(parent) = Path::new(&path).parent() {
+                            if !parent.as_os_str().is_empty() {
+                                std::fs::create_dir_all(parent).map_err(|e| {
+                                    mlua::Error::external(format!("Failed to create dir: {}", e))
+                                })?;
+                            }
+                        }
+
+                        if append.unwrap_or(false) {
+                            let mut file = std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(&path)
+                                .map_err(|e| {
+                                    mlua::Error::external(format!("Failed to open {}: {}", path, e))
+                                })?;
+                            file.write_all(content.as_bytes()).map_err(|e| {
+                                mlua::Error::external(format!("Failed to write: {}", e))
+                            })?;
+                            file.flush().map_err(|e| {
+                                mlua::Error::external(format!("Failed to flush: {}", e))
+                            })?;
+                        } else {
+                            std::fs::write(&path, &content).map_err(|e| {
+                                mlua::Error::external(format!("Failed to write {}: {}", path, e))
                             })?;
                         }
-                    }
 
-                    if append.unwrap_or(false) {
-                        let mut file = std::fs::OpenOptions::new()
-                            .create(true)
-                            .append(true)
-                            .open(&path)
-                            .map_err(|e| {
-                                mlua::Error::external(format!("Failed to open {}: {}", path, e))
-                            })?;
-                        file.write_all(content.as_bytes()).map_err(|e| {
-                            mlua::Error::external(format!("Failed to write: {}", e))
-                        })?;
-                        file.flush().map_err(|e| {
-                            mlua::Error::external(format!("Failed to flush: {}", e))
-                        })?;
-                    } else {
-                        std::fs::write(&path, &content).map_err(|e| {
-                            mlua::Error::external(format!("Failed to write {}: {}", path, e))
-                        })?;
-                    }
-
-                    Ok(format!("Wrote {} bytes to {}", content_len, path))
-                },
-            )
-            .map_err(|e| ToolError::Execution(format!("Failed to create write_file: {}", e)))?;
-        kestrel_table
-            .set("write_file", write_file_fn)
-            .map_err(|e| ToolError::Execution(format!("Failed to set write_file: {}", e)))?;
+                        Ok(format!("Wrote {} bytes to {}", content_len, path))
+                    },
+                )
+                .map_err(|e| ToolError::Execution(format!("Failed to create write_file: {}", e)))?;
+            kestrel_table
+                .set("write_file", write_file_fn)
+                .map_err(|e| ToolError::Execution(format!("Failed to set write_file: {}", e)))?;
+        }
 
         // --- kestrel.list_dir(path [, recursive]) ---
-        let list_dir_fn = lua
-            .create_function(|lua, (path, recursive): (String, Option<bool>)| {
-                let mut result = Vec::new();
-                list_dir_recursive(
-                    &path,
-                    recursive.unwrap_or(false),
-                    &mut result,
-                    0,
-                    DEFAULT_MAX_LIST_DIR_DEPTH,
-                    DEFAULT_MAX_LIST_DIR_ENTRIES,
-                )
-                .map_err(|e| mlua::Error::external(e.to_string()))?;
+        if caps.contains(ScriptCapability::FS_READ) {
+            let list_dir_fn = lua
+                .create_function(|lua, (path, recursive): (String, Option<bool>)| {
+                    let mut result = Vec::new();
+                    list_dir_recursive(
+                        &path,
+                        recursive.unwrap_or(false),
+                        &mut result,
+                        0,
+                        DEFAULT_MAX_LIST_DIR_DEPTH,
+                        DEFAULT_MAX_LIST_DIR_ENTRIES,
+                    )
+                    .map_err(|e| mlua::Error::external(e.to_string()))?;
 
-                let table = lua.create_table()?;
-                for entry in &result {
-                    table.push(lua.create_string(entry)?)?;
-                }
-                Ok(table)
-            })
-            .map_err(|e| ToolError::Execution(format!("Failed to create list_dir: {}", e)))?;
-        kestrel_table
-            .set("list_dir", list_dir_fn)
-            .map_err(|e| ToolError::Execution(format!("Failed to set list_dir: {}", e)))?;
+                    let table = lua.create_table()?;
+                    for entry in &result {
+                        table.push(lua.create_string(entry)?)?;
+                    }
+                    Ok(table)
+                })
+                .map_err(|e| ToolError::Execution(format!("Failed to create list_dir: {}", e)))?;
+            kestrel_table
+                .set("list_dir", list_dir_fn)
+                .map_err(|e| ToolError::Execution(format!("Failed to set list_dir: {}", e)))?;
+        }
 
         // --- kestrel.exists(path) ---
-        let exists_fn = lua
-            .create_function(|_, path: String| Ok(Path::new(&path).exists()))
-            .map_err(|e| ToolError::Execution(format!("Failed to create exists: {}", e)))?;
-        kestrel_table
-            .set("exists", exists_fn)
-            .map_err(|e| ToolError::Execution(format!("Failed to set exists: {}", e)))?;
+        if caps.contains(ScriptCapability::FS_READ) {
+            let exists_fn = lua
+                .create_function(|_, path: String| Ok(Path::new(&path).exists()))
+                .map_err(|e| ToolError::Execution(format!("Failed to create exists: {}", e)))?;
+            kestrel_table
+                .set("exists", exists_fn)
+                .map_err(|e| ToolError::Execution(format!("Failed to set exists: {}", e)))?;
+        }
 
         // --- kestrel.stat(path) ---
-        let stat_fn = lua
-            .create_function(|lua, path: String| {
-                let meta = std::fs::metadata(&path).map_err(|e| {
-                    mlua::Error::external(format!("stat failed for {}: {}", path, e))
-                })?;
-                let table = lua.create_table()?;
-                let file_type = if meta.is_dir() {
-                    "dir"
-                } else if meta.is_file() {
-                    "file"
-                } else {
-                    "other"
-                };
-                table.set("type", file_type)?;
-                table.set("size", meta.len())?;
-                if let Ok(modified) = meta.modified() {
-                    if let Ok(dur) = modified.duration_since(std::time::UNIX_EPOCH) {
-                        table.set("modified_secs", dur.as_secs())?;
+        if caps.contains(ScriptCapability::FS_READ) {
+            let stat_fn = lua
+                .create_function(|lua, path: String| {
+                    let meta = std::fs::metadata(&path).map_err(|e| {
+                        mlua::Error::external(format!("stat failed for {}: {}", path, e))
+                    })?;
+                    let table = lua.create_table()?;
+                    let file_type = if meta.is_dir() {
+                        "dir"
+                    } else if meta.is_file() {
+                        "file"
+                    } else {
+                        "other"
+                    };
+                    table.set("type", file_type)?;
+                    table.set("size", meta.len())?;
+                    if let Ok(modified) = meta.modified() {
+                        if let Ok(dur) = modified.duration_since(std::time::UNIX_EPOCH) {
+                            table.set("modified_secs", dur.as_secs())?;
+                        }
                     }
-                }
-                Ok(table)
-            })
-            .map_err(|e| ToolError::Execution(format!("Failed to create stat: {}", e)))?;
-        kestrel_table
-            .set("stat", stat_fn)
-            .map_err(|e| ToolError::Execution(format!("Failed to set stat: {}", e)))?;
+                    Ok(table)
+                })
+                .map_err(|e| ToolError::Execution(format!("Failed to create stat: {}", e)))?;
+            kestrel_table
+                .set("stat", stat_fn)
+                .map_err(|e| ToolError::Execution(format!("Failed to set stat: {}", e)))?;
+        }
 
         // --- kestrel.mkdir(path) ---
-        let mkdir_fn = lua
-            .create_function(|_, path: String| {
-                validate_write_path(&path)?;
-                std::fs::create_dir_all(&path)
-                    .map_err(|e| mlua::Error::external(format!("mkdir failed: {}", e)))
-            })
-            .map_err(|e| ToolError::Execution(format!("Failed to create mkdir: {}", e)))?;
-        kestrel_table
-            .set("mkdir", mkdir_fn)
-            .map_err(|e| ToolError::Execution(format!("Failed to set mkdir: {}", e)))?;
+        if caps.contains(ScriptCapability::FS_MKDIR) {
+            let mkdir_fn = lua
+                .create_function(|_, path: String| {
+                    validate_write_path(&path)?;
+                    std::fs::create_dir_all(&path)
+                        .map_err(|e| mlua::Error::external(format!("mkdir failed: {}", e)))
+                })
+                .map_err(|e| ToolError::Execution(format!("Failed to create mkdir: {}", e)))?;
+            kestrel_table
+                .set("mkdir", mkdir_fn)
+                .map_err(|e| ToolError::Execution(format!("Failed to set mkdir: {}", e)))?;
+        }
 
         // --- kestrel.remove(path) ---
-        let remove_fn = lua
-            .create_function(|_, path: String| {
-                validate_write_path(&path)?;
-                let p = Path::new(&path);
-                if p.is_dir() {
-                    std::fs::remove_dir_all(p)
-                } else {
-                    std::fs::remove_file(p)
-                }
-                .map_err(|e| mlua::Error::external(format!("remove failed: {}", e)))
-            })
-            .map_err(|e| ToolError::Execution(format!("Failed to create remove: {}", e)))?;
-        kestrel_table
-            .set("remove", remove_fn)
-            .map_err(|e| ToolError::Execution(format!("Failed to set remove: {}", e)))?;
+        if caps.contains(ScriptCapability::FS_DELETE) {
+            let remove_fn = lua
+                .create_function(|_, path: String| {
+                    validate_write_path(&path)?;
+                    let p = Path::new(&path);
+                    if p.is_dir() {
+                        std::fs::remove_dir_all(p)
+                    } else {
+                        std::fs::remove_file(p)
+                    }
+                    .map_err(|e| mlua::Error::external(format!("remove failed: {}", e)))
+                })
+                .map_err(|e| ToolError::Execution(format!("Failed to create remove: {}", e)))?;
+            kestrel_table
+                .set("remove", remove_fn)
+                .map_err(|e| ToolError::Execution(format!("Failed to set remove: {}", e)))?;
+        }
 
         // --- kestrel.json_decode(string) ---
-        let json_decode_fn = lua
-            .create_function(|lua, json_str: String| {
-                let val: Value = serde_json::from_str(&json_str)
-                    .map_err(|e| mlua::Error::external(format!("JSON decode error: {}", e)))?;
-                json_value_to_lua(lua, &val)
-            })
-            .map_err(|e| ToolError::Execution(format!("Failed to create json_decode: {}", e)))?;
-        kestrel_table
-            .set("json_decode", json_decode_fn)
-            .map_err(|e| ToolError::Execution(format!("Failed to set json_decode: {}", e)))?;
+        if caps.contains(ScriptCapability::JSON) {
+            let json_decode_fn = lua
+                .create_function(|lua, json_str: String| {
+                    let val: Value = serde_json::from_str(&json_str)
+                        .map_err(|e| mlua::Error::external(format!("JSON decode error: {}", e)))?;
+                    json_value_to_lua(lua, &val)
+                })
+                .map_err(|e| {
+                    ToolError::Execution(format!("Failed to create json_decode: {}", e))
+                })?;
+            kestrel_table
+                .set("json_decode", json_decode_fn)
+                .map_err(|e| ToolError::Execution(format!("Failed to set json_decode: {}", e)))?;
+        }
 
         // --- kestrel.json_encode(table) ---
-        let json_encode_fn = lua
-            .create_function(|_, table: mlua::Value| {
-                let json_val = lua_value_to_json(&table)?;
-                serde_json::to_string_pretty(&json_val)
-                    .map_err(|e| mlua::Error::external(format!("JSON encode error: {}", e)))
-            })
-            .map_err(|e| ToolError::Execution(format!("Failed to create json_encode: {}", e)))?;
-        kestrel_table
-            .set("json_encode", json_encode_fn)
-            .map_err(|e| ToolError::Execution(format!("Failed to set json_encode: {}", e)))?;
+        if caps.contains(ScriptCapability::JSON) {
+            let json_encode_fn = lua
+                .create_function(|_, table: mlua::Value| {
+                    let json_val = lua_value_to_json(&table)?;
+                    serde_json::to_string_pretty(&json_val)
+                        .map_err(|e| mlua::Error::external(format!("JSON encode error: {}", e)))
+                })
+                .map_err(|e| {
+                    ToolError::Execution(format!("Failed to create json_encode: {}", e))
+                })?;
+            kestrel_table
+                .set("json_encode", json_encode_fn)
+                .map_err(|e| ToolError::Execution(format!("Failed to set json_encode: {}", e)))?;
+        }
 
         // --- kestrel.env(name) ---
-        let env_fn = lua
-            .create_function(|lua, name: String| match std::env::var(&name) {
-                Ok(val) => Ok(Some(lua.create_string(&val)?)),
-                Err(_) => Ok(None),
-            })
-            .map_err(|e| ToolError::Execution(format!("Failed to create env: {}", e)))?;
-        kestrel_table
-            .set("env", env_fn)
-            .map_err(|e| ToolError::Execution(format!("Failed to set env: {}", e)))?;
+        if caps.contains(ScriptCapability::ENV_READ) {
+            let env_fn = lua
+                .create_function(|lua, name: String| match std::env::var(&name) {
+                    Ok(val) => Ok(Some(lua.create_string(&val)?)),
+                    Err(_) => Ok(None),
+                })
+                .map_err(|e| ToolError::Execution(format!("Failed to create env: {}", e)))?;
+            kestrel_table
+                .set("env", env_fn)
+                .map_err(|e| ToolError::Execution(format!("Failed to set env: {}", e)))?;
+        }
 
         // --- kestrel.platform() ---
         let platform_fn = lua
@@ -545,7 +720,7 @@ impl Tool for ScriptTool {
         debug!(
             code_len = code.len(),
             timeout_secs,
-            dangerous = self.dangerous,
+            capabilities = self.capabilities.bits(),
             max_instructions = self.max_instructions,
             "Script execution starting"
         );
@@ -554,7 +729,7 @@ impl Tool for ScriptTool {
 
         // Set up instruction limit and wall-clock timeout via debug hook
         let start = std::time::Instant::now();
-        if !self.dangerous {
+        if !self.is_full_stdlib() {
             let max_instructions = self.max_instructions;
             let instruction_counter = Arc::new(AtomicUsize::new(0));
             let timeout = Duration::from_secs(timeout_secs);
@@ -674,7 +849,7 @@ impl Tool for ScriptTool {
                     duration_ms = elapsed_ms,
                     output_len,
                     truncated,
-                    dangerous = self.dangerous,
+                    dangerous = self.is_full_stdlib(),
                     "Script execution completed"
                 );
 
@@ -698,7 +873,7 @@ impl Tool for ScriptTool {
                 warn!(
                     duration_ms = elapsed_ms,
                     error = %e,
-                    dangerous = self.dangerous,
+                    dangerous = self.is_full_stdlib(),
                     "Script execution failed"
                 );
                 exec_result?;
@@ -983,7 +1158,7 @@ mod tests {
     fn test_script_tool_dangerous_mode() {
         let tool = ScriptTool::new().dangerous(true);
         assert_eq!(tool.name(), "script");
-        assert!(tool.dangerous);
+        assert!(tool.is_full_stdlib());
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1353,5 +1528,224 @@ mod tests {
 
         let output = result.join("\n");
         assert!(output.contains("unreadable"), "output: {}", output);
+    }
+
+    // ── Capability / Profile tests ──────────────────────────────
+
+    #[test]
+    fn test_capability_bitflags_basic() {
+        let caps = ScriptCapability::FS_READ | ScriptCapability::FS_WRITE;
+        assert!(caps.contains(ScriptCapability::FS_READ));
+        assert!(caps.contains(ScriptCapability::FS_WRITE));
+        assert!(!caps.contains(ScriptCapability::FS_DELETE));
+        assert!(!caps.contains(ScriptCapability::ALL_STD_LIBS));
+    }
+
+    #[test]
+    fn test_capability_all_host_apis() {
+        let all = ScriptCapability::ALL_HOST_APIS;
+        assert!(all.contains(ScriptCapability::FS_READ));
+        assert!(all.contains(ScriptCapability::FS_WRITE));
+        assert!(all.contains(ScriptCapability::FS_DELETE));
+        assert!(all.contains(ScriptCapability::FS_MKDIR));
+        assert!(all.contains(ScriptCapability::JSON));
+        assert!(all.contains(ScriptCapability::ENV_READ));
+        assert!(all.contains(ScriptCapability::HTTP));
+        assert!(!all.contains(ScriptCapability::ALL_STD_LIBS));
+    }
+
+    #[test]
+    fn test_capability_all_includes_stdlib() {
+        assert!(ScriptCapability::ALL.contains(ScriptCapability::ALL_STD_LIBS));
+        assert!(ScriptCapability::ALL.contains(ScriptCapability::ALL_HOST_APIS));
+    }
+
+    #[test]
+    fn test_profile_safe_capabilities() {
+        let caps = ScriptProfile::Safe.capabilities();
+        assert!(caps.contains(ScriptCapability::FS_READ));
+        assert!(caps.contains(ScriptCapability::FS_WRITE));
+        assert!(caps.contains(ScriptCapability::FS_DELETE));
+        assert!(caps.contains(ScriptCapability::FS_MKDIR));
+        assert!(caps.contains(ScriptCapability::JSON));
+        assert!(caps.contains(ScriptCapability::ENV_READ));
+        assert!(!caps.contains(ScriptCapability::HTTP));
+        assert!(!caps.contains(ScriptCapability::ALL_STD_LIBS));
+    }
+
+    #[test]
+    fn test_profile_trusted_capabilities() {
+        let caps = ScriptProfile::Trusted.capabilities();
+        assert!(caps.contains(ScriptCapability::FS_READ));
+        assert!(caps.contains(ScriptCapability::FS_WRITE));
+        assert!(caps.contains(ScriptCapability::FS_DELETE));
+        assert!(caps.contains(ScriptCapability::FS_MKDIR));
+        assert!(caps.contains(ScriptCapability::JSON));
+        assert!(caps.contains(ScriptCapability::ENV_READ));
+        assert!(caps.contains(ScriptCapability::HTTP));
+        assert!(caps.contains(ScriptCapability::BUILTIN_MODULES));
+        assert!(!caps.contains(ScriptCapability::ALL_STD_LIBS));
+    }
+
+    #[test]
+    fn test_profile_dangerous_capabilities() {
+        let caps = ScriptProfile::Dangerous.capabilities();
+        assert!(caps.contains(ScriptCapability::ALL));
+        assert!(caps.contains(ScriptCapability::ALL_STD_LIBS));
+    }
+
+    #[test]
+    fn test_profile_from_bool() {
+        assert_eq!(ScriptProfile::from(false), ScriptProfile::Safe);
+        assert_eq!(ScriptProfile::from(true), ScriptProfile::Dangerous);
+    }
+
+    #[test]
+    fn test_profile_default_is_safe() {
+        assert_eq!(ScriptProfile::default(), ScriptProfile::Safe);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_capability_gates_write_file() {
+        // FS_WRITE not set → write_file should be nil
+        let tool =
+            ScriptTool::new().with_capabilities(ScriptCapability::FS_READ | ScriptCapability::JSON);
+        let result = tool
+            .execute(json!({"code": "print(kestrel.write_file == nil)"}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("true"),
+            "write_file should be nil without FS_WRITE capability, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_capability_gates_read_file() {
+        // FS_READ not set → read_file should be nil
+        let tool = ScriptTool::new()
+            .with_capabilities(ScriptCapability::FS_WRITE | ScriptCapability::JSON);
+        let result = tool
+            .execute(json!({"code": "print(kestrel.read_file == nil)"}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("true"),
+            "read_file should be nil without FS_READ capability, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_capability_gates_remove() {
+        // FS_DELETE not set → remove should be nil
+        let tool =
+            ScriptTool::new().with_capabilities(ScriptCapability::FS_READ | ScriptCapability::JSON);
+        let result = tool
+            .execute(json!({"code": "print(kestrel.remove == nil)"}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("true"),
+            "remove should be nil without FS_DELETE capability"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_capability_gates_mkdir() {
+        // FS_MKDIR not set → mkdir should be nil
+        let tool =
+            ScriptTool::new().with_capabilities(ScriptCapability::FS_READ | ScriptCapability::JSON);
+        let result = tool
+            .execute(json!({"code": "print(kestrel.mkdir == nil)"}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("true"),
+            "mkdir should be nil without FS_MKDIR capability"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_capability_gates_json() {
+        // JSON not set → json_decode and json_encode should be nil
+        let tool = ScriptTool::new().with_capabilities(ScriptCapability::FS_READ);
+        let result = tool
+            .execute(
+                json!({"code": "print(kestrel.json_decode == nil, kestrel.json_encode == nil)"}),
+            )
+            .await
+            .unwrap();
+        assert!(
+            result.contains("true\ttrue") || result.contains("true  true"),
+            "json_decode and json_encode should be nil without JSON capability, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_capability_gates_env() {
+        // ENV_READ not set → env should be nil
+        let tool = ScriptTool::new().with_capabilities(ScriptCapability::FS_READ);
+        let result = tool
+            .execute(json!({"code": "print(kestrel.env == nil)"}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("true"),
+            "env should be nil without ENV_READ capability"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_capability_platform_always_available() {
+        // platform() is always available regardless of capabilities
+        let tool = ScriptTool::new().with_capabilities(ScriptCapability::NONE);
+        let result = tool
+            .execute(json!({"code": "print(kestrel.platform())"}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("linux")
+                || result.contains("macos")
+                || result.contains("windows")
+                || result.contains("android"),
+            "platform() should always be available, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_profile_safe_has_working_apis() {
+        // Default (Safe) profile should have all current working APIs
+        let tool = ScriptTool::new();
+        let dir = tempfile::tempdir().unwrap();
+        let path_str = dir.path().to_str().unwrap().replace('\\', "\\\\");
+
+        let code = format!(
+            r#"
+                -- All these should work in Safe profile
+                assert(kestrel.read_file ~= nil, "read_file missing")
+                assert(kestrel.write_file ~= nil, "write_file missing")
+                assert(kestrel.list_dir ~= nil, "list_dir missing")
+                assert(kestrel.exists ~= nil, "exists missing")
+                assert(kestrel.stat ~= nil, "stat missing")
+                assert(kestrel.mkdir ~= nil, "mkdir missing")
+                assert(kestrel.remove ~= nil, "remove missing")
+                assert(kestrel.json_decode ~= nil, "json_decode missing")
+                assert(kestrel.json_encode ~= nil, "json_encode missing")
+                assert(kestrel.env ~= nil, "env missing")
+                assert(kestrel.platform ~= nil, "platform missing")
+                print("all apis present")
+            "#
+        );
+        let result = tool.execute(json!({"code": code})).await;
+        assert!(
+            result.is_ok(),
+            "Safe profile should have all standard APIs: {:?}",
+            result
+        );
+        assert!(result.unwrap().contains("all apis present"));
     }
 }

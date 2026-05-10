@@ -3,10 +3,15 @@
 use crate::trait_def::{Tool, ToolError};
 use async_trait::async_trait;
 use kestrel_security::{SsrfGuard, DEFAULT_MAX_REDIRECTS};
-use reqwest::header::LOCATION;
+use reqwest::header::{CONTENT_LENGTH, LOCATION};
 use serde_json::{json, Value};
+use std::time::{Duration, Instant};
 use tracing::debug;
 use url::Url;
+
+const MAX_FETCH_RESPONSE_SIZE: usize = 10 * 1024 * 1024; // 10 MB
+const MAX_URL_LENGTH: usize = 2048;
+const REDIRECT_CHAIN_TIMEOUT_SECS: u64 = 55;
 
 // ─── WebSearchTool ────────────────────────────────────────────
 
@@ -234,6 +239,14 @@ impl Tool for WebFetchTool {
             .as_str()
             .ok_or_else(|| ToolError::Validation("Missing 'url'".to_string()))?;
 
+        if url.len() > MAX_URL_LENGTH {
+            return Err(ToolError::Validation(format!(
+                "URL too long ({} bytes, max {})",
+                url.len(),
+                MAX_URL_LENGTH
+            )));
+        }
+
         debug!("Fetching URL: {}", url);
 
         let mut current_url =
@@ -245,7 +258,16 @@ impl Tool for WebFetchTool {
             .build()
             .map_err(|e| ToolError::Execution(e.to_string()))?;
 
+        let chain_deadline = Instant::now() + Duration::from_secs(REDIRECT_CHAIN_TIMEOUT_SECS);
+
         for _ in 0..=self.max_redirects {
+            if Instant::now() >= chain_deadline {
+                return Err(ToolError::Timeout(format!(
+                    "Redirect chain exceeded {}s timeout",
+                    REDIRECT_CHAIN_TIMEOUT_SECS
+                )));
+            }
+
             self.ssrf_guard
                 .validate_url(current_url.as_str())
                 .await
@@ -282,15 +304,24 @@ impl Tool for WebFetchTool {
                 return Err(ToolError::Execution(format!("HTTP {}", resp.status())));
             }
 
-            let html = resp
-                .text()
-                .await
-                .map_err(|e| ToolError::Execution(format!("Failed to read response: {}", e)))?;
+            if let Some(content_length) = resp
+                .headers()
+                .get(CONTENT_LENGTH)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse::<usize>().ok())
+            {
+                if content_length > MAX_FETCH_RESPONSE_SIZE {
+                    return Err(ToolError::Execution(format!(
+                        "Response too large (Content-Length: {} bytes, max {} bytes)",
+                        content_length, MAX_FETCH_RESPONSE_SIZE
+                    )));
+                }
+            }
 
-            // Simple HTML to text extraction (strip tags)
+            let html = read_body_with_limit(resp, MAX_FETCH_RESPONSE_SIZE).await?;
+
             let text = html_to_text(&html);
 
-            // Truncate if too long
             let text = if text.len() > 50_000 {
                 format!("{}...\n(content truncated)", &text[..50_000])
             } else {
@@ -305,6 +336,32 @@ impl Tool for WebFetchTool {
             self.max_redirects
         )))
     }
+}
+
+async fn read_body_with_limit(
+    mut resp: reqwest::Response,
+    max_bytes: usize,
+) -> Result<String, ToolError> {
+    let mut total = 0usize;
+    let mut body = Vec::new();
+
+    while let Some(chunk) = resp
+        .chunk()
+        .await
+        .map_err(|e| ToolError::Execution(format!("Failed to read response chunk: {}", e)))?
+    {
+        total += chunk.len();
+        if total > max_bytes {
+            return Err(ToolError::Execution(format!(
+                "Response body too large ({} bytes, max {} bytes)",
+                total, max_bytes
+            )));
+        }
+        body.extend_from_slice(&chunk);
+    }
+
+    String::from_utf8(body)
+        .map_err(|e| ToolError::Execution(format!("Response body is not valid UTF-8: {}", e)))
 }
 
 /// Very basic HTML to text conversion.
@@ -379,5 +436,25 @@ mod tests {
             result.unwrap_err(),
             ToolError::PermissionDenied(_)
         ));
+    }
+
+    #[tokio::test]
+    async fn test_web_fetch_rejects_oversized_url() {
+        let tool = WebFetchTool::new();
+        let long_url = format!("https://example.com/{}", "a".repeat(MAX_URL_LENGTH));
+        let result = tool.execute(json!({"url": long_url})).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("URL too long"),
+            "expected 'URL too long', got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_max_fetch_constants() {
+        assert_eq!(MAX_FETCH_RESPONSE_SIZE, 10 * 1024 * 1024);
+        assert_eq!(MAX_URL_LENGTH, 2048);
+        const { assert!(REDIRECT_CHAIN_TIMEOUT_SECS > 0) };
     }
 }

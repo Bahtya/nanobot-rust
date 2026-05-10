@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.9.13] - 2026-05-10
+
+### Bug Fixes
+- fix(tools): add response body size limit (10MB) to `web_fetch` tool — previously the entire HTTP response was read into memory before truncation, allowing a multi-GB response to OOM the daemon (Issue #324)
+- fix(tools): add overall redirect chain timeout (55s) to `web_fetch` — prevents redirect loops from exceeding the default `tool_timeout`
+- fix(tools): add URL length validation (2048 chars) to `web_fetch` — rejects unreasonably long URLs
+
 ## [v0.9.12] - 2026-05-10
 
 ### Bug Fixes

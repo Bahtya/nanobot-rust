@@ -233,7 +233,7 @@ impl AgentLoop {
                             channel: msg.channel.clone(),
                             chat_id: msg.chat_id.clone(),
                             content: "Stopped.".to_string(),
-                            reply_to: msg.message_id.clone(),
+                            reply_to: msg.reply_to.clone().or(msg.message_id.clone()),
                             trace_id: msg.trace_id.clone(),
                             media: vec![],
                             metadata: Default::default(),
@@ -248,7 +248,8 @@ impl AgentLoop {
                     // so the timeout branch can still build a reply.
                     let timeout_channel = msg.channel.clone();
                     let timeout_chat_id = msg.chat_id.clone();
-                    let timeout_message_id = msg.message_id.clone();
+                    let _timeout_message_id = msg.message_id.clone();
+                    let timeout_reply_to = msg.reply_to.clone().or(msg.message_id.clone());
                     let timeout_trace_id = msg.trace_id.clone();
                     let timeout_session_key = msg.session_key();
 
@@ -275,7 +276,7 @@ impl AgentLoop {
                                      Please try again later.",
                                     timeout_secs
                                 ),
-                                reply_to: timeout_message_id,
+                                reply_to: timeout_reply_to.clone(),
                                 trace_id: timeout_trace_id.clone(),
                                 media: vec![],
                                 metadata: Default::default(),
@@ -332,7 +333,7 @@ impl AgentLoop {
                     channel: msg.channel.clone(),
                     chat_id: msg.chat_id.clone(),
                     content: "收到新指令，正在重新规划...".to_string(),
-                    reply_to: msg.message_id.clone(),
+                    reply_to: msg.reply_to.clone().or(msg.message_id.clone()),
                     trace_id: msg.trace_id.clone(),
                     media: vec![],
                     metadata: Default::default(),
@@ -729,7 +730,7 @@ impl AgentLoop {
                             channel: msg.channel.clone(),
                             chat_id: msg.chat_id.clone(),
                             content: result.content.clone(),
-                            reply_to: msg.message_id.clone(),
+                            reply_to: msg.reply_to.clone().or(msg.message_id.clone()),
                             trace_id: msg.trace_id.clone(),
                             media: vec![],
                             metadata: Default::default(),
@@ -812,7 +813,7 @@ impl AgentLoop {
                         channel: msg.channel.clone(),
                         chat_id: msg.chat_id.clone(),
                         content: error_msg,
-                        reply_to: msg.message_id.clone(),
+                        reply_to: msg.reply_to.clone().or(msg.message_id.clone()),
                         trace_id: msg.trace_id.clone(),
                         media: vec![],
                         metadata: Default::default(),

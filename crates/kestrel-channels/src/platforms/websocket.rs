@@ -657,7 +657,7 @@ impl WebSocketChannel {
             }
 
             // Detect format: envelope has "type", legacy has "role" + "content".
-            let (content_text, envelope_trace_id, envelope_msg_id) =
+            let (content_text, envelope_trace_id, envelope_msg_id, envelope_reply_to) =
                 if raw_value.get("type").is_some() {
                     // New envelope format.
                     let envelope: WsEnvelope = match serde_json::from_value(raw_value.clone()) {
@@ -695,6 +695,7 @@ impl WebSocketChannel {
                             envelope.content.clone().unwrap_or_default(),
                             envelope.trace_id.clone(),
                             Some(envelope.id.clone()),
+                            envelope.reply_to.clone(),
                         ),
                         _ => {
                             info!(
@@ -734,7 +735,7 @@ impl WebSocketChannel {
                             continue;
                         }
                     };
-                    (legacy.content, None, None)
+                    (legacy.content, None, None, None)
                 } else {
                     info!(
                         "WebSocket unrecognized message format from {}: {}",
@@ -875,7 +876,7 @@ impl WebSocketChannel {
                 message_type,
                 message_id: envelope_msg_id.clone(),
                 trace_id: Some(trace_id.clone()),
-                reply_to: None,
+                reply_to: envelope_reply_to,
                 timestamp: chrono::Local::now(),
             };
 

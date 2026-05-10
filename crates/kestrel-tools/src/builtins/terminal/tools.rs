@@ -1450,9 +1450,9 @@ mod tests {
             .await;
 
         assert!(result.is_err());
+        let error = result.unwrap_err().to_string();
         assert!(
-            result.unwrap_err().to_string().contains("Timeout")
-                || result.unwrap_err().to_string().contains("timeout"),
+            error.contains("Timeout") || error.contains("timeout"),
             "Expected timeout error"
         );
 

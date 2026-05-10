@@ -879,6 +879,7 @@ impl ScreenSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::builtins::terminal::AnsiParser;
 
     fn new_screen() -> TerminalScreen {
         TerminalScreen::new(80, 24)
@@ -1588,7 +1589,7 @@ mod tests {
     fn test_fixture_partial_utf8_across_feeds() {
         let mut screen = TerminalScreen::new(20, 5);
         // Simulate feeding the 3-byte UTF-8 你 (0xE4 0xBD 0xA0) in two chunks
-        let mut parser = crate::emulator::AnsiParser::new();
+        let mut parser = AnsiParser::new();
 
         // First feed: only 2 bytes of 你
         let ops1 = parser.parse(&[0xE4, 0xBD]);
@@ -1613,7 +1614,7 @@ mod tests {
     #[test]
     fn test_fixture_partial_ansi_across_feeds() {
         let mut screen = TerminalScreen::new(20, 5);
-        let mut parser = crate::emulator::AnsiParser::new();
+        let mut parser = AnsiParser::new();
 
         // Feed "Hello" then start a CSI sequence "\x1b[" but don't finish
         let ops1 = parser.parse(b"Hello\x1b[");

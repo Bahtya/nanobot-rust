@@ -3115,9 +3115,6 @@ mod tests {
     async fn test_profile_safe_has_working_apis() {
         // Default (Safe) profile should have all current working APIs
         let tool = ScriptTool::new();
-        let dir = tempfile::tempdir().unwrap();
-        let path_str = dir.path().to_str().unwrap().replace('\\', "\\\\");
-
         let code = format!(
             r#"
                 -- All these should work in Safe profile
@@ -3355,7 +3352,8 @@ mod tests {
         );
         let result = tool.execute(json!({"code": code})).await;
         assert!(result.is_ok());
-        let output = result.unwrap().trim();
+        let output = result.unwrap();
+        let output = output.trim();
         assert_eq!(
             output, "5",
             "glob should respect max_entries, got: {}",

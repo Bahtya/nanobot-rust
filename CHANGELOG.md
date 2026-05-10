@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.9.16] - 2026-05-10
+
+### Bug Fixes
+- fix(channels): WebSocket read_loop now sends structured error envelopes for invalid JSON, unknown message types, empty messages, unrecognized formats, and invalid legacy messages instead of silently ignoring them (Issues #342, #343, PR #344)
+- fix(channels): upgrade WebSocket error condition logging from `debug!` to `info!` for production visibility
+
 ## [v0.9.15] - 2026-05-10
 
 ### Bug Fixes

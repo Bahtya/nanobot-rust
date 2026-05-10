@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.9.17] - 2026-05-10
+
+### Bug Fixes
+- fix(channels): downgrade "client not connected" log from ERROR to WARN in manager::handle_outbound — fixes incomplete #346 fix that only changed the WebSocket platform level (Issue #349, PR #351)
+- fix(channels): forward client-sent `reply_to` from WebSocket envelope through InboundMessage and use it (with fallback to `message_id`) in all OutboundMessage constructions — ensures request-response correlation works when client sends `reply_to` without `id` (Issue #350, PR #351)
+
 ## [v0.9.16] - 2026-05-10
 
 ### Bug Fixes

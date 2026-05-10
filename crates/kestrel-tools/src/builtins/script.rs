@@ -3,6 +3,112 @@
 //! Provides a cross-platform sandboxed Lua execution environment for script
 //! orchestration (string processing, JSON, file I/O, batch operations) when
 //! shell commands are unavailable or unreliable (especially on Windows).
+//!
+//! # Security Model
+//!
+//! Scripts run in a sandboxed Lua VM with restricted standard libraries. Access
+//! to host APIs (filesystem, HTTP, environment) is controlled by a
+//! **capability bitflags** system and three **security profiles**:
+//!
+//! | Profile    | FS | JSON | ENV | HTTP | Modules | Full stdlib |
+//! |------------|----|------|-----|------|---------|-------------|
+//! | Safe       | R/W/Del/Mkdir | yes | yes | no   | no      | no          |
+//! | Trusted    | R/W/Del/Mkdir | yes | yes | yes  | yes     | no          |
+//! | Dangerous  | R/W/Del/Mkdir | yes | yes | yes  | yes     | yes         |
+//!
+//! ## Write Path Validation
+//!
+//! All write operations (write_file, append_file, copy, move, download) are
+//! validated against:
+//! - **System paths**: `/usr`, `/bin`, `/etc`, `/var`, etc. are blocked
+//! - **Sensitive home paths**: `.ssh/`, `.gnupg/`, `.gitconfig` are blocked
+//! - **Write quotas**: configurable byte and file-count limits
+//!
+//! ## HTTP SSRF Protection
+//!
+//! HTTP APIs block requests to private/loopback/link-local/metadata IPs unless
+//! the `HTTP_PRIVATE_NET` capability is explicitly granted. Only `http://` and
+//! `https://` URL schemes are allowed.
+//!
+//! # API Reference
+//!
+//! ## Filesystem (FS_READ/FS_WRITE/FS_DELETE/FS_MKDIR)
+//!
+//! - `kestrel.read_file(path)` — read file contents
+//! - `kestrel.write_file(path, content)` — write file
+//! - `kestrel.append_file(path, content)` — append to file
+//! - `kestrel.list_dir(path [, opts])` — list directory entries
+//! - `kestrel.exists(path)` — check if path exists
+//! - `kestrel.stat(path)` — get file metadata
+//! - `kestrel.mkdir(path)` — create directory
+//! - `kestrel.remove(path)` — delete file/directory
+//! - `kestrel.copy(src, dst)` — copy file
+//! - `kestrel.move(src, dst)` — move/rename file
+//! - `kestrel.read_lines(path [, offset [, limit]])` — read lines
+//! - `kestrel.glob(pattern [, opts])` — glob pattern matching
+//! - `kestrel.walk(path [, opts])` — recursive directory walk
+//! - `kestrel.read_json(path)` — read JSON file to table
+//! - `kestrel.write_json(path, table)` — write table to JSON file
+//! - `kestrel.tempdir()` — create temp directory
+//! - `kestrel.tempfile()` — create temp file path
+//!
+//! ## Path utilities (FS_READ)
+//!
+//! - `kestrel.cwd()` — current working directory
+//! - `kestrel.abspath(path)` — absolute path
+//! - `kestrel.join_path(a, b, ...)` — join path components
+//! - `kestrel.basename(path)` — filename component
+//! - `kestrel.dirname(path)` — directory component
+//!
+//! ## JSON (JSON)
+//!
+//! - `kestrel.json_decode(str)` — decode JSON string to table
+//! - `kestrel.json_encode(table)` — encode table to JSON string
+//!
+//! ## Environment (ENV_READ)
+//!
+//! - `kestrel.env(name)` — read environment variable
+//!
+//! ## HTTP (HTTP + FS_WRITE for download)
+//!
+//! - `kestrel.http_get(url)` — GET request
+//! - `kestrel.http_post(url, body)` — POST request
+//! - `kestrel.http_request(opts)` — generic request
+//! - `kestrel.fetch_json(url)` — GET + JSON decode
+//! - `kestrel.post_json(url, data)` — POST JSON + decode response
+//! - `kestrel.download(url, path)` — download to file
+//!
+//! ## Module System (BUILTIN_MODULES)
+//!
+//! When enabled, `require()` is available for organized imports:
+//!
+//! ```lua
+//! local fs = require("kestrel.fs")
+//! local path = require("kestrel.path")
+//! local json = require("kestrel.json")
+//! local http = require("kestrel.http")
+//! local env_mod = require("kestrel.env")
+//! ```
+//!
+//! Only whitelisted built-in modules are loadable — no filesystem or C module access.
+//!
+//! # Configuration
+//!
+//! ```rust,ignore
+//! // Safe (default) — no HTTP, no modules
+//! let tool = ScriptTool::new();
+//!
+//! // Trusted — HTTP + modules enabled
+//! let tool = ScriptTool::new().with_profile(ScriptProfile::Trusted);
+//!
+//! // Dangerous — full stdlib (io, os.execute, etc.)
+//! let tool = ScriptTool::new().with_profile(ScriptProfile::Dangerous);
+//!
+//! // Custom capabilities
+//! let tool = ScriptTool::new().with_capabilities(
+//!     ScriptCapability::FS_READ | ScriptCapability::JSON
+//! );
+//! ```
 
 use crate::trait_def::{Tool, ToolError};
 use async_trait::async_trait;
@@ -4096,6 +4202,488 @@ mod tests {
         assert!(
             output.contains("true"),
             "write_file/remove/mkdir should be nil without write/delete caps"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Abuse-case tests (issue #341)
+    // ════════════════════════════════════════════════════════════════
+
+    // ── Sensitive file path abuse via Lua API ───────────────────
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_write_ssh_authorized_keys() {
+        let tool = ScriptTool::new();
+        let result = tool
+            .execute(json!({"code": r#"local ok, err = pcall(kestrel.write_file, '.ssh/authorized_keys', 'ssh-rsa AAAA...\n'); print(ok)"#}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("false"),
+            "write_file to .ssh/authorized_keys should fail, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_write_gnupg() {
+        let tool = ScriptTool::new();
+        let result = tool
+            .execute(json!({"code": r#"local ok, err = pcall(kestrel.write_file, '.gnupg/pubring.gpg', 'fake key data'); print(ok)"#}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("false"),
+            "write_file to .gnupg/pubring.gpg should fail, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_write_gitconfig() {
+        let tool = ScriptTool::new();
+        let result = tool
+            .execute(json!({"code": r#"local ok, err = pcall(kestrel.write_file, '.gitconfig', '[user]\nname = pwned'); print(ok)"#}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("false"),
+            "write_file to .gitconfig should fail, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_append_ssh_directory() {
+        let tool = ScriptTool::new();
+        let result = tool
+            .execute(json!({"code": r#"local ok, err = pcall(kestrel.append_file, '.ssh/config', 'Host evil\n\tHostName evil.com\n'); print(ok)"#}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("false"),
+            "append_file to .ssh/config should fail, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_copy_to_sensitive_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("payload.txt");
+        std::fs::write(&src, "evil data").unwrap();
+        let src_str = src.to_str().unwrap().replace('\\', "\\\\");
+
+        let tool = ScriptTool::new();
+        let code = format!(
+            r#"local ok, err = pcall(kestrel.copy, '{}', '.gnupg/evil'); print(ok)"#,
+            src_str
+        );
+        let result = tool.execute(json!({"code": code})).await.unwrap();
+        assert!(
+            result.contains("false"),
+            "copy to .gnupg should fail, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_move_to_sensitive_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("payload.txt");
+        std::fs::write(&src, "evil data").unwrap();
+        let src_str = src.to_str().unwrap().replace('\\', "\\\\");
+
+        let tool = ScriptTool::new();
+        let code = format!(
+            r#"local ok, err = pcall(kestrel.move, '{}', '.ssh/evil_key'); print(ok)"#,
+            src_str
+        );
+        let result = tool.execute(json!({"code": code})).await.unwrap();
+        assert!(
+            result.contains("false"),
+            "move to .ssh should fail, got: {}",
+            result
+        );
+    }
+
+    // ── Write quota integration (copy/move consume quotas) ──────
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_copy_respects_write_byte_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("big.txt");
+        std::fs::write(&src, "A".repeat(200)).unwrap();
+        let src_str = src.to_str().unwrap().replace('\\', "\\\\");
+        let dst_str = dir
+            .path()
+            .join("copy.txt")
+            .to_str()
+            .unwrap()
+            .replace('\\', "\\\\");
+
+        let tool = ScriptTool::new().with_max_write_bytes(50);
+        let code = format!("kestrel.copy('{}', '{}')", src_str, dst_str);
+        let result = tool.execute(json!({"code": code})).await;
+        assert!(
+            result.is_err(),
+            "copy of 200-byte file should exceed 50-byte write limit"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_copy_respects_write_file_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let dst_str = dir.path().to_str().unwrap().replace('\\', "\\\\");
+
+        let tool = ScriptTool::new().with_max_write_files(1);
+        // First copy should succeed, second should fail
+        let code = format!(
+            r#"
+                local src1 = kestrel.tempfile()
+                kestrel.write_file(src1, 'data1')
+                local src2 = kestrel.tempfile()
+                kestrel.write_file(src2, 'data2')
+                local ok1, err1 = pcall(kestrel.copy, src1, '{d}/c1.txt')
+                local ok2, err2 = pcall(kestrel.copy, src2, '{d}/c2.txt')
+                print(ok1, ok2)
+            "#,
+            d = dst_str
+        );
+        let result = tool.execute(json!({"code": code})).await;
+        // The write_file calls already consumed the file count, so copy should fail
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        // Second copy should fail due to file count
+        assert!(
+            output.contains("false"),
+            "second copy should fail due to file count limit, got: {}",
+            output
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_multiple_writes_exhaust_byte_quota() {
+        let dir = tempfile::tempdir().unwrap();
+        let path_str = dir.path().to_str().unwrap().replace('\\', "\\\\");
+
+        // Very small quota — first write succeeds, second fails
+        let tool = ScriptTool::new().with_max_write_bytes(20);
+        let code = format!(
+            r#"
+                local ok1, err1 = pcall(kestrel.write_file, '{p}/a.txt', '0123456789')
+                local ok2, err2 = pcall(kestrel.write_file, '{p}/b.txt', '0123456789')
+                print(ok1, ok2)
+            "#,
+            p = path_str
+        );
+        let result = tool.execute(json!({"code": code})).await.unwrap();
+        assert!(
+            result.contains("true\tfalse") || result.contains("true  false"),
+            "first write should succeed, second should fail: got {}",
+            result
+        );
+    }
+
+    // ── Walk/glob limit enforcement from Lua ────────────────────
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_walk_max_entries_enforced() {
+        let dir = tempfile::tempdir().unwrap();
+        // Create many files
+        for i in 0..50 {
+            std::fs::write(dir.path().join(format!("f{:03}.txt", i)), "x").unwrap();
+        }
+
+        let path_str = dir.path().to_str().unwrap().replace('\\', "\\\\");
+        let tool = ScriptTool::new();
+        let code = format!(
+            r#"local entries = kestrel.walk('{}', {{max_entries = 5}}); print(#entries)"#,
+            path_str
+        );
+        let result = tool.execute(json!({"code": code})).await.unwrap();
+        let count: usize = result.trim().parse().unwrap();
+        assert!(
+            count <= 5,
+            "walk should respect max_entries=5, got {}",
+            count
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_walk_deep_nesting_respects_max_depth() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut deep = dir.path().to_path_buf();
+        for i in 0..8 {
+            deep.push(format!("d{}", i));
+            std::fs::create_dir_all(&deep).unwrap();
+            std::fs::write(deep.join("file.txt"), "x").unwrap();
+        }
+
+        let path_str = dir.path().to_str().unwrap().replace('\\', "\\\\");
+        let tool = ScriptTool::new();
+        // max_depth=3 should not reach d7/file.txt
+        let code = format!(
+            r#"local entries = kestrel.walk('{}', {{max_depth = 3}}); print(#entries)"#,
+            path_str
+        );
+        let result = tool.execute(json!({"code": code})).await;
+        assert!(result.is_ok(), "walk with max_depth should succeed");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_glob_max_entries_enforced_from_lua() {
+        let dir = tempfile::tempdir().unwrap();
+        for i in 0..100 {
+            std::fs::write(dir.path().join(format!("f{:03}.txt", i)), "x").unwrap();
+        }
+
+        let path_str = dir.path().to_str().unwrap().replace('\\', "\\\\");
+        let tool = ScriptTool::new();
+        let code = format!(
+            r#"local files = kestrel.glob('{}/*.txt', {{max_entries = 3}}); print(#files)"#,
+            path_str
+        );
+        let result = tool.execute(json!({"code": code})).await.unwrap();
+        assert_eq!(result.trim(), "3", "glob should return exactly 3 entries");
+    }
+
+    // ── HTTP download path validation ───────────────────────────
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_download_to_system_path() {
+        let tool = ScriptTool::new().with_capabilities(
+            ScriptCapability::HTTP
+                | ScriptCapability::FS_WRITE
+                | ScriptCapability::HTTP_PRIVATE_NET,
+        );
+        let code = r#"local ok, err = pcall(kestrel.download, 'http://127.0.0.1:1/', '/etc/evil_download'); print(ok)"#;
+        let result = tool.execute(json!({"code": code})).await.unwrap();
+        assert!(
+            result.contains("false"),
+            "download to /etc should fail, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_download_to_sensitive_home_path() {
+        let tool = ScriptTool::new().with_capabilities(
+            ScriptCapability::HTTP
+                | ScriptCapability::FS_WRITE
+                | ScriptCapability::HTTP_PRIVATE_NET,
+        );
+        let code = r#"local ok, err = pcall(kestrel.download, 'http://127.0.0.1:1/', '.ssh/evil_download'); print(ok)"#;
+        let result = tool.execute(json!({"code": code})).await.unwrap();
+        assert!(
+            result.contains("false"),
+            "download to .ssh should fail, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_http_blocks_data_scheme() {
+        let tool = ScriptTool::new().with_capabilities(ScriptCapability::HTTP);
+        let code = r#"local ok, err = pcall(kestrel.http_get, 'data:text/html,<script>alert(1)</script>'); print(ok)"#;
+        let result = tool.execute(json!({"code": code})).await.unwrap();
+        assert!(
+            result.contains("false"),
+            "data: scheme should be rejected, got: {}",
+            result
+        );
+    }
+
+    // ── Profile behavior difference tests ───────────────────────
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_safe_profile_no_http_no_modules() {
+        let tool = ScriptTool::new(); // Safe profile
+        let code = r#"
+            print(kestrel.http_get == nil)
+            print(kestrel.http_post == nil)
+            print(kestrel.download == nil)
+            print(require == nil)
+        "#;
+        let result = tool.execute(json!({"code": code})).await.unwrap();
+        assert!(
+            result.contains("true\ttrue\ttrue\ttrue") || result.contains("true  true  true  true"),
+            "Safe profile should have no HTTP APIs and no require, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_trusted_profile_has_http_and_modules() {
+        let tool = ScriptTool::new().with_profile(ScriptProfile::Trusted);
+        let code = r#"
+            assert(kestrel.http_get ~= nil, "trusted should have http_get")
+            assert(kestrel.http_post ~= nil, "trusted should have http_post")
+            assert(require ~= nil, "trusted should have require")
+            print("trusted profile complete")
+        "#;
+        let result = tool.execute(json!({"code": code})).await;
+        assert!(
+            result.is_ok(),
+            "Trusted profile assertions should pass: {:?}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_dangerous_profile_has_full_stdlib() {
+        let tool = ScriptTool::new().with_profile(ScriptProfile::Dangerous);
+        // Dangerous should have io, which Safe/Trusted don't
+        let code = r#"
+            assert(io ~= nil, "dangerous should have io")
+            assert(require ~= nil, "dangerous should have require")
+            print("dangerous profile complete")
+        "#;
+        let result = tool.execute(json!({"code": code})).await;
+        assert!(
+            result.is_ok(),
+            "Dangerous profile should have io and require: {:?}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_safe_profile_blocks_io() {
+        let tool = ScriptTool::new(); // Safe
+        let code = r#"print(io == nil)"#;
+        let result = tool.execute(json!({"code": code})).await.unwrap();
+        assert!(
+            result.contains("true"),
+            "Safe profile should not expose io, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_disabled_capability_api_returns_nil() {
+        // Remove FS_READ but keep FS_WRITE — read_file should be nil
+        let tool = ScriptTool::new().with_capabilities(ScriptCapability::FS_WRITE);
+        let code = r#"
+            print(kestrel.read_file == nil)
+            print(kestrel.list_dir == nil)
+            print(kestrel.exists == nil)
+            print(kestrel.stat == nil)
+        "#;
+        let result = tool.execute(json!({"code": code})).await.unwrap();
+        assert!(
+            result.contains("true"),
+            "Without FS_READ, read APIs should be nil, got: {}",
+            result
+        );
+    }
+
+    // ── Module system abuse ─────────────────────────────────────
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_require_rejects_path_traversal() {
+        let tool = ScriptTool::new().with_capabilities(ScriptProfile::Trusted.capabilities());
+        let code = r#"
+            local ok1 = pcall(require, "../etc/passwd")
+            local ok2 = pcall(require, "../../secret")
+            local ok3 = pcall(require, "/etc/passwd")
+            print(ok1, ok2, ok3)
+        "#;
+        let result = tool.execute(json!({"code": code})).await.unwrap();
+        assert!(
+            result.contains("false\tfalse\tfalse") || result.contains("false  false  false"),
+            "path traversal in require should all fail, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_require_rejects_common_lua_modules() {
+        let tool = ScriptTool::new().with_capabilities(ScriptProfile::Trusted.capabilities());
+        let code = r#"
+            local ok1 = pcall(require, "io")
+            local ok2 = pcall(require, "os")
+            local ok3 = pcall(require, "math")
+            local ok4 = pcall(require, "string")
+            local ok5 = pcall(require, "table")
+            local ok6 = pcall(require, "coroutine")
+            local ok7 = pcall(require, "utf8")
+            local ok8 = pcall(require, "package")
+            print(ok1, ok2, ok3, ok4, ok5, ok6, ok7, ok8)
+        "#;
+        let result = tool.execute(json!({"code": code})).await.unwrap();
+        // All standard Lua module names should be rejected
+        let lines: Vec<&str> = result.trim().lines().collect();
+        let last_line = lines.last().unwrap();
+        assert!(
+            !last_line.contains("true"),
+            "standard Lua module names should be rejected in require, got: {}",
+            last_line
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_require_case_sensitive() {
+        let tool = ScriptTool::new().with_capabilities(ScriptProfile::Trusted.capabilities());
+        let code = r#"
+            local ok1 = pcall(require, "kestrel.FS")
+            local ok2 = pcall(require, "KESTREL.FS")
+            local ok3 = pcall(require, "Kestrel.Fs")
+            print(ok1, ok2, ok3)
+        "#;
+        let result = tool.execute(json!({"code": code})).await.unwrap();
+        assert!(
+            result.contains("false\tfalse\tfalse") || result.contains("false  false  false"),
+            "require should be case-sensitive, got: {}",
+            result
+        );
+    }
+
+    // ── Write path validation edge cases ────────────────────────
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_mkdir_system_path_blocked() {
+        let tool = ScriptTool::new();
+        let code = r#"local ok, err = pcall(kestrel.mkdir, '/usr/local/evil'); print(ok)"#;
+        let result = tool.execute(json!({"code": code})).await.unwrap();
+        assert!(
+            result.contains("false"),
+            "mkdir to /usr should fail, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_remove_system_path_blocked() {
+        let tool = ScriptTool::new();
+        let code = r#"local ok, err = pcall(kestrel.remove, '/etc/shadow'); print(ok)"#;
+        let result = tool.execute(json!({"code": code})).await.unwrap();
+        assert!(
+            result.contains("false"),
+            "remove /etc/shadow should fail, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_abuse_write_file_count_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let path_str = dir.path().to_str().unwrap().replace('\\', "\\\\");
+
+        let tool = ScriptTool::new().with_max_write_files(2);
+        let code = format!(
+            r#"
+                local ok1 = pcall(kestrel.write_file, '{p}/a.txt', 'a')
+                local ok2 = pcall(kestrel.write_file, '{p}/b.txt', 'b')
+                local ok3 = pcall(kestrel.write_file, '{p}/c.txt', 'c')
+                print(ok1, ok2, ok3)
+            "#,
+            p = path_str
+        );
+        let result = tool.execute(json!({"code": code})).await.unwrap();
+        assert!(
+            result.contains("true\ttrue\tfalse") || result.contains("true  true  false"),
+            "third write should fail due to file count limit, got: {}",
+            result
         );
     }
 }

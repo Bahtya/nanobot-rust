@@ -585,10 +585,16 @@ impl WebSocketChannel {
             let raw_value: serde_json::Value = match serde_json::from_str(&msg) {
                 Ok(v) => v,
                 Err(e) => {
-                    debug!(
+                    info!(
                         "WebSocket invalid JSON from {}: {} — raw: {}",
                         client_id, e, msg
                     );
+                    let err = WsEnvelope::error("invalid_json", &format!("Invalid JSON: {e}"));
+                    if let Ok(json) = err.to_json() {
+                        if let Some(client_tx) = clients.get(&client_id) {
+                            let _ = client_tx.send(json);
+                        }
+                    }
                     continue;
                 }
             };
@@ -641,10 +647,19 @@ impl WebSocketChannel {
                     let envelope: WsEnvelope = match serde_json::from_value(raw_value.clone()) {
                         Ok(e) => e,
                         Err(e) => {
-                            debug!(
+                            info!(
                                 "WebSocket invalid envelope from {}: {} — raw: {}",
                                 client_id, e, msg
                             );
+                            let err = WsEnvelope::error(
+                                "invalid_envelope",
+                                &format!("Invalid envelope: {e}"),
+                            );
+                            if let Ok(json) = err.to_json() {
+                                if let Some(client_tx) = clients.get(&client_id) {
+                                    let _ = client_tx.send(json);
+                                }
+                            }
                             continue;
                         }
                     };
@@ -666,11 +681,19 @@ impl WebSocketChannel {
                             Some(envelope.id.clone()),
                         ),
                         _ => {
-                            // Ignore unknown envelope types.
-                            debug!(
+                            info!(
                                 "WebSocket unknown envelope type '{}' from {}",
                                 envelope.msg_type, client_id
                             );
+                            let err = WsEnvelope::error(
+                                "unknown_type",
+                                &format!("Unknown message type: '{}'", envelope.msg_type),
+                            );
+                            if let Ok(json) = err.to_json() {
+                                if let Some(client_tx) = clients.get(&client_id) {
+                                    let _ = client_tx.send(json);
+                                }
+                            }
                             continue;
                         }
                     }
@@ -679,24 +702,48 @@ impl WebSocketChannel {
                     let legacy: WsInboundMessage = match serde_json::from_value(raw_value) {
                         Ok(m) => m,
                         Err(e) => {
-                            debug!(
+                            info!(
                                 "WebSocket invalid legacy message from {}: {} — raw: {}",
                                 client_id, e, msg
                             );
+                            let err = WsEnvelope::error(
+                                "invalid_legacy",
+                                &format!("Invalid legacy message: {e}"),
+                            );
+                            if let Ok(json) = err.to_json() {
+                                if let Some(client_tx) = clients.get(&client_id) {
+                                    let _ = client_tx.send(json);
+                                }
+                            }
                             continue;
                         }
                     };
                     (legacy.content, None, None)
                 } else {
-                    debug!(
+                    info!(
                         "WebSocket unrecognized message format from {}: {}",
                         client_id, msg
                     );
+                    let err = WsEnvelope::error(
+                        "unrecognized_format",
+                        "Message must have a 'type' or 'role' field",
+                    );
+                    if let Ok(json) = err.to_json() {
+                        if let Some(client_tx) = clients.get(&client_id) {
+                            let _ = client_tx.send(json);
+                        }
+                    }
                     continue;
                 };
 
             // Skip empty messages.
             if content_text.is_empty() {
+                let err = WsEnvelope::error("empty_message", "Message content cannot be empty");
+                if let Ok(json) = err.to_json() {
+                    if let Some(client_tx) = clients.get(&client_id) {
+                        let _ = client_tx.send(json);
+                    }
+                }
                 continue;
             }
 
@@ -2157,6 +2204,128 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(inbound.content, "hello agent");
+
+        channel.disconnect().await.unwrap();
+    }
+
+    // -----------------------------------------------------------------------
+    // Error handling tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_invalid_json_returns_error() {
+        let (mut channel, addr, _rx) = setup_server().await;
+        channel.connect().await.unwrap();
+
+        let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{}", addr))
+            .await
+            .unwrap();
+
+        let _welcome = drain_next_text(&mut ws).await;
+
+        // Send invalid JSON.
+        ws.send(WsMessage::Text("not json at all".into()))
+            .await
+            .unwrap();
+
+        let parsed = drain_next_text(&mut ws).await;
+        assert_eq!(parsed["type"], "error");
+        assert_eq!(parsed["code"], "invalid_json");
+        assert!(parsed["content"].as_str().unwrap().contains("Invalid JSON"));
+
+        channel.disconnect().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_unknown_type_returns_error() {
+        let (mut channel, addr, _rx) = setup_server().await;
+        channel.connect().await.unwrap();
+
+        let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{}", addr))
+            .await
+            .unwrap();
+
+        let _welcome = drain_next_text(&mut ws).await;
+
+        // Send unknown message type.
+        let unknown = r#"{"type":"unknown_xyz","id":"test"}"#;
+        ws.send(WsMessage::Text(unknown.into())).await.unwrap();
+
+        let parsed = drain_next_text(&mut ws).await;
+        assert_eq!(parsed["type"], "error");
+        assert_eq!(parsed["code"], "unknown_type");
+        assert!(parsed["content"].as_str().unwrap().contains("unknown_xyz"));
+
+        channel.disconnect().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_empty_message_returns_error() {
+        let (mut channel, addr, _rx) = setup_server().await;
+        channel.connect().await.unwrap();
+
+        let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{}", addr))
+            .await
+            .unwrap();
+
+        let _welcome = drain_next_text(&mut ws).await;
+
+        // Send message with no content.
+        let empty = r#"{"type":"message","id":"test"}"#;
+        ws.send(WsMessage::Text(empty.into())).await.unwrap();
+
+        let parsed = drain_next_text(&mut ws).await;
+        assert_eq!(parsed["type"], "error");
+        assert_eq!(parsed["code"], "empty_message");
+
+        channel.disconnect().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_unrecognized_format_returns_error() {
+        let (mut channel, addr, _rx) = setup_server().await;
+        channel.connect().await.unwrap();
+
+        let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{}", addr))
+            .await
+            .unwrap();
+
+        let _welcome = drain_next_text(&mut ws).await;
+
+        // Send JSON with no type or role field.
+        let no_type = r#"{"foo":"bar"}"#;
+        ws.send(WsMessage::Text(no_type.into())).await.unwrap();
+
+        let parsed = drain_next_text(&mut ws).await;
+        assert_eq!(parsed["type"], "error");
+        assert_eq!(parsed["code"], "unrecognized_format");
+
+        channel.disconnect().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_connection_alive_after_error() {
+        let (mut channel, addr, _rx) = setup_server().await;
+        channel.connect().await.unwrap();
+
+        let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{}", addr))
+            .await
+            .unwrap();
+
+        let _welcome = drain_next_text(&mut ws).await;
+
+        // Send invalid JSON, then valid ping.
+        ws.send(WsMessage::Text("bad json".into())).await.unwrap();
+
+        let error = drain_next_text(&mut ws).await;
+        assert_eq!(error["type"], "error");
+
+        // Ping should still work.
+        let ping = r#"{"type":"ping"}"#;
+        ws.send(WsMessage::Text(ping.into())).await.unwrap();
+
+        let pong = drain_next_text(&mut ws).await;
+        assert_eq!(pong["type"], "pong");
 
         channel.disconnect().await.unwrap();
     }

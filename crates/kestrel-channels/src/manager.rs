@@ -121,7 +121,7 @@ impl ChannelManager {
                     {
                         Ok(result) => {
                             if !result.success {
-                                error!(
+                                warn!(
                                     trace_id = %trace_id.as_deref().unwrap_or("-"),
                                     "Failed to send message to {} via {}: {:?}",
                                     msg.chat_id, channel_name, result.error

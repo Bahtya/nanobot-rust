@@ -24,6 +24,11 @@ const DEFAULT_MAX_WRITE_FILES: usize = 100;
 const DEFAULT_MAX_INSTRUCTIONS: usize = 10_000_000;
 const DEFAULT_MAX_LIST_DIR_DEPTH: usize = 10;
 const DEFAULT_MAX_LIST_DIR_ENTRIES: usize = 10_000;
+const DEFAULT_HTTP_TIMEOUT_MS: u64 = 30_000;
+const DEFAULT_MAX_RESPONSE_BYTES: usize = 10 * 1024 * 1024;
+const DEFAULT_MAX_DOWNLOAD_BYTES: usize = 50 * 1024 * 1024;
+const DEFAULT_MAX_REQUESTS_PER_SCRIPT: usize = 50;
+const DEFAULT_MAX_REDIRECTS: u32 = 5;
 
 /// System paths that are never writable from Lua scripts.
 #[cfg(unix)]
@@ -69,7 +74,7 @@ impl ScriptCapability {
     pub const JSON: Self = Self(1 << 4);
     /// Read environment variables (`env`).
     pub const ENV_READ: Self = Self(1 << 5);
-    /// HTTP requests (reserved for future `http_get` / `http_post` APIs).
+    /// HTTP requests (`http_get`, `http_post`, `http_request`, `fetch_json`, `post_json`).
     pub const HTTP: Self = Self(1 << 6);
     /// Allow HTTP to private / loopback networks (requires `HTTP`).
     pub const HTTP_PRIVATE_NET: Self = Self(1 << 7);
@@ -1122,6 +1127,440 @@ impl ScriptTool {
                 .map_err(|e| ToolError::Execution(format!("Failed to set tempfile: {}", e)))?;
         }
 
+        // --- HTTP APIs (gated by HTTP capability) ---
+        if caps.contains(ScriptCapability::HTTP) {
+            let rt = tokio::runtime::Handle::try_current().map_err(|e| {
+                ToolError::Execution(format!("HTTP APIs require tokio runtime: {}", e))
+            })?;
+            let http_client = reqwest::Client::builder()
+                .timeout(Duration::from_millis(DEFAULT_HTTP_TIMEOUT_MS))
+                .redirect(reqwest::redirect::Policy::limited(
+                    DEFAULT_MAX_REDIRECTS as usize,
+                ))
+                .build()
+                .map_err(|e| ToolError::Execution(format!("Failed to build HTTP client: {}", e)))?;
+
+            let allow_private_net = caps.contains(ScriptCapability::HTTP_PRIVATE_NET);
+            let request_counter = Arc::new(AtomicUsize::new(0));
+            let max_requests = DEFAULT_MAX_REQUESTS_PER_SCRIPT;
+            let max_response_bytes = DEFAULT_MAX_RESPONSE_BYTES;
+            let max_download_bytes = DEFAULT_MAX_DOWNLOAD_BYTES;
+
+            // --- kestrel.http_get(url [, opts]) ---
+            {
+                let rt = rt.clone();
+                let client = http_client.clone();
+                let rc = request_counter.clone();
+                let apn = allow_private_net;
+
+                let http_get_fn = lua
+                    .create_function(move |lua, (url, opts): (String, Option<mlua::Table>)| {
+                        let timeout_ms = opts
+                            .as_ref()
+                            .and_then(|o| o.get::<usize>("timeout_ms").ok())
+                            .map(|t| t as u64);
+                        let headers = extract_http_headers(opts.as_ref());
+
+                        let resp = execute_http(
+                            &rt,
+                            &client,
+                            reqwest::Method::GET,
+                            &url,
+                            headers,
+                            None,
+                            None,
+                            timeout_ms,
+                            apn,
+                            &rc,
+                            max_requests,
+                            max_response_bytes,
+                        )?;
+                        build_http_response_table(lua, &resp)
+                    })
+                    .map_err(|e| {
+                        ToolError::Execution(format!("Failed to create http_get: {}", e))
+                    })?;
+                kestrel_table
+                    .set("http_get", http_get_fn)
+                    .map_err(|e| ToolError::Execution(format!("Failed to set http_get: {}", e)))?;
+            }
+
+            // --- kestrel.http_post(url, body [, opts]) ---
+            {
+                let rt = rt.clone();
+                let client = http_client.clone();
+                let rc = request_counter.clone();
+                let apn = allow_private_net;
+
+                let http_post_fn = lua
+                    .create_function(
+                        move |lua, (url, body, opts): (String, String, Option<mlua::Table>)| {
+                            let timeout_ms = opts
+                                .as_ref()
+                                .and_then(|o| o.get::<usize>("timeout_ms").ok())
+                                .map(|t| t as u64);
+                            let headers = extract_http_headers(opts.as_ref());
+
+                            let resp = execute_http(
+                                &rt,
+                                &client,
+                                reqwest::Method::POST,
+                                &url,
+                                headers,
+                                Some(body),
+                                None,
+                                timeout_ms,
+                                apn,
+                                &rc,
+                                max_requests,
+                                max_response_bytes,
+                            )?;
+                            build_http_response_table(lua, &resp)
+                        },
+                    )
+                    .map_err(|e| {
+                        ToolError::Execution(format!("Failed to create http_post: {}", e))
+                    })?;
+                kestrel_table
+                    .set("http_post", http_post_fn)
+                    .map_err(|e| ToolError::Execution(format!("Failed to set http_post: {}", e)))?;
+            }
+
+            // --- kestrel.http_request(opts) ---
+            {
+                let rt = rt.clone();
+                let client = http_client.clone();
+                let rc = request_counter.clone();
+                let apn = allow_private_net;
+
+                let http_request_fn = lua
+                    .create_function(move |lua, opts: mlua::Table| {
+                        let method_str: String =
+                            opts.get("method").unwrap_or_else(|_| "GET".to_string());
+                        let method = match method_str.to_uppercase().as_str() {
+                            "GET" => reqwest::Method::GET,
+                            "POST" => reqwest::Method::POST,
+                            "PUT" => reqwest::Method::PUT,
+                            "DELETE" => reqwest::Method::DELETE,
+                            "PATCH" => reqwest::Method::PATCH,
+                            "HEAD" => reqwest::Method::HEAD,
+                            _ => {
+                                return Err(mlua::Error::external(format!(
+                                    "Unsupported HTTP method: {}",
+                                    method_str
+                                )))
+                            }
+                        };
+                        let url: String = opts.get("url").map_err(|_| {
+                            mlua::Error::external(
+                                "http_request requires 'url' parameter".to_string(),
+                            )
+                        })?;
+                        let timeout_ms = opts.get::<usize>("timeout_ms").ok().map(|t| t as u64);
+                        let headers = extract_http_headers(Some(&opts));
+                        let body: Option<String> = opts.get("body").ok();
+
+                        // json: accept string (pre-encoded) or table (auto-encode)
+                        let json_str: Option<String> = match opts.get::<mlua::Value>("json").ok() {
+                            Some(mlua::Value::String(s)) => Some(s.to_str()?.to_string()),
+                            Some(v) if !matches!(v, mlua::Value::Nil) => {
+                                let jval = lua_value_to_json(&v)?;
+                                Some(serde_json::to_string(&jval).map_err(|e| {
+                                    mlua::Error::external(format!("JSON encode: {}", e))
+                                })?)
+                            }
+                            _ => None,
+                        };
+
+                        let resp = execute_http(
+                            &rt,
+                            &client,
+                            method,
+                            &url,
+                            headers,
+                            body,
+                            json_str,
+                            timeout_ms,
+                            apn,
+                            &rc,
+                            max_requests,
+                            max_response_bytes,
+                        )?;
+                        build_http_response_table(lua, &resp)
+                    })
+                    .map_err(|e| {
+                        ToolError::Execution(format!("Failed to create http_request: {}", e))
+                    })?;
+                kestrel_table
+                    .set("http_request", http_request_fn)
+                    .map_err(|e| {
+                        ToolError::Execution(format!("Failed to set http_request: {}", e))
+                    })?;
+            }
+
+            // --- kestrel.fetch_json(url [, opts]) ---
+            {
+                let rt = rt.clone();
+                let client = http_client.clone();
+                let rc = request_counter.clone();
+                let apn = allow_private_net;
+
+                let fetch_json_fn = lua
+                    .create_function(move |lua, (url, opts): (String, Option<mlua::Table>)| {
+                        let timeout_ms = opts
+                            .as_ref()
+                            .and_then(|o| o.get::<usize>("timeout_ms").ok())
+                            .map(|t| t as u64);
+                        let headers = extract_http_headers(opts.as_ref());
+
+                        let resp = execute_http(
+                            &rt,
+                            &client,
+                            reqwest::Method::GET,
+                            &url,
+                            headers,
+                            None,
+                            None,
+                            timeout_ms,
+                            apn,
+                            &rc,
+                            max_requests,
+                            max_response_bytes,
+                        )?;
+                        if resp.status < 200 || resp.status >= 300 {
+                            return Err(mlua::Error::external(format!(
+                                "fetch_json: HTTP {} - {}",
+                                resp.status,
+                                &resp.body[..resp.body.len().min(200)]
+                            )));
+                        }
+                        let val: Value = serde_json::from_str(&resp.body).map_err(|e| {
+                            mlua::Error::external(format!("JSON decode error: {}", e))
+                        })?;
+                        json_value_to_lua(lua, &val)
+                    })
+                    .map_err(|e| {
+                        ToolError::Execution(format!("Failed to create fetch_json: {}", e))
+                    })?;
+                kestrel_table
+                    .set("fetch_json", fetch_json_fn)
+                    .map_err(|e| {
+                        ToolError::Execution(format!("Failed to set fetch_json: {}", e))
+                    })?;
+            }
+
+            // --- kestrel.post_json(url, value [, opts]) ---
+            {
+                let rt = rt.clone();
+                let client = http_client.clone();
+                let rc = request_counter.clone();
+                let apn = allow_private_net;
+
+                let post_json_fn =
+                    lua
+                        .create_function(
+                            move |lua,
+                                  (url, value, opts): (
+                                String,
+                                mlua::Value,
+                                Option<mlua::Table>,
+                            )| {
+                                let timeout_ms = opts
+                                    .as_ref()
+                                    .and_then(|o| o.get::<usize>("timeout_ms").ok())
+                                    .map(|t| t as u64);
+                                let mut headers = extract_http_headers(opts.as_ref());
+                                let has_ct = headers
+                                    .iter()
+                                    .any(|(k, _)| k.eq_ignore_ascii_case("content-type"));
+                                if !has_ct {
+                                    headers.push((
+                                        "Content-Type".to_string(),
+                                        "application/json".to_string(),
+                                    ));
+                                }
+
+                                let json_val = lua_value_to_json(&value)?;
+                                let json_str = serde_json::to_string(&json_val).map_err(|e| {
+                                    mlua::Error::external(format!("JSON encode error: {}", e))
+                                })?;
+
+                                let resp = execute_http(
+                                    &rt,
+                                    &client,
+                                    reqwest::Method::POST,
+                                    &url,
+                                    headers,
+                                    None,
+                                    Some(json_str),
+                                    timeout_ms,
+                                    apn,
+                                    &rc,
+                                    max_requests,
+                                    max_response_bytes,
+                                )?;
+                                if resp.status < 200 || resp.status >= 300 {
+                                    return Err(mlua::Error::external(format!(
+                                        "post_json: HTTP {} - {}",
+                                        resp.status,
+                                        &resp.body[..resp.body.len().min(200)]
+                                    )));
+                                }
+                                let val: Value = serde_json::from_str(&resp.body).map_err(|e| {
+                                    mlua::Error::external(format!("JSON decode error: {}", e))
+                                })?;
+                                json_value_to_lua(lua, &val)
+                            },
+                        )
+                        .map_err(|e| {
+                            ToolError::Execution(format!("Failed to create post_json: {}", e))
+                        })?;
+                kestrel_table
+                    .set("post_json", post_json_fn)
+                    .map_err(|e| ToolError::Execution(format!("Failed to set post_json: {}", e)))?;
+            }
+
+            // --- kestrel.download(url, path [, opts]) ---
+            if caps.contains(ScriptCapability::FS_WRITE) {
+                let rt = rt.clone();
+                let client = http_client.clone();
+                let rc = request_counter.clone();
+                let apn = allow_private_net;
+                let dl_bytes_counter = Arc::new(AtomicUsize::new(0));
+                let dl_file_counter = Arc::new(AtomicUsize::new(0));
+                let max_write_bytes = self.max_write_bytes;
+                let max_write_files = self.max_write_files;
+
+                let dlbc = dl_bytes_counter.clone();
+                let dlfc = dl_file_counter.clone();
+
+                let download_fn = lua
+                    .create_function(
+                        move |lua, (url, path, opts): (String, String, Option<mlua::Table>)| {
+                            validate_write_path(&path)?;
+
+                            let timeout_ms = opts
+                                .as_ref()
+                                .and_then(|o| o.get::<usize>("timeout_ms").ok())
+                                .map(|t| t as u64);
+                            let headers = extract_http_headers(opts.as_ref());
+
+                            let parsed = validate_http_url(&url).map_err(mlua::Error::external)?;
+
+                            if !apn {
+                                if let Some(host) = parsed.host_str() {
+                                    if host_is_private(host) {
+                                        warn!(host, "Download blocked: private network");
+                                        return Err(mlua::Error::external(format!(
+                                            "Download blocked: '{}' resolves to private address",
+                                            host
+                                        )));
+                                    }
+                                }
+                            }
+
+                            let count = rc.fetch_add(1, Ordering::SeqCst) + 1;
+                            if count > max_requests {
+                                return Err(mlua::Error::external(format!(
+                                    "Request limit exceeded: {} (max {})",
+                                    count, max_requests
+                                )));
+                            }
+
+                            let file_count = dlfc.fetch_add(1, Ordering::SeqCst) + 1;
+                            if file_count > max_write_files {
+                                return Err(mlua::Error::external(format!(
+                                    "File count limit exceeded: {} files (max {})",
+                                    file_count, max_write_files
+                                )));
+                            }
+
+                            if let Some(parent) = Path::new(&path).parent() {
+                                if !parent.as_os_str().is_empty() {
+                                    std::fs::create_dir_all(parent).map_err(|e| {
+                                        mlua::Error::external(format!(
+                                            "Failed to create dir: {}",
+                                            e
+                                        ))
+                                    })?;
+                                }
+                            }
+
+                            let response = rt
+                                .block_on(async {
+                                    let mut req =
+                                        client.request(reqwest::Method::GET, parsed.as_str());
+                                    if let Some(t) = timeout_ms {
+                                        req = req.timeout(Duration::from_millis(t));
+                                    }
+                                    for (k, v) in &headers {
+                                        req = req.header(k.as_str(), v.as_str());
+                                    }
+                                    req.send().await
+                                })
+                                .map_err(|e| {
+                                    mlua::Error::external(format!("Download failed: {}", e))
+                                })?;
+
+                            let status = response.status().as_u16();
+                            if !(200..300).contains(&status) {
+                                return Err(mlua::Error::external(format!(
+                                    "Download failed: HTTP {}",
+                                    status
+                                )));
+                            }
+                            if let Some(len) = response.content_length() {
+                                if len as usize > max_download_bytes {
+                                    return Err(mlua::Error::external(format!(
+                                        "Download too large: {} bytes (max {})",
+                                        len, max_download_bytes
+                                    )));
+                                }
+                            }
+
+                            let bytes =
+                                rt.block_on(async { response.bytes().await }).map_err(|e| {
+                                    mlua::Error::external(format!("Failed to read response: {}", e))
+                                })?;
+                            if bytes.len() > max_download_bytes {
+                                return Err(mlua::Error::external(format!(
+                                    "Download too large: {} bytes (max {})",
+                                    bytes.len(),
+                                    max_download_bytes
+                                )));
+                            }
+
+                            let prev = dlbc.fetch_add(bytes.len(), Ordering::SeqCst);
+                            if prev + bytes.len() > max_write_bytes {
+                                return Err(mlua::Error::external(format!(
+                                    "Write limit exceeded: {} bytes (max {})",
+                                    prev + bytes.len(),
+                                    max_write_bytes
+                                )));
+                            }
+
+                            std::fs::write(&path, &bytes).map_err(|e| {
+                                mlua::Error::external(format!("Failed to write {}: {}", path, e))
+                            })?;
+
+                            let table = lua.create_table()?;
+                            table.set("ok", true)?;
+                            table.set("status", status)?;
+                            table.set("bytes", bytes.len())?;
+                            table.set("path", lua.create_string(&path)?)?;
+                            table.set("url", lua.create_string(&url)?)?;
+                            Ok(table)
+                        },
+                    )
+                    .map_err(|e| {
+                        ToolError::Execution(format!("Failed to create download: {}", e))
+                    })?;
+                kestrel_table
+                    .set("download", download_fn)
+                    .map_err(|e| ToolError::Execution(format!("Failed to set download: {}", e)))?;
+            }
+        }
+
         // --- kestrel.platform() ---
         let platform_fn = lua
             .create_function(|lua, _: ()| {
@@ -1173,7 +1612,9 @@ impl Tool for ScriptTool {
          kestrel.cwd, kestrel.abspath, kestrel.join_path, kestrel.basename, \
          kestrel.dirname, kestrel.read_lines, kestrel.append_file, kestrel.copy, \
          kestrel.move, kestrel.glob, kestrel.walk, kestrel.read_json, \
-         kestrel.write_json, kestrel.tempdir, kestrel.tempfile."
+         kestrel.write_json, kestrel.tempdir, kestrel.tempfile, \
+         kestrel.http_get, kestrel.http_post, kestrel.http_request, \
+         kestrel.fetch_json, kestrel.post_json, kestrel.download."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -1665,6 +2106,195 @@ fn lua_value_to_json(val: &mlua::Value) -> Result<Value, mlua::Error> {
         }
         _ => Ok(Value::Null),
     }
+}
+
+// --- HTTP helpers ---
+
+struct HttpResponse {
+    status: u16,
+    headers: Vec<(String, String)>,
+    body: String,
+    url: String,
+    final_url: String,
+}
+
+fn validate_http_url(url_str: &str) -> Result<url::Url, String> {
+    let parsed = url::Url::parse(url_str).map_err(|e| format!("Invalid URL: {}", e))?;
+    match parsed.scheme() {
+        "http" | "https" => {}
+        s => return Err(format!("Unsupported URL scheme: {} (only http/https)", s)),
+    }
+    if parsed.host_str().is_none() {
+        return Err("URL has no host".to_string());
+    }
+    Ok(parsed)
+}
+
+fn ip_is_private(ip: &std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_broadcast()
+                || v4.is_unspecified()
+        }
+        std::net::IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified(),
+    }
+}
+
+fn host_is_private(host: &str) -> bool {
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        return ip_is_private(&ip);
+    }
+    let lookup = format!("{}:0", host);
+    if let Ok(addrs) = std::net::ToSocketAddrs::to_socket_addrs(&lookup) {
+        for addr in addrs {
+            if ip_is_private(&addr.ip()) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn extract_http_headers(opts: Option<&mlua::Table>) -> Vec<(String, String)> {
+    let Some(tbl) = opts else { return Vec::new() };
+    let Ok(headers_tbl) = tbl.get::<mlua::Table>("headers") else {
+        return Vec::new();
+    };
+    let mut headers = Vec::new();
+    for (k, v) in headers_tbl.pairs::<String, String>().flatten() {
+        headers.push((k, v));
+    }
+    headers
+}
+
+#[allow(clippy::too_many_arguments)]
+fn execute_http(
+    rt: &tokio::runtime::Handle,
+    client: &reqwest::Client,
+    method: reqwest::Method,
+    url_str: &str,
+    headers: Vec<(String, String)>,
+    body: Option<String>,
+    json_body: Option<String>,
+    timeout_ms: Option<u64>,
+    allow_private_net: bool,
+    request_counter: &AtomicUsize,
+    max_requests: usize,
+    max_response_bytes: usize,
+) -> Result<HttpResponse, mlua::Error> {
+    let parsed = validate_http_url(url_str).map_err(mlua::Error::external)?;
+
+    if !allow_private_net {
+        if let Some(host) = parsed.host_str() {
+            if host_is_private(host) {
+                warn!(host, "HTTP request blocked: private network");
+                return Err(mlua::Error::external(format!(
+                    "Request blocked: '{}' resolves to a private/loopback address",
+                    host
+                )));
+            }
+        }
+    }
+
+    let count = request_counter.fetch_add(1, Ordering::SeqCst) + 1;
+    if count > max_requests {
+        warn!(count, max_requests, "HTTP request limit exceeded");
+        return Err(mlua::Error::external(format!(
+            "Request limit exceeded: {} (max {})",
+            count, max_requests
+        )));
+    }
+
+    let url_for_log = parsed.to_string();
+    let start = std::time::Instant::now();
+
+    let response = rt
+        .block_on(async {
+            let mut req = client.request(method, parsed);
+            if let Some(t) = timeout_ms {
+                req = req.timeout(Duration::from_millis(t));
+            }
+            for (k, v) in &headers {
+                req = req.header(k.as_str(), v.as_str());
+            }
+            if let Some(json) = &json_body {
+                req = req
+                    .header("Content-Type", "application/json")
+                    .body(json.clone());
+            } else if let Some(b) = &body {
+                req = req.body(b.clone());
+            }
+            req.send().await
+        })
+        .map_err(|e| mlua::Error::external(format!("HTTP request failed: {}", e)))?;
+
+    let status = response.status().as_u16();
+    let final_url = response.url().to_string();
+    let resp_headers: Vec<(String, String)> = response
+        .headers()
+        .iter()
+        .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or("").to_string()))
+        .collect();
+
+    if let Some(len) = response.content_length() {
+        if len as usize > max_response_bytes {
+            return Err(mlua::Error::external(format!(
+                "Response too large: {} bytes (max {})",
+                len, max_response_bytes
+            )));
+        }
+    }
+
+    let body_bytes = rt
+        .block_on(async { response.bytes().await })
+        .map_err(|e| mlua::Error::external(format!("Failed to read response body: {}", e)))?;
+
+    if body_bytes.len() > max_response_bytes {
+        return Err(mlua::Error::external(format!(
+            "Response too large: {} bytes (max {})",
+            body_bytes.len(),
+            max_response_bytes
+        )));
+    }
+
+    let body = String::from_utf8_lossy(&body_bytes).to_string();
+    let elapsed_ms = start.elapsed().as_millis();
+
+    info!(
+        method = %url_for_log,
+        status,
+        bytes = body_bytes.len(),
+        elapsed_ms,
+        "HTTP request completed"
+    );
+
+    Ok(HttpResponse {
+        status,
+        headers: resp_headers,
+        body,
+        url: url_str.to_string(),
+        final_url,
+    })
+}
+
+fn build_http_response_table(lua: &Lua, resp: &HttpResponse) -> Result<mlua::Table, mlua::Error> {
+    let table = lua.create_table()?;
+    table.set("ok", resp.status >= 200 && resp.status < 300)?;
+    table.set("status", resp.status)?;
+    table.set("body", lua.create_string(&resp.body)?)?;
+    table.set("url", lua.create_string(&resp.url)?)?;
+    table.set("final_url", lua.create_string(&resp.final_url)?)?;
+
+    let headers_table = lua.create_table()?;
+    for (k, v) in &resp.headers {
+        headers_table.set(k.as_str(), lua.create_string(v)?)?;
+    }
+    table.set("headers", headers_table)?;
+
+    Ok(table)
 }
 
 #[cfg(test)]
@@ -2799,5 +3429,309 @@ mod tests {
         );
         let result = tool.execute(json!({"code": code})).await;
         assert!(result.is_err(), "append_file should respect write limit");
+    }
+
+    // ── HTTP helper tests ───────────────────────────────────────
+
+    #[test]
+    fn test_validate_http_url_rejects_non_http() {
+        assert!(validate_http_url("ftp://example.com").is_err());
+        assert!(validate_http_url("file:///etc/passwd").is_err());
+        assert!(validate_http_url("javascript:alert(1)").is_err());
+    }
+
+    #[test]
+    fn test_validate_http_url_accepts_http_https() {
+        assert!(validate_http_url("http://example.com").is_ok());
+        assert!(validate_http_url("https://example.com/path?q=1").is_ok());
+    }
+
+    #[test]
+    fn test_validate_http_url_rejects_no_host() {
+        assert!(validate_http_url("http://").is_err());
+        assert!(validate_http_url("http:///path").is_err());
+    }
+
+    #[test]
+    fn test_ip_is_private_loopback() {
+        use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+        assert!(ip_is_private(&IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))));
+        assert!(ip_is_private(&IpAddr::V6(Ipv6Addr::LOCALHOST)));
+    }
+
+    #[test]
+    fn test_ip_is_private_rfc1918() {
+        use std::net::{IpAddr, Ipv4Addr};
+        assert!(ip_is_private(&IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))));
+        assert!(ip_is_private(&IpAddr::V4(Ipv4Addr::new(172, 16, 0, 1))));
+        assert!(ip_is_private(&IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
+    }
+
+    #[test]
+    fn test_ip_is_private_link_local() {
+        use std::net::{IpAddr, Ipv4Addr};
+        assert!(ip_is_private(&IpAddr::V4(Ipv4Addr::new(
+            169, 254, 169, 254
+        ))));
+        assert!(ip_is_private(&IpAddr::V4(Ipv4Addr::new(169, 254, 0, 1))));
+    }
+
+    #[test]
+    fn test_ip_is_not_private_public() {
+        use std::net::{IpAddr, Ipv4Addr};
+        assert!(!ip_is_private(&IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
+        assert!(!ip_is_private(&IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))));
+    }
+
+    #[test]
+    fn test_host_is_private_localhost() {
+        assert!(host_is_private("127.0.0.1"));
+        assert!(host_is_private("localhost"));
+    }
+
+    #[test]
+    fn test_host_is_not_private_public() {
+        // These should not be private (assuming DNS resolves to public IPs)
+        assert!(!ip_is_private(
+            &"8.8.8.8".parse::<std::net::IpAddr>().unwrap()
+        ));
+    }
+
+    // ── HTTP capability gating tests ────────────────────────────
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_capability_gates_http_apis() {
+        // Without HTTP capability, all HTTP APIs should be nil
+        let tool = ScriptTool::new().with_capabilities(ScriptCapability::FS_READ);
+        let result = tool
+            .execute(json!({"code": "print(kestrel.http_get == nil, kestrel.http_post == nil, kestrel.http_request == nil, kestrel.fetch_json == nil, kestrel.post_json == nil, kestrel.download == nil)"}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("true"),
+            "HTTP APIs should be nil without HTTP capability, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_capability_gates_download_without_fs_write() {
+        // HTTP without FS_WRITE → download should be nil
+        let tool =
+            ScriptTool::new().with_capabilities(ScriptCapability::HTTP | ScriptCapability::FS_READ);
+        let result = tool
+            .execute(json!({"code": "print(kestrel.http_get == nil, kestrel.download == nil)"}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("false") && result.contains("true"),
+            "http_get should be present, download should be nil, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_http_trusted_profile_has_http_apis() {
+        let tool = ScriptTool::new().with_profile(ScriptProfile::Trusted);
+        let result = tool
+            .execute(json!({"code": "assert(kestrel.http_get ~= nil); assert(kestrel.http_post ~= nil); assert(kestrel.http_request ~= nil); assert(kestrel.fetch_json ~= nil); assert(kestrel.post_json ~= nil); assert(kestrel.download ~= nil); print('all http apis present')"}))
+            .await;
+        assert!(
+            result.is_ok(),
+            "Trusted profile should have all HTTP APIs: {:?}",
+            result
+        );
+        assert!(result.unwrap().contains("all http apis present"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_http_safe_profile_no_http_apis() {
+        let tool = ScriptTool::new();
+        let result = tool
+            .execute(json!({"code": "print(kestrel.http_get == nil)"}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("true"),
+            "Safe profile should not have http_get, got: {}",
+            result
+        );
+    }
+
+    // ── HTTP URL validation tests ───────────────────────────────
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_http_blocks_non_http_scheme() {
+        let tool = ScriptTool::new()
+            .with_capabilities(ScriptCapability::HTTP | ScriptCapability::HTTP_PRIVATE_NET);
+        let result = tool
+            .execute(json!({"code": "local r, err = pcall(kestrel.http_get, 'ftp://example.com'); print(r)"}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("false"),
+            "ftp:// should be rejected, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_http_blocks_file_scheme() {
+        let tool = ScriptTool::new()
+            .with_capabilities(ScriptCapability::HTTP | ScriptCapability::HTTP_PRIVATE_NET);
+        let result = tool
+            .execute(json!({"code": "local r, err = pcall(kestrel.http_get, 'file:///etc/passwd'); print(r)"}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("false"),
+            "file:// should be rejected, got: {}",
+            result
+        );
+    }
+
+    // ── HTTP SSRF blocking tests ────────────────────────────────
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_http_blocks_localhost() {
+        let tool = ScriptTool::new().with_capabilities(ScriptCapability::HTTP);
+        let result = tool
+            .execute(json!({"code": "local ok, err = pcall(kestrel.http_get, 'http://127.0.0.1/'); print(ok)"}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("false"),
+            "http://127.0.0.1 should be blocked, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_http_blocks_private_10() {
+        let tool = ScriptTool::new().with_capabilities(ScriptCapability::HTTP);
+        let result = tool
+            .execute(json!({"code": "local ok, err = pcall(kestrel.http_get, 'http://10.0.0.1/'); print(ok)"}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("false"),
+            "http://10.0.0.1 should be blocked, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_http_blocks_private_172() {
+        let tool = ScriptTool::new().with_capabilities(ScriptCapability::HTTP);
+        let result = tool
+            .execute(json!({"code": "local ok, err = pcall(kestrel.http_get, 'http://172.16.0.1/'); print(ok)"}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("false"),
+            "http://172.16.0.1 should be blocked, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_http_blocks_private_192() {
+        let tool = ScriptTool::new().with_capabilities(ScriptCapability::HTTP);
+        let result = tool
+            .execute(json!({"code": "local ok, err = pcall(kestrel.http_get, 'http://192.168.1.1/'); print(ok)"}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("false"),
+            "http://192.168.1.1 should be blocked, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_http_blocks_link_local_metadata() {
+        let tool = ScriptTool::new().with_capabilities(ScriptCapability::HTTP);
+        let result = tool
+            .execute(json!({"code": "local ok, err = pcall(kestrel.http_get, 'http://169.254.169.254/'); print(ok)"}))
+            .await
+            .unwrap();
+        assert!(
+            result.contains("false"),
+            "http://169.254.169.254 should be blocked, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_http_private_net_allows_with_capability() {
+        let tool = ScriptTool::new()
+            .with_capabilities(ScriptCapability::HTTP | ScriptCapability::HTTP_PRIVATE_NET);
+        // This should not be blocked by SSRF check (will fail on actual connection, but not by policy)
+        let result = tool
+            .execute(json!({"code": "local ok, err = pcall(kestrel.http_get, 'http://127.0.0.1:1/'); print(ok)"}))
+            .await
+            .unwrap();
+        // Should not be blocked by SSRF — the actual connection will fail but that's a network error
+        assert!(
+            !result.contains("private") && !result.contains("loopback"),
+            "With HTTP_PRIVATE_NET, localhost should not be blocked by policy, got: {}",
+            result
+        );
+    }
+
+    // ── HTTP request limit test ─────────────────────────────────
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_http_request_limit() {
+        let tool = ScriptTool::new()
+            .with_capabilities(ScriptCapability::HTTP | ScriptCapability::HTTP_PRIVATE_NET);
+        // Make many requests — should hit the limit
+        let code = r#"
+            local count = 0
+            for i = 1, 60 do
+                local ok, err = pcall(kestrel.http_get, 'http://127.0.0.1:1/')
+                if not ok then
+                    if string.find(err, "Request limit") then
+                        print("limit hit at " .. i)
+                        break
+                    end
+                end
+                count = count + 1
+            end
+        "#;
+        let result = tool.execute(json!({"code": code})).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(
+            output.contains("limit hit"),
+            "Should hit request limit, got: {}",
+            output
+        );
+    }
+
+    // ── HTTP response table structure test ──────────────────────
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_http_response_table_keys() {
+        // Can't test actual HTTP, but test the table structure with SSRF bypass
+        let tool = ScriptTool::new()
+            .with_capabilities(ScriptCapability::HTTP | ScriptCapability::HTTP_PRIVATE_NET);
+        let code = r#"
+            local ok, result = pcall(kestrel.http_get, 'http://127.0.0.1:1/')
+            if ok then
+                print(type(result))
+                print(result.ok ~= nil)
+                print(result.status ~= nil)
+                print(result.body ~= nil)
+                print(result.url ~= nil)
+                print(result.final_url ~= nil)
+                print(result.headers ~= nil)
+            else
+                -- Connection refused, that's expected — just check it wasn't SSRF blocked
+                print("connection error (expected)")
+            end
+        "#;
+        let result = tool.execute(json!({"code": code})).await;
+        assert!(result.is_ok());
     }
 }

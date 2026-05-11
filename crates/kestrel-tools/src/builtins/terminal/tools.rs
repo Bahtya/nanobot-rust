@@ -20,7 +20,7 @@ use async_trait::async_trait;
 use kestrel_core::MAX_TOOL_OUTPUT_LENGTH;
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tracing::debug;
+use tracing::{debug, info};
 
 use super::manager::TerminalManager;
 
@@ -1052,6 +1052,13 @@ impl Tool for TerminalWaitForScreenChangeTool {
             .ok_or_else(|| ToolError::Validation("Missing 'session_id'".to_string()))?;
         let timeout_ms = args["timeout_ms"].as_u64().unwrap_or(5000);
         let match_pattern = args["match"].as_str();
+
+        info!(
+            session_id = session_id,
+            timeout_ms = timeout_ms,
+            match_pattern = match_pattern.unwrap_or("none"),
+            "terminal_wait_for_screen_change: executing"
+        );
 
         debug!(
             session_id = session_id,

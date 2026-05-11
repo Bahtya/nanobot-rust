@@ -41,6 +41,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - name: Disable Windows Defender real-time scanning
+        run: Set-MpPreference -DisableRealtimeMonitoring $true
       - name: Install protobuf compiler
         run: choco install protoc
       - uses: Swatinem/rust-cache@v2
@@ -55,6 +57,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Disable Windows Defender real-time scanning
+        run: Set-MpPreference -DisableRealtimeMonitoring $true
       - name: Install protobuf compiler
         run: choco install protoc
       - uses: Swatinem/rust-cache@v2

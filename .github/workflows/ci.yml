@@ -30,17 +30,7 @@ jobs:
         with:
           components: clippy
       - run: sudo apt-get install -y protobuf-compiler mold clang
-
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
+      - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace -- -D warnings
 
   clippy-windows:
@@ -53,17 +43,7 @@ jobs:
           components: clippy
       - name: Install protobuf compiler
         run: choco install protoc
-
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
+      - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace -- -D warnings
 
   build-windows:
@@ -72,25 +52,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-
       - name: Install protobuf compiler
         run: choco install protoc
-
-      - uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
+          tool: cargo-nextest
       - name: Check compilation
         run: cargo check --workspace
-
       - name: Run tests
-        run: cargo test --workspace
+        run: cargo nextest run --workspace
 
   test:
     name: Test
@@ -112,18 +83,11 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
       - run: sudo apt-get install -y protobuf-compiler mold clang
-
-      - uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - run: cargo test --workspace
+          tool: cargo-nextest
+      - run: cargo nextest run --workspace
 
   audit:
     name: Security Audit

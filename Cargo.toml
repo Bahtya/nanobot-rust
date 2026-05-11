@@ -145,6 +145,3 @@ futures = { workspace = true }
 tempfile = { workspace = true }
 toml = { workspace = true }
 kestrel-test-utils = { path = "crates/kestrel-test-utils" }
-
-[profile.dev.package."*"]
-opt-level = 3

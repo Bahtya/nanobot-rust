@@ -30,17 +30,12 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install protoc
 
-      - uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-test-
+          tool: cargo-nextest
 
-      - run: cargo test --workspace
+      - run: cargo nextest run --workspace
 
   build:
     name: Build ${{ matrix.target }}

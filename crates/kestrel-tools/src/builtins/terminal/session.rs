@@ -428,12 +428,31 @@ impl TerminalSession {
     ) -> Result<ScreenSnapshot> {
         let current_input_seq = self.input_sequence.load(Ordering::Relaxed);
         let observed_input_seq = self.observed_input_sequence.load(Ordering::Relaxed);
+        let screen_observed = self.screen_observed.load(Ordering::Relaxed);
+
+        debug!(
+            session_id = %self.id,
+            current_input_seq,
+            observed_input_seq,
+            screen_observed,
+            last_observed_hash = self.last_observed_screen_hash.load(Ordering::Relaxed),
+            timeout_ms,
+            match_pattern = match_pattern.unwrap_or("none"),
+            "wait_for_screen_change: starting"
+        );
+
         let mut baseline_hash = {
             let emulator = self.emulator.lock().unwrap_or_else(|e| e.into_inner());
             let current_hash = emulator.state_hash();
-            let should_reset_baseline = (!self.screen_observed.load(Ordering::Relaxed)
-                && current_input_seq == 0)
-                || current_input_seq == observed_input_seq;
+            let should_reset_baseline = !screen_observed && current_input_seq == 0;
+            debug!(
+                session_id = %self.id,
+                should_reset_baseline,
+                current_hash,
+                stored_hash = self.last_observed_screen_hash.load(Ordering::Relaxed),
+                reason = if should_reset_baseline { "first observation, no inputs" } else { "using stored baseline" },
+                "wait_for_screen_change: baseline decision"
+            );
             if should_reset_baseline {
                 self.last_observed_screen_hash
                     .store(current_hash, Ordering::Relaxed);
@@ -459,8 +478,21 @@ impl TerminalSession {
             let snapshot = {
                 let emulator = self.emulator.lock().unwrap_or_else(|e| e.into_inner());
                 let current_hash = emulator.state_hash();
+                debug!(
+                    session_id = %self.id,
+                    current_hash,
+                    baseline_hash,
+                    changed = current_hash != baseline_hash,
+                    "wait_for_screen_change: poll"
+                );
                 if current_hash == baseline_hash {
                     if std::time::Instant::now() >= deadline {
+                        debug!(
+                            session_id = %self.id,
+                            baseline_hash,
+                            current_hash,
+                            "wait_for_screen_change: timeout, hash unchanged"
+                        );
                         anyhow::bail!(
                             "Timeout waiting for screen change ({}ms elapsed)",
                             timeout_ms
@@ -469,6 +501,10 @@ impl TerminalSession {
                     continue;
                 }
                 if current_input_seq == 0 {
+                    debug!(
+                        session_id = %self.id,
+                        "wait_for_screen_change: no inputs sent, updating baseline to current hash"
+                    );
                     baseline_hash = current_hash;
                     self.last_observed_screen_hash
                         .store(current_hash, Ordering::Relaxed);
@@ -482,6 +518,13 @@ impl TerminalSession {
                     }
                     continue;
                 }
+                debug!(
+                    session_id = %self.id,
+                    new_hash = current_hash,
+                    old_hash = baseline_hash,
+                    input_seq = current_input_seq,
+                    "wait_for_screen_change: screen changed"
+                );
                 self.last_observed_screen_hash
                     .store(current_hash, Ordering::Relaxed);
                 self.observed_input_sequence

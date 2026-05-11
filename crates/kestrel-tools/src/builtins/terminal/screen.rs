@@ -576,7 +576,8 @@ impl TerminalScreen {
                 match *mode {
                     1049 => self.enter_alternate_screen(),
                     25 => {
-                        self.cursor_visible = false;
+                        // ?25h (DECTCEM set) = show cursor
+                        self.cursor_visible = true;
                     }
                     // 2004 = Bracketed Paste — acknowledged but not enforced at screen level.
                     // Input handling in send_input wraps pasted content with \x1b[200~ / \x1b[201~.
@@ -599,7 +600,8 @@ impl TerminalScreen {
             TerminalOp::DecPrivateModeReset(mode) => match *mode {
                 1049 => self.leave_alternate_screen(),
                 25 => {
-                    self.cursor_visible = true;
+                    // ?25l (DECTCEM reset) = hide cursor
+                    self.cursor_visible = false;
                 }
                 _ => {}
             },
@@ -744,6 +746,7 @@ impl TerminalScreen {
         for b in self.window_title.as_bytes() {
             h.write_u8(*b);
         }
+        h.write_u8(if self.cursor_visible { 1 } else { 0 });
         h.finish()
     }
 
@@ -1036,7 +1039,6 @@ impl ScreenSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::builtins::terminal::parse_bytes;
 
     fn new_screen() -> TerminalScreen {
         TerminalScreen::new(80, 24)
@@ -1618,6 +1620,68 @@ mod tests {
         s.process_op(&TerminalOp::DecPrivateModeSet(1049));
         let h2 = s.state_hash();
         assert_ne!(h1, h2, "Hash should change when entering alternate screen");
+    }
+
+    #[test]
+    fn test_state_hash_changes_on_cursor_visibility() {
+        let s = new_screen();
+        let h1 = s.state_hash();
+        let mut s = s;
+        s.process_op(&TerminalOp::DecPrivateModeReset(25)); // ?25l = hide cursor
+        let h2 = s.state_hash();
+        assert_ne!(h1, h2, "Hash should change when cursor visibility changes");
+    }
+
+    // ─── CNL / CPL screen tests ────────────────────────────────────
+
+    #[test]
+    fn test_cnl_moves_down_and_resets_col() {
+        let mut s = new_screen();
+        s.process_op(&TerminalOp::CursorPosition { row: 2, col: 10 });
+        assert_eq!(s.cursor.row, 1);
+        assert_eq!(s.cursor.col, 9);
+        s.process_op(&TerminalOp::CursorNextLine(3));
+        assert_eq!(s.cursor.row, 4);
+        assert_eq!(s.cursor.col, 0);
+    }
+
+    #[test]
+    fn test_cnl_clamps_to_last_row() {
+        let mut s = TerminalScreen::new(10, 5);
+        s.process_op(&TerminalOp::CursorPosition { row: 4, col: 5 });
+        s.process_op(&TerminalOp::CursorNextLine(100));
+        assert_eq!(s.cursor.row, 4, "Should clamp to last row (0-indexed)");
+        assert_eq!(s.cursor.col, 0);
+    }
+
+    #[test]
+    fn test_cpl_moves_up_and_resets_col() {
+        let mut s = new_screen();
+        s.process_op(&TerminalOp::CursorPosition { row: 10, col: 8 });
+        s.process_op(&TerminalOp::CursorPreviousLine(3));
+        assert_eq!(s.cursor.row, 6);
+        assert_eq!(s.cursor.col, 0);
+    }
+
+    #[test]
+    fn test_cpl_clamps_to_zero() {
+        let mut s = new_screen();
+        s.process_op(&TerminalOp::CursorPosition { row: 2, col: 5 });
+        s.process_op(&TerminalOp::CursorPreviousLine(100));
+        assert_eq!(s.cursor.row, 0);
+        assert_eq!(s.cursor.col, 0);
+    }
+
+    #[test]
+    fn test_dectcem_hide_show() {
+        let mut s = new_screen();
+        assert!(s.cursor_visible);
+        // ?25l (DECTCEM reset) = hide cursor
+        s.process_op(&TerminalOp::DecPrivateModeReset(25));
+        assert!(!s.cursor_visible, "Cursor should be hidden after ?25l");
+        // ?25h (DECTCEM set) = show cursor
+        s.process_op(&TerminalOp::DecPrivateModeSet(25));
+        assert!(s.cursor_visible, "Cursor should be visible after ?25h");
     }
 
     // ─── Screen diff tests ─────────────────────────────────────────

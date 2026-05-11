@@ -1065,4 +1065,42 @@ mod tests {
         let ops = emu.take_ops();
         assert_eq!(ops, vec![TerminalOp::Print("pending text".to_string())]);
     }
+
+    // ─── CNL / CPL tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_parser_cnl() {
+        let ops = parse_bytes(b"\x1b[3E");
+        assert_eq!(ops, vec![TerminalOp::CursorNextLine(3)]);
+    }
+
+    #[test]
+    fn test_parser_cnl_default() {
+        let ops = parse_bytes(b"\x1b[E");
+        assert_eq!(ops, vec![TerminalOp::CursorNextLine(1)]);
+    }
+
+    #[test]
+    fn test_parser_cpl() {
+        let ops = parse_bytes(b"\x1b[5F");
+        assert_eq!(ops, vec![TerminalOp::CursorPreviousLine(5)]);
+    }
+
+    #[test]
+    fn test_parser_cpl_default() {
+        let ops = parse_bytes(b"\x1b[F");
+        assert_eq!(ops, vec![TerminalOp::CursorPreviousLine(1)]);
+    }
+
+    #[test]
+    fn test_parser_dectcem() {
+        let ops = parse_bytes(b"\x1b[?25l\x1b[?25h");
+        assert_eq!(
+            ops,
+            vec![
+                TerminalOp::DecPrivateModeReset(25), // ?25l = DECTCEM reset (hide cursor)
+                TerminalOp::DecPrivateModeSet(25),   // ?25h = DECTCEM set (show cursor)
+            ]
+        );
+    }
 }

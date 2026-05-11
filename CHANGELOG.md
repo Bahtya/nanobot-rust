@@ -1,5 +1,39 @@
 # Changelog
 
+## [v0.10.0] - 2026-05-11
+
+### Features
+
+#### Terminal TUI Automation APIs
+- feat(terminal): add VT parser (vte 0.15) with IncrementalUtf8Decoder, VtePerform, and TerminalOp semantic operations (Issues #329, #330)
+- feat(terminal): add terminal screen model with primary/alternate buffers, cell grid, cursor tracking, SGR attributes, scroll regions, scrollback (20K lines), and wide character (CJK) support (Issue #331)
+- feat(terminal): add 10 agent tools — `terminal_create_session`, `terminal_send_input`, `terminal_read_output`, `terminal_send_key`, `terminal_capture_screen`, `terminal_capture_scrollback`, `terminal_wait_for_screen_change`, `terminal_list_sessions`, `terminal_kill_session`, `terminal_resize` (Issues #329, #332, #333)
+- feat(terminal): add ScreenDiff with changed-line tracking, cursor delta, mode/title/dims change detection, and 6 regression fixture tests (Issue #334)
+
+#### Lua ScriptTool Sandbox Expansion
+- feat(script): replace `dangerous: bool` with `ScriptCapability` bitflags (10 capabilities) and `ScriptProfile` enum (Safe/Trusted/Dangerous) — each API gated by capability bit (Issue #339)
+- feat(script): add 17 filesystem/path APIs — path helpers (cwd, abspath, join_path, basename, dirname), fs extensions (read_lines, append_file, copy, move, glob, walk), JSON I/O (read_json, write_json), temp helpers (tempdir, tempfile) (Issue #337)
+- feat(script): add 6 HTTP/download APIs (http_get, http_post, http_request, fetch_json, post_json, download) with SSRF protection, response size limits, and write path validation (Issue #338)
+- feat(script): add built-in `require()` module system with 5 controlled modules (kestrel.fs, kestrel.path, kestrel.json, kestrel.http, kestrel.env) (Issue #340)
+
+### Bug Fixes
+- fix(terminal): add `performer.flush_print()` after `parser.advance()` to emit pending Print ops for trailing text
+- fix(terminal): strip Windows UNC prefix (`\\?\`) from canonicalized paths in `validate_write_path`
+- fix(terminal): rewrite `test_fixture_partial_utf8_across_feeds` to preserve vte parser state across feeds
+- fix(terminal): mark flaky ConPTY e2e test as `#[ignore]`, add lightweight spawn+kill test for CI
+
+### Refactoring
+- refactor(terminal): remove redundant ConPTY resize retry and `CHCP=65001` env var hack — `portable-pty` already uses `RESIZE_QUIRK` and `CREATE_UNICODE_ENVIRONMENT` flags
+- refactor(terminal): replace scrollback `Vec` with `VecDeque` for O(1) eviction
+- refactor(terminal): remove unnecessary `unsafe impl Sync` on `TerminalSession`
+- refactor(terminal): use `char_indices` in `truncate_output` to avoid panic on multi-byte UTF-8
+- refactor(terminal): fix wide-character overlap clearing logic in `put_char`
+- refactor(terminal): add 64 KiB input size limit in `send_input`
+
+### Performance
+- perf(ci): switch to rust-cache + cargo-nextest, parallelize tests with `--partition` across 2 shards
+- perf(ci): disable Windows Defender real-time scanning on CI runners
+
 ## [v0.9.17] - 2026-05-10
 
 ### Bug Fixes

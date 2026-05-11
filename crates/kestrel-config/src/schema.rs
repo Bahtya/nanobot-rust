@@ -1178,7 +1178,7 @@ fn default_tool_timeout() -> u64 {
 }
 
 const fn default_message_timeout() -> u64 {
-    90
+    300
 }
 
 const fn default_connect_timeout() -> u64 {
@@ -1190,7 +1190,7 @@ const fn default_first_byte_timeout() -> u64 {
 }
 
 const fn default_idle_timeout() -> u64 {
-    30
+    60
 }
 
 fn default_dream_interval() -> u64 {

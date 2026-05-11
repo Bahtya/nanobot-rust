@@ -174,7 +174,7 @@ impl OpenAiCompatProvider {
 
     /// Parse SSE lines from byte stream and yield CompletionChunks.
     ///
-    /// Each byte chunk read is guarded by an idle timeout (30s). If no data
+    /// Each byte chunk read is guarded by an idle timeout (60s). If no data
     /// arrives within the timeout, an error is sent and parsing stops.
     /// The optional cancellation token allows callers to abort the parse early.
     fn parse_sse_stream(
@@ -197,7 +197,7 @@ impl OpenAiCompatProvider {
                 }
 
                 let chunk_result =
-                    tokio::time::timeout(std::time::Duration::from_secs(30), stream.next()).await;
+                    tokio::time::timeout(std::time::Duration::from_secs(60), stream.next()).await;
 
                 let chunk_result = match chunk_result {
                     Ok(Some(r)) => r,
@@ -205,7 +205,7 @@ impl OpenAiCompatProvider {
                     Err(_) => {
                         let _ = tx
                             .send(Err(anyhow::anyhow!(
-                                "SSE byte stream idle timeout after 30s"
+                                "SSE byte stream idle timeout after 60s"
                             )))
                             .await;
                         return;

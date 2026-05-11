@@ -195,7 +195,7 @@ pub fn fill_defaults(config: &mut Config) -> Vec<String> {
         filled.push("agent.tool_timeout".to_string());
     }
     if config.agent.message_timeout == 0 {
-        config.agent.message_timeout = 90;
+        config.agent.message_timeout = 300;
         filled.push("agent.message_timeout".to_string());
     }
     if config.agent.tool_timeout > config.agent.message_timeout {

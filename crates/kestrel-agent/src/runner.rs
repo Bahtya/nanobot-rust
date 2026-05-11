@@ -407,8 +407,9 @@ impl AgentRunner {
             let mut tool_calls_map: std::collections::HashMap<usize, (String, String, String)> =
                 std::collections::HashMap::new();
 
-            let first_chunk_timeout = std::time::Duration::from_secs(15);
-            let idle_timeout = std::time::Duration::from_secs(30);
+            let first_chunk_timeout =
+                std::time::Duration::from_secs(self.config.agent.first_byte_timeout);
+            let idle_timeout = std::time::Duration::from_secs(self.config.agent.idle_timeout);
             let mut is_first = true;
             let mut last_chunk_at = std::time::Instant::now();
 

@@ -165,6 +165,7 @@ impl TerminalSession {
         if let Some(dir) = cwd {
             cmd.cwd(dir);
         }
+        cmd.env("TERM", "xterm-256color");
 
         let child = pair.slave.spawn_command(cmd)?;
 

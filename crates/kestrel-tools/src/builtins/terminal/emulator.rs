@@ -291,12 +291,8 @@ impl vte::Perform for VtePerformer<'_> {
             'd' => self
                 .ops
                 .push(TerminalOp::CursorVerticalAbsolute(param1(0, 1))),
-            'E' => self
-                .ops
-                .push(TerminalOp::CursorNextLine(param1(0, 1))),
-            'F' => self
-                .ops
-                .push(TerminalOp::CursorPreviousLine(param1(0, 1))),
+            'E' => self.ops.push(TerminalOp::CursorNextLine(param1(0, 1))),
+            'F' => self.ops.push(TerminalOp::CursorPreviousLine(param1(0, 1))),
 
             // Erase
             'J' => self

@@ -533,8 +533,7 @@ impl TerminalScreen {
             }
             TerminalOp::CursorNextLine(n) => {
                 let max_rows = self.active_buf().rows;
-                self.cursor.row = (self.cursor.row + *n as usize)
-                    .min(max_rows.saturating_sub(1));
+                self.cursor.row = (self.cursor.row + *n as usize).min(max_rows.saturating_sub(1));
                 self.cursor.col = 0;
             }
             TerminalOp::CursorPreviousLine(n) => {
@@ -597,15 +596,13 @@ impl TerminalScreen {
                     }
                 }
             }
-            TerminalOp::DecPrivateModeReset(mode) => {
-                match *mode {
-                    1049 => self.leave_alternate_screen(),
-                    25 => {
-                        self.cursor_visible = true;
-                    }
-                    _ => {}
+            TerminalOp::DecPrivateModeReset(mode) => match *mode {
+                1049 => self.leave_alternate_screen(),
+                25 => {
+                    self.cursor_visible = true;
                 }
-            }
+                _ => {}
+            },
             TerminalOp::SetWindowTitle(title) => {
                 self.window_title = title.clone();
             }

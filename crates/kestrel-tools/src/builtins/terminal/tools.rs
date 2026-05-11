@@ -615,30 +615,68 @@ fn key_to_bytes(key: &str) -> Option<Vec<u8>> {
         "F11" => Some(b"\x1b[23~".to_vec()),
         "F12" => Some(b"\x1b[24~".to_vec()),
         "Space" => Some(b" ".to_vec()),
+        // Shift+Tab — used by many TUI menus
+        "Shift+Tab" | "Backtab" => Some(b"\x1b[Z".to_vec()),
+        // Ctrl+Arrow — word-motion in editors
+        "Ctrl+Up" => Some(b"\x1b[1;5A".to_vec()),
+        "Ctrl+Down" => Some(b"\x1b[1;5B".to_vec()),
+        "Ctrl+Right" => Some(b"\x1b[1;5C".to_vec()),
+        "Ctrl+Left" => Some(b"\x1b[1;5D".to_vec()),
+        // Shift+Arrow — selection in many editors
+        "Shift+Up" => Some(b"\x1b[1;2A".to_vec()),
+        "Shift+Down" => Some(b"\x1b[1;2B".to_vec()),
+        "Shift+Right" => Some(b"\x1b[1;2C".to_vec()),
+        "Shift+Left" => Some(b"\x1b[1;2D".to_vec()),
         _ => None,
     }
 }
 
-/// Parse a key string that may contain Ctrl+ combinations (e.g. "Ctrl+C").
+/// Parse a key string that may contain modifier combinations (e.g. "Ctrl+C", "Alt+x").
 fn resolve_key_bytes(key: &str) -> Result<Vec<u8>, String> {
+    // Handle Alt+ combinations — ESC prefix + key
+    if let Some(rest) = key.strip_prefix("Alt+") {
+        if rest.len() == 1 {
+            let c = rest.chars().next().unwrap();
+            return Ok(format!("\x1b{}", c).into_bytes());
+        }
+        // Alt+ named key: Alt+Enter, Alt+Up, etc.
+        if let Some(bytes) = key_to_bytes(rest) {
+            let mut result = vec![0x1b];
+            result.extend_from_slice(&bytes);
+            return Ok(result);
+        }
+        return Err(format!("Unknown Alt combination: Alt+{}", rest));
+    }
+
     // Handle Ctrl+letter combinations
     if let Some(letter) = key.strip_prefix("Ctrl+") {
         if letter.len() == 1 {
             let c = letter.chars().next().unwrap().to_ascii_uppercase();
             if ('A'..='_').contains(&c) {
-                // Ctrl+A through Ctrl+_ maps to bytes 0x01 through 0x1F
                 return Ok(vec![c as u8 - b'A' + 1]);
             }
         }
-        // Handle Ctrl+ special names
         return match letter {
-            "Space" => Ok(vec![0x00]), // Ctrl+Space = NUL
+            "Space" => Ok(vec![0x00]),
+            "Up" | "Down" | "Right" | "Left" => key_to_bytes(key)
+                .ok_or_else(|| format!("Unknown Ctrl combination: Ctrl+{}", letter)),
             _ => Err(format!("Unknown Ctrl combination: Ctrl+{}", letter)),
         };
     }
 
-    key_to_bytes(key)
-        .ok_or_else(|| format!("Unknown key: '{}'. Supported: Enter, Backspace, Tab, Escape/Esc, Up/Down/Left/Right, Home, End, PageUp/PgUp, PageDown/PgDn, Insert, Delete, F1-F12, Space, Ctrl+A through Ctrl+Z, Ctrl+Space", key))
+    // Handle Shift+ combinations
+    if key.starts_with("Shift+") {
+        return key_to_bytes(key).ok_or_else(|| format!("Unknown Shift combination: {}", key));
+    }
+
+    key_to_bytes(key).ok_or_else(|| {
+        format!(
+            "Unknown key: '{}'. Supported: Enter, Backspace, Tab, Escape/Esc, \
+             Up/Down/Left/Right, Home, End, PageUp/PgUp, PageDown/PgDn, Insert, Delete, \
+             F1-F12, Space, Ctrl+A-Z, Ctrl+Space, Ctrl+Arrow, Alt+key, Shift+Tab, Shift+Arrow",
+            key
+        )
+    })
 }
 
 pub struct TerminalSendKeyTool {

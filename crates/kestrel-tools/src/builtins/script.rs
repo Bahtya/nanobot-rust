@@ -477,6 +477,13 @@ impl ScriptTool {
 
         let caps = self.capabilities;
 
+        // Shared write quota counters — all write APIs use the same counters
+        // so the configured limits apply to the combined total.
+        let shared_write_bytes = Arc::new(AtomicUsize::new(0));
+        let shared_write_files = Arc::new(AtomicUsize::new(0));
+        let max_write_bytes = self.max_write_bytes;
+        let max_write_files = self.max_write_files;
+
         // --- kestrel.read_file(path [, offset, limit]) ---
         if caps.contains(ScriptCapability::FS_READ) {
             let max_output = self.max_output_bytes;
@@ -520,77 +527,66 @@ impl ScriptTool {
 
         // --- kestrel.write_file(path, content [, append]) ---
         if caps.contains(ScriptCapability::FS_WRITE) {
-            let max_write_bytes = self.max_write_bytes;
-            let max_write_files = self.max_write_files;
-            let write_counter = Arc::new(AtomicUsize::new(0));
-            let write_file_counter = Arc::new(AtomicUsize::new(0));
-
-            let wc = write_counter.clone();
-            let wfc = write_file_counter.clone();
+            let wc = shared_write_bytes.clone();
+            let wfc = shared_write_files.clone();
             let write_file_fn = lua
                 .create_function(
                     move |_, (path, content, append): (String, String, Option<bool>)| {
                         // Path validation
                         validate_write_path(&path)?;
 
-                        // Write limits
+                        // Reserve write quota (check before write, only commit on success)
                         let content_len = content.len();
-                        let prev = wc.fetch_add(content_len, Ordering::SeqCst);
-                        if prev + content_len > max_write_bytes {
-                            warn!(
-                                path,
-                                write_bytes = prev + content_len,
-                                max_write_bytes,
-                                "Script write limit exceeded"
-                            );
-                            return Err(mlua::Error::external(format!(
-                                "Write limit exceeded: {} bytes (max {})",
-                                prev + content_len,
-                                max_write_bytes
-                            )));
-                        }
-                        let file_count = wfc.fetch_add(1, Ordering::SeqCst) + 1;
-                        if file_count > max_write_files {
-                            warn!(
-                                path,
-                                file_count, max_write_files, "Script file count limit exceeded"
-                            );
-                            return Err(mlua::Error::external(format!(
-                                "File count limit exceeded: {} files (max {})",
-                                file_count, max_write_files
-                            )));
-                        }
+                        let (_prev_bytes, _prev_files) = reserve_write_quota(
+                            &wc,
+                            &wfc,
+                            content_len,
+                            1,
+                            max_write_bytes,
+                            max_write_files,
+                        )
+                        .inspect_err(|_| {
+                            warn!(path, "Script write limit exceeded");
+                        })?;
 
                         // Create parent directory if needed
                         if let Some(parent) = Path::new(&path).parent() {
                             if !parent.as_os_str().is_empty() {
                                 std::fs::create_dir_all(parent).map_err(|e| {
+                                    release_write_quota(&wc, &wfc, content_len, 1);
                                     mlua::Error::external(format!("Failed to create dir: {}", e))
                                 })?;
                             }
                         }
 
-                        if append.unwrap_or(false) {
+                        let write_result = if append.unwrap_or(false) {
                             let mut file = std::fs::OpenOptions::new()
                                 .create(true)
                                 .append(true)
                                 .open(&path)
                                 .map_err(|e| {
+                                    release_write_quota(&wc, &wfc, content_len, 1);
                                     mlua::Error::external(format!("Failed to open {}: {}", path, e))
                                 })?;
                             file.write_all(content.as_bytes()).map_err(|e| {
+                                release_write_quota(&wc, &wfc, content_len, 1);
                                 mlua::Error::external(format!("Failed to write: {}", e))
                             })?;
                             file.flush().map_err(|e| {
+                                release_write_quota(&wc, &wfc, content_len, 1);
                                 mlua::Error::external(format!("Failed to flush: {}", e))
-                            })?;
+                            })
                         } else {
                             std::fs::write(&path, &content).map_err(|e| {
+                                release_write_quota(&wc, &wfc, content_len, 1);
                                 mlua::Error::external(format!("Failed to write {}: {}", path, e))
-                            })?;
-                        }
+                            })
+                        };
 
-                        Ok(format!("Wrote {} bytes to {}", content_len, path))
+                        match write_result {
+                            Ok(()) => Ok(format!("Wrote {} bytes to {}", content_len, path)),
+                            Err(e) => Err(e),
+                        }
                     },
                 )
                 .map_err(|e| ToolError::Execution(format!("Failed to create write_file: {}", e)))?;
@@ -876,37 +872,26 @@ impl ScriptTool {
 
         // --- kestrel.append_file(path, content) ---
         if caps.contains(ScriptCapability::FS_WRITE) {
-            let max_write_bytes = self.max_write_bytes;
-            let max_write_files = self.max_write_files;
-            let append_counter = Arc::new(AtomicUsize::new(0));
-            let append_file_counter = Arc::new(AtomicUsize::new(0));
-
-            let ac = append_counter.clone();
-            let afc = append_file_counter.clone();
+            let ac = shared_write_bytes.clone();
+            let afc = shared_write_files.clone();
             let append_file_fn = lua
                 .create_function(move |_, (path, content): (String, String)| {
                     validate_write_path(&path)?;
 
                     let content_len = content.len();
-                    let prev = ac.fetch_add(content_len, Ordering::SeqCst);
-                    if prev + content_len > max_write_bytes {
-                        return Err(mlua::Error::external(format!(
-                            "Write limit exceeded: {} bytes (max {})",
-                            prev + content_len,
-                            max_write_bytes
-                        )));
-                    }
-                    let file_count = afc.fetch_add(1, Ordering::SeqCst) + 1;
-                    if file_count > max_write_files {
-                        return Err(mlua::Error::external(format!(
-                            "File count limit exceeded: {} files (max {})",
-                            file_count, max_write_files
-                        )));
-                    }
+                    reserve_write_quota(
+                        &ac,
+                        &afc,
+                        content_len,
+                        1,
+                        max_write_bytes,
+                        max_write_files,
+                    )?;
 
                     if let Some(parent) = Path::new(&path).parent() {
                         if !parent.as_os_str().is_empty() {
                             std::fs::create_dir_all(parent).map_err(|e| {
+                                release_write_quota(&ac, &afc, content_len, 1);
                                 mlua::Error::external(format!("Failed to create dir: {}", e))
                             })?;
                         }
@@ -917,12 +902,17 @@ impl ScriptTool {
                         .append(true)
                         .open(&path)
                         .map_err(|e| {
+                            release_write_quota(&ac, &afc, content_len, 1);
                             mlua::Error::external(format!("Failed to open {}: {}", path, e))
                         })?;
-                    file.write_all(content.as_bytes())
-                        .map_err(|e| mlua::Error::external(format!("Failed to append: {}", e)))?;
-                    file.flush()
-                        .map_err(|e| mlua::Error::external(format!("Failed to flush: {}", e)))?;
+                    file.write_all(content.as_bytes()).map_err(|e| {
+                        release_write_quota(&ac, &afc, content_len, 1);
+                        mlua::Error::external(format!("Failed to append: {}", e))
+                    })?;
+                    file.flush().map_err(|e| {
+                        release_write_quota(&ac, &afc, content_len, 1);
+                        mlua::Error::external(format!("Failed to flush: {}", e))
+                    })?;
 
                     Ok(format!("Appended {} bytes to {}", content_len, path))
                 })
@@ -936,13 +926,8 @@ impl ScriptTool {
 
         // --- kestrel.copy(src, dst) ---
         if caps.contains(ScriptCapability::FS_WRITE) {
-            let max_write_bytes = self.max_write_bytes;
-            let max_write_files = self.max_write_files;
-            let copy_counter = Arc::new(AtomicUsize::new(0));
-            let copy_file_counter = Arc::new(AtomicUsize::new(0));
-
-            let cc = copy_counter.clone();
-            let cfc = copy_file_counter.clone();
+            let cc = shared_write_bytes.clone();
+            let cfc = shared_write_files.clone();
             let copy_fn = lua
                 .create_function(move |_, (src, dst): (String, String)| {
                     validate_write_path(&dst)?;
@@ -958,32 +943,21 @@ impl ScriptTool {
                     }
 
                     let size = meta.len() as usize;
-                    let prev = cc.fetch_add(size, Ordering::SeqCst);
-                    if prev + size > max_write_bytes {
-                        return Err(mlua::Error::external(format!(
-                            "Write limit exceeded: {} bytes (max {})",
-                            prev + size,
-                            max_write_bytes
-                        )));
-                    }
-                    let file_count = cfc.fetch_add(1, Ordering::SeqCst) + 1;
-                    if file_count > max_write_files {
-                        return Err(mlua::Error::external(format!(
-                            "File count limit exceeded: {} files (max {})",
-                            file_count, max_write_files
-                        )));
-                    }
+                    reserve_write_quota(&cc, &cfc, size, 1, max_write_bytes, max_write_files)?;
 
                     if let Some(parent) = Path::new(&dst).parent() {
                         if !parent.as_os_str().is_empty() {
                             std::fs::create_dir_all(parent).map_err(|e| {
+                                release_write_quota(&cc, &cfc, size, 1);
                                 mlua::Error::external(format!("Failed to create dir: {}", e))
                             })?;
                         }
                     }
 
-                    std::fs::copy(&src, &dst)
-                        .map_err(|e| mlua::Error::external(format!("copy failed: {}", e)))?;
+                    std::fs::copy(&src, &dst).map_err(|e| {
+                        release_write_quota(&cc, &cfc, size, 1);
+                        mlua::Error::external(format!("copy failed: {}", e))
+                    })?;
 
                     Ok(format!("Copied {} -> {} ({} bytes)", src, dst, size))
                 })
@@ -1121,13 +1095,8 @@ impl ScriptTool {
 
         // --- kestrel.write_json(path, value [, pretty]) ---
         if caps.contains(ScriptCapability::FS_WRITE) && caps.contains(ScriptCapability::JSON) {
-            let max_write_bytes = self.max_write_bytes;
-            let max_write_files = self.max_write_files;
-            let wj_counter = Arc::new(AtomicUsize::new(0));
-            let wj_file_counter = Arc::new(AtomicUsize::new(0));
-
-            let wjc = wj_counter.clone();
-            let wjfc = wj_file_counter.clone();
+            let wjc = shared_write_bytes.clone();
+            let wjfc = shared_write_files.clone();
             let write_json_fn = lua
                 .create_function(
                     move |_, (path, table, pretty): (String, mlua::Value, Option<bool>)| {
@@ -1145,31 +1114,26 @@ impl ScriptTool {
                         };
 
                         let content_len = content.len();
-                        let prev = wjc.fetch_add(content_len, Ordering::SeqCst);
-                        if prev + content_len > max_write_bytes {
-                            return Err(mlua::Error::external(format!(
-                                "Write limit exceeded: {} bytes (max {})",
-                                prev + content_len,
-                                max_write_bytes
-                            )));
-                        }
-                        let file_count = wjfc.fetch_add(1, Ordering::SeqCst) + 1;
-                        if file_count > max_write_files {
-                            return Err(mlua::Error::external(format!(
-                                "File count limit exceeded: {} files (max {})",
-                                file_count, max_write_files
-                            )));
-                        }
+                        reserve_write_quota(
+                            &wjc,
+                            &wjfc,
+                            content_len,
+                            1,
+                            max_write_bytes,
+                            max_write_files,
+                        )?;
 
                         if let Some(parent) = Path::new(&path).parent() {
                             if !parent.as_os_str().is_empty() {
                                 std::fs::create_dir_all(parent).map_err(|e| {
+                                    release_write_quota(&wjc, &wjfc, content_len, 1);
                                     mlua::Error::external(format!("Failed to create dir: {}", e))
                                 })?;
                             }
                         }
 
                         std::fs::write(&path, &content).map_err(|e| {
+                            release_write_quota(&wjc, &wjfc, content_len, 1);
                             mlua::Error::external(format!("Failed to write {}: {}", path, e))
                         })?;
 
@@ -1530,13 +1494,8 @@ impl ScriptTool {
                 let client = http_client.clone();
                 let rc = request_counter.clone();
                 let apn = allow_private_net;
-                let dl_bytes_counter = Arc::new(AtomicUsize::new(0));
-                let dl_file_counter = Arc::new(AtomicUsize::new(0));
-                let max_write_bytes = self.max_write_bytes;
-                let max_write_files = self.max_write_files;
-
-                let dlbc = dl_bytes_counter.clone();
-                let dlfc = dl_file_counter.clone();
+                let dlbc = shared_write_bytes.clone();
+                let dlfc = shared_write_files.clone();
 
                 let download_fn = lua
                     .create_function(
@@ -1573,6 +1532,7 @@ impl ScriptTool {
 
                             let file_count = dlfc.fetch_add(1, Ordering::SeqCst) + 1;
                             if file_count > max_write_files {
+                                dlfc.fetch_sub(1, Ordering::SeqCst);
                                 return Err(mlua::Error::external(format!(
                                     "File count limit exceeded: {} files (max {})",
                                     file_count, max_write_files
@@ -1582,6 +1542,7 @@ impl ScriptTool {
                             if let Some(parent) = Path::new(&path).parent() {
                                 if !parent.as_os_str().is_empty() {
                                     std::fs::create_dir_all(parent).map_err(|e| {
+                                        dlfc.fetch_sub(1, Ordering::SeqCst);
                                         mlua::Error::external(format!(
                                             "Failed to create dir: {}",
                                             e
@@ -1603,11 +1564,13 @@ impl ScriptTool {
                                     req.send().await
                                 })
                                 .map_err(|e| {
+                                    dlfc.fetch_sub(1, Ordering::SeqCst);
                                     mlua::Error::external(format!("Download failed: {}", e))
                                 })?;
 
                             let status = response.status().as_u16();
                             if !(200..300).contains(&status) {
+                                dlfc.fetch_sub(1, Ordering::SeqCst);
                                 return Err(mlua::Error::external(format!(
                                     "Download failed: HTTP {}",
                                     status
@@ -1615,6 +1578,7 @@ impl ScriptTool {
                             }
                             if let Some(len) = response.content_length() {
                                 if len as usize > max_download_bytes {
+                                    dlfc.fetch_sub(1, Ordering::SeqCst);
                                     return Err(mlua::Error::external(format!(
                                         "Download too large: {} bytes (max {})",
                                         len, max_download_bytes
@@ -1624,9 +1588,11 @@ impl ScriptTool {
 
                             let bytes =
                                 rt.block_on(async { response.bytes().await }).map_err(|e| {
+                                    dlfc.fetch_sub(1, Ordering::SeqCst);
                                     mlua::Error::external(format!("Failed to read response: {}", e))
                                 })?;
                             if bytes.len() > max_download_bytes {
+                                dlfc.fetch_sub(1, Ordering::SeqCst);
                                 return Err(mlua::Error::external(format!(
                                     "Download too large: {} bytes (max {})",
                                     bytes.len(),
@@ -1636,6 +1602,8 @@ impl ScriptTool {
 
                             let prev = dlbc.fetch_add(bytes.len(), Ordering::SeqCst);
                             if prev + bytes.len() > max_write_bytes {
+                                dlbc.fetch_sub(bytes.len(), Ordering::SeqCst);
+                                dlfc.fetch_sub(1, Ordering::SeqCst);
                                 return Err(mlua::Error::external(format!(
                                     "Write limit exceeded: {} bytes (max {})",
                                     prev + bytes.len(),
@@ -1644,6 +1612,8 @@ impl ScriptTool {
                             }
 
                             std::fs::write(&path, &bytes).map_err(|e| {
+                                dlbc.fetch_sub(bytes.len(), Ordering::SeqCst);
+                                dlfc.fetch_sub(1, Ordering::SeqCst);
                                 mlua::Error::external(format!("Failed to write {}: {}", path, e))
                             })?;
 
@@ -2087,18 +2057,92 @@ fn walk_dir(
     Ok(())
 }
 
+// --- Shared write-quota helpers ---
+
+/// Atomically check and reserve write quota.  Returns `Err` without
+/// modifying the counters if the limit would be exceeded.
+fn reserve_write_quota(
+    byte_counter: &Arc<AtomicUsize>,
+    file_counter: &Arc<AtomicUsize>,
+    bytes: usize,
+    files: usize,
+    max_bytes: usize,
+    max_files: usize,
+) -> Result<(usize, usize), mlua::Error> {
+    let prev_bytes = byte_counter.fetch_add(bytes, Ordering::SeqCst);
+    if prev_bytes + bytes > max_bytes {
+        byte_counter.fetch_sub(bytes, Ordering::SeqCst);
+        return Err(mlua::Error::external(format!(
+            "Write limit exceeded: {} bytes (max {})",
+            prev_bytes + bytes,
+            max_bytes
+        )));
+    }
+    let prev_files = file_counter.fetch_add(files, Ordering::SeqCst);
+    if prev_files + files > max_files {
+        file_counter.fetch_sub(files, Ordering::SeqCst);
+        byte_counter.fetch_sub(bytes, Ordering::SeqCst);
+        return Err(mlua::Error::external(format!(
+            "File count limit exceeded: {} files (max {})",
+            prev_files + files,
+            max_files
+        )));
+    }
+    Ok((prev_bytes, prev_files))
+}
+
+/// Roll back previously reserved quota after a failed write.
+fn release_write_quota(
+    byte_counter: &Arc<AtomicUsize>,
+    file_counter: &Arc<AtomicUsize>,
+    bytes: usize,
+    files: usize,
+) {
+    byte_counter.fetch_sub(bytes, Ordering::SeqCst);
+    file_counter.fetch_sub(files, Ordering::SeqCst);
+}
+
 // --- Path validation ---
 
 fn validate_write_path(path: &str) -> Result<(), mlua::Error> {
     let p = Path::new(path);
-    let normalized = path.replace('\\', "/").to_lowercase();
 
-    // Check for blocked system paths
+    // Resolve the path to its canonical form to defeat symlink and .. traversal.
+    // For paths that don't exist yet, resolve the parent and join the file name.
+    let canonical = if p.exists() {
+        std::fs::canonicalize(p)
+            .map_err(|e| mlua::Error::external(format!("Cannot resolve path '{}': {}", path, e)))?
+    } else if let Some(parent) = p.parent() {
+        if parent.as_os_str().is_empty() {
+            let cwd = std::env::current_dir()
+                .map_err(|e| mlua::Error::external(format!("Cannot get current dir: {}", e)))?;
+            cwd.join(p)
+        } else if parent.exists() {
+            let canonical_parent = std::fs::canonicalize(parent).map_err(|e| {
+                mlua::Error::external(format!("Cannot resolve parent of '{}': {}", path, e))
+            })?;
+            canonical_parent.join(p.file_name().unwrap_or_default())
+        } else {
+            // Parent doesn't exist either — block writes deep into non-existent trees
+            return Err(mlua::Error::external(format!(
+                "Parent directory does not exist: '{}'",
+                parent.display()
+            )));
+        }
+    } else {
+        return Err(mlua::Error::external(format!("Invalid path: '{}'", path)));
+    };
+
+    let canonical_str = canonical.to_string_lossy();
+    let normalized = canonical_str.replace('\\', "/").to_lowercase();
+
+    // Check for blocked system paths against the resolved canonical path
     {
         for blocked in BLOCKED_WRITE_PATHS_UNIX {
-            if p.starts_with(blocked) || normalized.starts_with(&blocked.to_lowercase()) {
+            if normalized.starts_with(&blocked.to_lowercase()) {
                 warn!(
                     path,
+                    resolved = %canonical_str,
                     blocked_system_path = *blocked,
                     "Script write blocked: system path"
                 );
@@ -2116,6 +2160,7 @@ fn validate_write_path(path: &str) -> Result<(), mlua::Error> {
             if normalized.starts_with(&blocked_normalized) {
                 warn!(
                     path,
+                    resolved = %canonical_str,
                     blocked_system_path = *blocked,
                     "Script write blocked: system path"
                 );
@@ -2127,34 +2172,9 @@ fn validate_write_path(path: &str) -> Result<(), mlua::Error> {
         }
     }
 
-    // Check for sensitive home subpaths
-    if let Some(file_name) = p.file_name().and_then(|n| n.to_str()) {
-        let lower = file_name.to_lowercase();
-        for blocked in BLOCKED_HOME_SUBPATHS {
-            if lower == *blocked {
-                warn!(
-                    path,
-                    sensitive_component = *blocked,
-                    "Script write blocked: sensitive path"
-                );
-                return Err(mlua::Error::external(format!(
-                    "Write to sensitive path '{}' is not allowed",
-                    path
-                )));
-            }
-        }
-    }
-
-    // Check for directory traversal that escapes to sensitive areas
-    let canonical_attempt = if p.is_absolute() {
-        Some(p.to_path_buf())
-    } else {
-        std::env::current_dir().ok().map(|d| d.join(p))
-    };
-
-    if let Some(canonical_base) = canonical_attempt {
-        // Block if the canonical path contains .ssh, .gnupg etc.
-        let components: Vec<String> = canonical_base
+    // Check for sensitive home subpaths in canonical path components
+    {
+        let components: Vec<String> = canonical
             .components()
             .filter_map(|c| c.as_os_str().to_str().map(|s| s.to_lowercase()))
             .collect();
@@ -2162,8 +2182,9 @@ fn validate_write_path(path: &str) -> Result<(), mlua::Error> {
             if components.iter().any(|c| c == *blocked) {
                 warn!(
                     path,
+                    resolved = %canonical_str,
                     sensitive_component = *blocked,
-                    "Script write blocked: sensitive path in components"
+                    "Script write blocked: sensitive path"
                 );
                 return Err(mlua::Error::external(format!(
                     "Write to sensitive path '{}' is not allowed",

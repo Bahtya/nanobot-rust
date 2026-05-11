@@ -181,6 +181,13 @@ impl TerminalSession {
             cmd.cwd(dir);
         }
 
+        // Windows: set UTF-8 codepage (65001) for consistent output encoding.
+        #[cfg(target_os = "windows")]
+        {
+            cmd.env("CHCP", "65001");
+            debug!(session_id = %id, "Set UTF-8 codepage for Windows PTY");
+        }
+
         let child = pair.slave.spawn_command(cmd)?;
 
         let master = pair.master;
@@ -320,17 +327,37 @@ impl TerminalSession {
     }
 
     /// Resize the PTY and synchronize internal dimensions.
+    ///
+    /// On Windows ConPTY, resize can sometimes be silently ignored. We retry
+    /// up to 3 times with a short delay to work around this known quirk.
     pub fn resize(&self, cols: u16, rows: u16) -> Result<()> {
         debug!(session_id = %self.id, cols = cols, rows = rows, "Resizing PTY");
         let master = self.master.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(ref m) = *master {
-            m.resize(PtySize {
+            let size = PtySize {
                 rows,
                 cols,
                 pixel_width: 0,
                 pixel_height: 0,
-            })
-            .context("Failed to resize PTY")?;
+            };
+            let mut attempt = 0;
+            loop {
+                match m.resize(size) {
+                    Ok(()) => break,
+                    Err(e) => {
+                        attempt += 1;
+                        if attempt >= 3 {
+                            return Err(e).context("Failed to resize PTY after 3 attempts");
+                        }
+                        debug!(
+                            session_id = %self.id,
+                            attempt,
+                            "PTY resize failed, retrying"
+                        );
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+                }
+            }
         }
         self.cols.store(cols, Ordering::Relaxed);
         self.rows.store(rows, Ordering::Relaxed);
@@ -399,9 +426,10 @@ impl TerminalSession {
     /// repeated calls return the current screen each time.
     pub fn capture_screen(&self) -> ScreenSnapshot {
         let emulator = self.emulator.lock().unwrap_or_else(|e| e.into_inner());
-        let snapshot = emulator.screen().snapshot();
+        let screen = emulator.screen();
+        let snapshot = screen.snapshot();
         self.last_observed_screen_hash
-            .store(emulator.state_hash(), Ordering::Relaxed);
+            .store(screen.state_hash(), Ordering::Relaxed);
         self.observed_input_sequence.store(
             self.input_sequence.load(Ordering::Relaxed),
             Ordering::Relaxed,
@@ -817,5 +845,59 @@ mod tests {
         assert_eq!(info.id, "test-1");
         assert_eq!(info.cols, 80);
         assert_eq!(info.rows, 24);
+    }
+
+    /// Windows ConPTY end-to-end test: spawn cmd.exe, send a command, verify output.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn test_windows_conpty_e2e() {
+        let session = TerminalSession::spawn(
+            "test-conpty".to_string(),
+            Some("cmd.exe".to_string()),
+            None,
+            80,
+            24,
+            false,
+        )
+        .expect("Failed to spawn cmd.exe session");
+
+        // Give the PTY a moment to initialize and show the Windows banner
+        std::thread::sleep(std::time::Duration::from_millis(500));
+
+        // Read whatever banner output Windows produces
+        let _banner = session.read_output(None).unwrap_or_default();
+
+        // Send a simple command that produces predictable output
+        session
+            .send_input("echo conpty_test_ok\r\n")
+            .expect("Failed to send input");
+
+        // Wait for the output to appear
+        let mut output = String::new();
+        for _ in 0..20 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            output = session.read_output(None).unwrap_or_default();
+            if output.contains("conpty_test_ok") {
+                break;
+            }
+        }
+
+        assert!(
+            output.contains("conpty_test_ok"),
+            "Expected 'conpty_test_ok' in output, got: {:?}",
+            output
+        );
+
+        // Verify session is still alive
+        assert!(session.is_alive());
+
+        // Test resize
+        session.resize(120, 40).expect("Failed to resize");
+        assert_eq!(session.info().cols, 120);
+        assert_eq!(session.info().rows, 40);
+
+        // Kill and verify
+        session.kill().expect("Failed to kill session");
+        assert!(!session.is_alive());
     }
 }

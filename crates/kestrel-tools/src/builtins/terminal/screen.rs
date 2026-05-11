@@ -8,6 +8,7 @@
 use super::emulator::{EraseMode, TerminalOp};
 use serde::Serialize;
 use std::hash::Hasher;
+use tracing::{debug, warn};
 
 // ─── Screen Diff ──────────────────────────────────────────────────
 
@@ -445,8 +446,12 @@ pub struct TerminalScreen {
     scroll_bottom: usize,
     attrs: CellAttributes,
     scrollback: Vec<Vec<Cell>>,
+    max_scrollback: usize,
     window_title: String,
 }
+
+/// Default maximum scrollback buffer size (lines).
+pub const DEFAULT_MAX_SCROLLBACK: usize = 20_000;
 
 impl TerminalScreen {
     pub fn new(cols: usize, rows: usize) -> Self {
@@ -460,6 +465,7 @@ impl TerminalScreen {
             scroll_bottom,
             attrs: CellAttributes::default(),
             scrollback: Vec::new(),
+            max_scrollback: DEFAULT_MAX_SCROLLBACK,
             window_title: String::new(),
         }
     }
@@ -470,6 +476,15 @@ impl TerminalScreen {
 
     pub fn rows(&self) -> usize {
         self.active_buf().rows
+    }
+
+    /// Set the maximum scrollback buffer size in lines.
+    /// If the current scrollback exceeds the new limit, excess lines are discarded.
+    pub fn set_max_scrollback(&mut self, max: usize) {
+        self.max_scrollback = max;
+        while self.scrollback.len() > self.max_scrollback {
+            self.scrollback.remove(0);
+        }
     }
 
     /// Resize the screen model to new dimensions.
@@ -546,17 +561,116 @@ impl TerminalScreen {
                 }
             }
             TerminalOp::DecPrivateModeSet(mode) => {
-                if mode == &1049 {
-                    self.enter_alternate_screen();
+                match *mode {
+                    1049 => self.enter_alternate_screen(),
+                    // 2004 = Bracketed Paste — acknowledged but not enforced at screen level.
+                    // Input handling in send_input wraps pasted content with \x1b[200~ / \x1b[201~.
+                    2004 => {
+                        debug!(mode = *mode, "Bracketed paste mode enabled (acknowledged)");
+                    }
+                    // Mouse tracking modes — not supported, log for diagnostics.
+                    1000 | 1002 | 1003 | 1004 | 1006 | 1015 => {
+                        warn!(
+                            mode = *mode,
+                            "Mouse/focus tracking mode requested but not supported; \
+                             keyboard-only interaction may be limited"
+                        );
+                    }
+                    _ => {
+                        debug!(mode = *mode, "Unhandled DEC private mode set");
+                    }
                 }
             }
             TerminalOp::DecPrivateModeReset(mode) => {
-                if mode == &1049 {
+                if *mode == 1049 {
                     self.leave_alternate_screen();
                 }
             }
             TerminalOp::SetWindowTitle(title) => {
                 self.window_title = title.clone();
+            }
+            TerminalOp::InsertLine(n) => {
+                let n = *n as usize;
+                let bottom = self.scroll_bottom;
+                let top = self.cursor.row;
+                if top < bottom {
+                    let count = n.min(bottom - top);
+                    let buf = self.active_buf_mut();
+                    // Shift lines down, losing the bottom-most lines
+                    for row in (top + count..=bottom).rev() {
+                        let src = row - count;
+                        for col in 0..buf.cols {
+                            let src_cell = buf.cell(src, col).clone();
+                            *buf.cell_mut(row, col) = src_cell;
+                        }
+                    }
+                    // Clear the vacated rows
+                    for row in top..top + count {
+                        buf.clear_row(row);
+                    }
+                }
+            }
+            TerminalOp::DeleteLine(n) => {
+                let n = *n as usize;
+                let bottom = self.scroll_bottom;
+                let top = self.cursor.row;
+                if top < bottom {
+                    let count = n.min(bottom - top);
+                    let buf = self.active_buf_mut();
+                    // Shift lines up
+                    for row in top..=bottom - count {
+                        let src = row + count;
+                        for col in 0..buf.cols {
+                            let src_cell = buf.cell(src, col).clone();
+                            *buf.cell_mut(row, col) = src_cell;
+                        }
+                    }
+                    // Clear the vacated rows at the bottom
+                    for row in bottom + 1 - count..=bottom {
+                        buf.clear_row(row);
+                    }
+                }
+            }
+            TerminalOp::InsertCharacter(n) => {
+                let n = *n as usize;
+                let row = self.cursor.row;
+                let col = self.cursor.col;
+                let buf = self.active_buf_mut();
+                if col < buf.cols {
+                    let count = n.min(buf.cols - col);
+                    // Shift cells right
+                    for c in (col + count..buf.cols).rev() {
+                        let src = c - count;
+                        let src_cell = buf.cell(row, src).clone();
+                        *buf.cell_mut(row, c) = src_cell;
+                    }
+                    // Clear inserted cells
+                    for c in col..col + count {
+                        *buf.cell_mut(row, c) = Cell::default();
+                    }
+                }
+            }
+            TerminalOp::DeleteCharacter(n) => {
+                let n = *n as usize;
+                let row = self.cursor.row;
+                let col = self.cursor.col;
+                let buf = self.active_buf_mut();
+                if col < buf.cols {
+                    let count = n.min(buf.cols - col);
+                    // Shift cells left
+                    for c in col..buf.cols - count {
+                        let src = c + count;
+                        let src_cell = buf.cell(row, src).clone();
+                        *buf.cell_mut(row, c) = src_cell;
+                    }
+                    // Clear vacated cells at the right
+                    for c in buf.cols - count..buf.cols {
+                        *buf.cell_mut(row, c) = Cell::default();
+                    }
+                }
+            }
+            TerminalOp::DeviceAttributes(_) => {
+                // DA response — no screen action needed
             }
         }
     }
@@ -587,8 +701,20 @@ impl TerminalScreen {
     pub fn state_hash(&self) -> u64 {
         use std::hash::Hasher;
         let mut h = FnvHasher::new(0xcbf29ce484222325);
-        for line in &self.snapshot().lines {
-            h.write(line.as_bytes());
+        let buf = self.active_buf();
+        for row in 0..buf.rows {
+            let mut col = 0;
+            while col < buf.cols {
+                let cell = buf.cell(row, col);
+                if cell.wide {
+                    col += 1;
+                    continue;
+                }
+                let mut char_buf = [0u8; 4];
+                let s = cell.char.encode_utf8(&mut char_buf);
+                h.write(s.as_bytes());
+                col += 1;
+            }
             h.write_u8(b'\n');
         }
         h.write_usize(self.cursor.row);
@@ -774,6 +900,10 @@ impl TerminalScreen {
                     line.pop();
                 }
                 self.scrollback.push(line);
+                // Enforce scrollback limit
+                while self.scrollback.len() > self.max_scrollback {
+                    self.scrollback.remove(0);
+                }
             }
         }
 
@@ -887,7 +1017,7 @@ impl ScreenSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::builtins::terminal::AnsiParser;
+    use crate::builtins::terminal::parse_bytes;
 
     fn new_screen() -> TerminalScreen {
         TerminalScreen::new(80, 24)
@@ -1597,10 +1727,9 @@ mod tests {
     fn test_fixture_partial_utf8_across_feeds() {
         let mut screen = TerminalScreen::new(20, 5);
         // Simulate feeding the 3-byte UTF-8 你 (0xE4 0xBD 0xA0) in two chunks
-        let mut parser = AnsiParser::new();
 
-        // First feed: only 2 bytes of 你
-        let ops1 = parser.parse(&[0xE4, 0xBD]);
+        // First feed: only 2 bytes of 你 — vte parser buffers internally
+        let ops1 = parse_bytes(&[0xE4, 0xBD]);
         for op in &ops1 {
             screen.process_op(op);
         }
@@ -1609,7 +1738,7 @@ mod tests {
         assert_eq!(snap.lines[0], "");
 
         // Second feed: the last byte
-        let ops2 = parser.parse(&[0xA0]);
+        let ops2 = parse_bytes(&[0xA0]);
         for op in &ops2 {
             screen.process_op(op);
         }
@@ -1622,22 +1751,20 @@ mod tests {
     #[test]
     fn test_fixture_partial_ansi_across_feeds() {
         let mut screen = TerminalScreen::new(20, 5);
-        let mut parser = AnsiParser::new();
+
+        // Use TerminalEmulatorHandle to test cross-read state persistence
+        use crate::builtins::terminal::emulator::TerminalEmulatorHandle;
+        let mut emu = TerminalEmulatorHandle::new(20, 5);
 
         // Feed "Hello" then start a CSI sequence "\x1b[" but don't finish
-        let ops1 = parser.parse(b"Hello\x1b[");
-        for op in &ops1 {
-            screen.process_op(op);
-        }
-        let snap = screen.snapshot();
+        emu.feed_bytes(b"Hello\x1b[");
+        // "Hello" is deferred (pure text), no ops yet
+        let snap = emu.screen().snapshot();
         assert_eq!(snap.lines[0], "Hello");
 
         // Now finish the cursor-position sequence
-        let ops2 = parser.parse(b"5;10HWorld");
-        for op in &ops2 {
-            screen.process_op(op);
-        }
-        let snap = screen.snapshot();
+        emu.feed_bytes(b"5;10HWorld");
+        let snap = emu.screen().snapshot();
         assert_eq!(snap.lines[0], "Hello");
         // "World" printed at cursor position (4, 9) — row 4
         assert!(snap.lines[4].contains("World"));

@@ -897,7 +897,7 @@ mod tests {
         assert_eq!(session.info().rows, 40);
 
         // Kill and verify
-        session.kill().expect("Failed to kill session");
+        session.kill();
         assert!(!session.is_alive());
     }
 }

@@ -1472,7 +1472,10 @@ mod tests {
         s2.process_op(&TerminalOp::Print("B".to_string()));
         assert_eq!(s2.cursor.col, 2, "After B, col should be 2");
         let snap_after_b = s2.snapshot();
-        assert_eq!(snap_after_b.lines[0], "AB", "After AB, line 0 should be 'AB'");
+        assert_eq!(
+            snap_after_b.lines[0], "AB",
+            "After AB, line 0 should be 'AB'"
+        );
         s2.process_op(&TerminalOp::Print("你".to_string()));
         let snap2 = s2.snapshot();
         assert_eq!(snap2.lines[0], "AB", "Final line 0 should be 'AB'");

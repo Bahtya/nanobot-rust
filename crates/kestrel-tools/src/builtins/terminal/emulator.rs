@@ -96,6 +96,8 @@ pub enum TerminalOp {
     DeviceAttributes(Vec<u16>),
     /// REP — Repeat last printed character (CSI Ps b).
     Repeat(u16),
+    /// DSR — Device Status Report (CSI Ps n). Ps=5: respond OK, Ps=6: respond with cursor position.
+    DeviceStatusReport(u16),
 }
 
 /// Erase scope for ED/EL operations.
@@ -339,6 +341,20 @@ impl vte::Perform for VtePerformer<'_> {
             // REP — Repeat last printed character
             'b' => self.ops.push(TerminalOp::Repeat(param1(0, 1))),
 
+            // DSR — Device Status Report
+            'n' => {
+                let p = param(0, 0);
+                if p == 5 {
+                    // CSI 5 n → respond CSI 0 n (device OK)
+                    self.ops.push(TerminalOp::DeviceStatusReport(5));
+                } else if p == 6 {
+                    // CSI 6 n → respond CSI row ; col R (cursor position)
+                    self.ops.push(TerminalOp::DeviceStatusReport(6));
+                } else {
+                    debug!(param = p, "Unhandled DSR");
+                }
+            }
+
             // Device Attributes — log but don't act
             'c' => {
                 let attrs: Vec<u16> = params.iter().flat_map(|s| s.iter().copied()).collect();
@@ -442,6 +458,7 @@ pub struct TerminalEmulatorHandle {
     pending_ops: Vec<TerminalOp>,
     deferred_text_ops: Vec<TerminalOp>,
     screen: super::screen::TerminalScreen,
+    pending_response: Option<String>,
 }
 
 impl TerminalEmulatorHandle {
@@ -453,6 +470,7 @@ impl TerminalEmulatorHandle {
             pending_ops: Vec::new(),
             deferred_text_ops: Vec::new(),
             screen: super::screen::TerminalScreen::new(cols as usize, rows as usize),
+            pending_response: None,
         }
     }
 
@@ -481,7 +499,18 @@ impl TerminalEmulatorHandle {
             performer.flush_print();
         }
         for op in &ops {
-            self.screen.process_op(op);
+            match op {
+                TerminalOp::DeviceStatusReport(5) => {
+                    // CSI 5 n → respond CSI 0 n (device OK)
+                    self.pending_response = Some("\x1b[0n".to_string());
+                }
+                TerminalOp::DeviceStatusReport(6) => {
+                    // CSI 6 n → respond CSI row ; col R (1-based cursor position)
+                    let (row, col) = self.screen.cursor_position();
+                    self.pending_response = Some(format!("\x1b[{};{}R", row + 1, col + 1));
+                }
+                _ => self.screen.process_op(op),
+            }
         }
         let pure_print_chunk = ops.iter().all(|op| matches!(op, TerminalOp::Print(_)))
             && bytes.iter().all(|b| !matches!(b, 0x00..=0x1F | 0x7F));
@@ -515,6 +544,12 @@ impl TerminalEmulatorHandle {
 
     pub fn state_hash(&self) -> u64 {
         self.screen.state_hash()
+    }
+
+    /// Take any pending response that should be sent back through the PTY input pipe.
+    /// Returns the response string (e.g., DSR cursor position reply) or None.
+    pub fn take_pending_response(&mut self) -> Option<String> {
+        self.pending_response.take()
     }
 }
 
@@ -1107,5 +1142,46 @@ mod tests {
                 TerminalOp::DecPrivateModeSet(25),   // ?25h = DECTCEM set (show cursor)
             ]
         );
+    }
+
+    #[test]
+    fn test_parser_dsr_cursor_position() {
+        let ops = parse_bytes(b"\x1b[6n");
+        assert_eq!(ops, vec![TerminalOp::DeviceStatusReport(6)]);
+    }
+
+    #[test]
+    fn test_parser_dsr_device_ok() {
+        let ops = parse_bytes(b"\x1b[5n");
+        assert_eq!(ops, vec![TerminalOp::DeviceStatusReport(5)]);
+    }
+
+    #[test]
+    fn test_dsr_response_cursor_position() {
+        let mut emu = TerminalEmulatorHandle::new(80, 24);
+        // Feed DSR query — emulator should generate a response
+        emu.feed_bytes(b"\x1b[6n");
+        let resp = emu.take_pending_response();
+        assert_eq!(resp, Some("\x1b[1;1R".to_string()));
+        // Second take should return None
+        assert!(emu.take_pending_response().is_none());
+    }
+
+    #[test]
+    fn test_dsr_response_device_ok() {
+        let mut emu = TerminalEmulatorHandle::new(80, 24);
+        emu.feed_bytes(b"\x1b[5n");
+        let resp = emu.take_pending_response();
+        assert_eq!(resp, Some("\x1b[0n".to_string()));
+    }
+
+    #[test]
+    fn test_dsr_response_after_cursor_move() {
+        let mut emu = TerminalEmulatorHandle::new(80, 24);
+        // Move cursor to row 3, col 5 (0-based: row=2, col=4)
+        emu.feed_bytes(b"\x1b[3;5H");
+        emu.feed_bytes(b"\x1b[6n");
+        let resp = emu.take_pending_response();
+        assert_eq!(resp, Some("\x1b[3;5R".to_string()));
     }
 }

@@ -96,7 +96,7 @@ pub struct TerminalSession {
     last_activity: AtomicU64,
     master: Mutex<Option<Box<dyn MasterPty + Send>>>,
     child: Mutex<Option<Box<dyn Child + Send + Sync>>>,
-    writer: Mutex<Box<dyn Write + Send>>,
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
     /// Raw PTY byte buffer (for debug/escaped modes).
     #[allow(dead_code)] // Used by future escaped mode and debug output
     raw_buffer: Arc<Mutex<RingBuffer>>,
@@ -183,12 +183,14 @@ impl TerminalSession {
         let utf8_decoder = Arc::new(Mutex::new(IncrementalUtf8Decoder::new()));
         let emulator = Arc::new(Mutex::new(TerminalEmulatorHandle::new(cols, rows)));
         let alive = Arc::new(AtomicBool::new(true));
+        let writer = Arc::new(Mutex::new(writer));
 
         let raw_clone = raw_buffer.clone();
         let decoder_clone = utf8_decoder.clone();
         let decoded_clone = decoded_buffer.clone();
         let emulator_clone = emulator.clone();
         let alive_clone = alive.clone();
+        let writer_clone = writer.clone();
         let session_id = id.clone();
         let reader_handle = std::thread::Builder::new()
             .name(format!("pty-reader-{id}"))
@@ -200,6 +202,7 @@ impl TerminalSession {
                     &decoded_clone,
                     &emulator_clone,
                     &alive_clone,
+                    &writer_clone,
                     &session_id,
                 );
             })
@@ -219,7 +222,7 @@ impl TerminalSession {
             last_activity: AtomicU64::new(epoch_secs()),
             master: Mutex::new(Some(master)),
             child: Mutex::new(Some(child)),
-            writer: Mutex::new(writer),
+            writer,
             raw_buffer,
             utf8_decoder,
             decoded_buffer,
@@ -593,6 +596,7 @@ impl Drop for TerminalSession {
 
 /// Background output pump: reads from PTY, stores raw bytes, feeds the ANSI
 /// parser, and incrementally decodes UTF-8 into the decoded text buffer.
+#[allow(clippy::too_many_arguments)]
 fn pump_output(
     mut reader: Box<dyn Read + Send>,
     raw_buffer: &Arc<Mutex<RingBuffer>>,
@@ -600,6 +604,7 @@ fn pump_output(
     decoded_buffer: &Arc<Mutex<String>>,
     emulator: &Arc<Mutex<TerminalEmulatorHandle>>,
     alive: &AtomicBool,
+    writer: &Arc<Mutex<Box<dyn Write + Send>>>,
     session_id: &str,
 ) {
     let mut first_chunk_logged = false;
@@ -650,6 +655,14 @@ fn pump_output(
                 // Feed bytes through ANSI parser.
                 if let Ok(mut emu) = emulator.lock() {
                     emu.feed_bytes(chunk);
+                    // Send any pending response (e.g., DSR cursor position reply) back to PTY.
+                    if let Some(response) = emu.take_pending_response() {
+                        drop(emu); // Release emulator lock before acquiring writer.
+                        if let Ok(mut w) = writer.lock() {
+                            let _ = w.write_all(response.as_bytes());
+                            let _ = w.flush();
+                        }
+                    }
                 }
 
                 // Incrementally decode UTF-8 and append to decoded buffer.

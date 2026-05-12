@@ -761,6 +761,9 @@ impl TerminalScreen {
             TerminalOp::DeviceAttributes(_) => {
                 // DA response — no screen action needed
             }
+            TerminalOp::DeviceStatusReport(_) => {
+                // DSR — handled in feed_bytes, no screen action
+            }
         }
     }
 
@@ -784,6 +787,11 @@ impl TerminalScreen {
 
     /// Compute a lightweight hash of the current screen state for change detection.
     ///
+    /// Returns the current cursor position as (row, col), 0-based.
+    pub fn cursor_position(&self) -> (usize, usize) {
+        (self.cursor.row, self.cursor.col)
+    }
+
     /// Uses a simple FNV-1a-inspired hash over all cell characters, cursor position,
     /// active buffer flag, and window title. This is intentionally fast rather than
     /// cryptographically strong — its purpose is to detect *any* visible mutation.

@@ -94,6 +94,8 @@ pub enum TerminalOp {
     DeleteCharacter(u16),
     /// DA — Device Attributes response (ignored, logged).
     DeviceAttributes(Vec<u16>),
+    /// REP — Repeat last printed character (CSI Ps b).
+    Repeat(u16),
 }
 
 /// Erase scope for ED/EL operations.
@@ -333,6 +335,9 @@ impl vte::Perform for VtePerformer<'_> {
             // Insert/Delete character
             '@' => self.ops.push(TerminalOp::InsertCharacter(param1(0, 1))),
             'P' => self.ops.push(TerminalOp::DeleteCharacter(param1(0, 1))),
+
+            // REP — Repeat last printed character
+            'b' => self.ops.push(TerminalOp::Repeat(param1(0, 1))),
 
             // Device Attributes — log but don't act
             'c' => {

@@ -401,7 +401,8 @@ impl TerminalSession {
     /// dimensions, and metadata. This does not consume or drain any state —
     /// repeated calls return the current screen each time.
     pub fn capture_screen(&self) -> ScreenSnapshot {
-        let emulator = self.emulator.lock().unwrap_or_else(|e| e.into_inner());
+        let mut emulator = self.emulator.lock().unwrap_or_else(|e| e.into_inner());
+        emulator.flush_parser();
         let screen = emulator.screen();
         let snapshot = screen.snapshot();
         self.last_observed_screen_hash
@@ -601,6 +602,7 @@ fn pump_output(
     alive: &AtomicBool,
     session_id: &str,
 ) {
+    let mut first_chunk_logged = false;
     let mut tmp = [0u8; 4096];
     loop {
         if !alive.load(Ordering::Relaxed) {
@@ -627,6 +629,18 @@ fn pump_output(
             }
             Ok(n) => {
                 let chunk = &tmp[..n];
+
+                if !first_chunk_logged && n > 0 {
+                    first_chunk_logged = true;
+                    let preview_len = chunk.len().min(128);
+                    debug!(
+                        session_id = session_id,
+                        bytes_len = n,
+                        hex = format!("{:02X?}", &chunk[..preview_len]),
+                        text = %String::from_utf8_lossy(&chunk[..preview_len]),
+                        "First PTY output bytes"
+                    );
+                }
 
                 // Store raw bytes.
                 if let Ok(mut raw) = raw_buffer.lock() {

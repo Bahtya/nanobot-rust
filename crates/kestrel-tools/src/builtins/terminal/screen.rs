@@ -356,6 +356,7 @@ struct CursorState {
     col: usize,
     saved_row: usize,
     saved_col: usize,
+    wrap_pending: bool,
 }
 
 impl CursorState {
@@ -365,6 +366,7 @@ impl CursorState {
             col: 0,
             saved_row: 0,
             saved_col: 0,
+            wrap_pending: false,
         }
     }
 
@@ -376,6 +378,7 @@ impl CursorState {
     fn restore(&mut self) {
         self.row = self.saved_row;
         self.col = self.saved_col;
+        self.wrap_pending = false;
     }
 }
 
@@ -447,6 +450,9 @@ pub struct TerminalScreen {
     scroll_top: usize,
     scroll_bottom: usize,
     attrs: CellAttributes,
+    autowrap: bool,
+    origin_mode: bool,
+    last_printed_char: char,
     scrollback: VecDeque<Vec<Cell>>,
     max_scrollback: usize,
     window_title: String,
@@ -467,6 +473,9 @@ impl TerminalScreen {
             scroll_top: 0,
             scroll_bottom,
             attrs: CellAttributes::default(),
+            autowrap: true,
+            origin_mode: false,
+            last_printed_char: ' ',
             scrollback: VecDeque::new(),
             max_scrollback: DEFAULT_MAX_SCROLLBACK,
             window_title: String::new(),
@@ -504,39 +513,77 @@ impl TerminalScreen {
     pub fn process_op(&mut self, op: &TerminalOp) {
         match op {
             TerminalOp::Print(text) => self.print_text(text),
+            TerminalOp::Repeat(n) => {
+                let c = self.last_printed_char;
+                for _ in 0..*n as usize {
+                    self.put_char(c);
+                }
+            }
             TerminalOp::Linefeed => self.linefeed(),
-            TerminalOp::CarriageReturn => self.cursor.col = 0,
+            TerminalOp::CarriageReturn => {
+                self.cursor.wrap_pending = false;
+                self.cursor.col = 0;
+            }
             TerminalOp::Backspace => {
+                self.cursor.wrap_pending = false;
                 if self.cursor.col > 0 {
                     self.cursor.col -= 1;
                 }
             }
-            TerminalOp::Tab => self.tab(),
+            TerminalOp::Tab => {
+                self.cursor.wrap_pending = false;
+                self.tab();
+            }
             TerminalOp::Bell => {}
-            TerminalOp::CursorUp(n) => self.cursor_up(*n as usize),
-            TerminalOp::CursorDown(n) => self.cursor_down(*n as usize),
-            TerminalOp::CursorForward(n) => self.cursor_forward(*n as usize),
-            TerminalOp::CursorBack(n) => self.cursor_back(*n as usize),
+            TerminalOp::CursorUp(n) => {
+                self.cursor.wrap_pending = false;
+                self.cursor_up(*n as usize);
+            }
+            TerminalOp::CursorDown(n) => {
+                self.cursor.wrap_pending = false;
+                self.cursor_down(*n as usize);
+            }
+            TerminalOp::CursorForward(n) => {
+                self.cursor.wrap_pending = false;
+                self.cursor_forward(*n as usize);
+            }
+            TerminalOp::CursorBack(n) => {
+                self.cursor.wrap_pending = false;
+                self.cursor_back(*n as usize);
+            }
             TerminalOp::CursorPosition { row, col } => {
+                self.cursor.wrap_pending = false;
                 let max_rows = self.active_buf().rows;
                 let max_cols = self.active_buf().cols;
-                self.cursor.row = ((*row as usize).max(1) - 1).min(max_rows.saturating_sub(1));
+                let base_row = if self.origin_mode { self.scroll_top } else { 0 };
+                let row_limit = if self.origin_mode {
+                    self.scroll_bottom + 1
+                } else {
+                    max_rows
+                };
+                let target_row = base_row
+                    + ((*row as usize).max(1) - 1).min(row_limit.saturating_sub(1) - base_row);
+                self.cursor.row = target_row.min(max_rows.saturating_sub(1));
                 self.cursor.col = ((*col as usize).max(1) - 1).min(max_cols.saturating_sub(1));
             }
             TerminalOp::CursorHorizontalAbsolute(col) => {
+                self.cursor.wrap_pending = false;
                 let max_cols = self.active_buf().cols;
                 self.cursor.col = ((*col as usize).max(1) - 1).min(max_cols.saturating_sub(1));
             }
             TerminalOp::CursorVerticalAbsolute(row) => {
+                self.cursor.wrap_pending = false;
                 let max_rows = self.active_buf().rows;
                 self.cursor.row = ((*row as usize).max(1) - 1).min(max_rows.saturating_sub(1));
             }
             TerminalOp::CursorNextLine(n) => {
+                self.cursor.wrap_pending = false;
                 let max_rows = self.active_buf().rows;
                 self.cursor.row = (self.cursor.row + *n as usize).min(max_rows.saturating_sub(1));
                 self.cursor.col = 0;
             }
             TerminalOp::CursorPreviousLine(n) => {
+                self.cursor.wrap_pending = false;
                 self.cursor.row = self.cursor.row.saturating_sub(*n as usize);
                 self.cursor.col = 0;
             }
@@ -579,6 +626,17 @@ impl TerminalScreen {
                         // ?25h (DECTCEM set) = show cursor
                         self.cursor_visible = true;
                     }
+                    7 => {
+                        // DECAWM — auto-wrap mode on
+                        self.autowrap = true;
+                    }
+                    6 => {
+                        // DECOM — origin mode on, cursor moves to home
+                        self.origin_mode = true;
+                        self.cursor.row = self.scroll_top;
+                        self.cursor.col = 0;
+                        self.cursor.wrap_pending = false;
+                    }
                     // 2004 = Bracketed Paste — acknowledged but not enforced at screen level.
                     // Input handling in send_input wraps pasted content with \x1b[200~ / \x1b[201~.
                     2004 => {
@@ -602,6 +660,18 @@ impl TerminalScreen {
                 25 => {
                     // ?25l (DECTCEM reset) = hide cursor
                     self.cursor_visible = false;
+                }
+                7 => {
+                    // DECAWM — auto-wrap mode off
+                    self.autowrap = false;
+                    self.cursor.wrap_pending = false;
+                }
+                6 => {
+                    // DECOM — origin mode off, cursor moves to home
+                    self.origin_mode = false;
+                    self.cursor.row = 0;
+                    self.cursor.col = 0;
+                    self.cursor.wrap_pending = false;
                 }
                 _ => {}
             },
@@ -747,6 +817,7 @@ impl TerminalScreen {
             h.write_u8(*b);
         }
         h.write_u8(if self.cursor_visible { 1 } else { 0 });
+        h.write_u8(if self.cursor.wrap_pending { 1 } else { 0 });
         h.finish()
     }
 
@@ -809,15 +880,15 @@ impl TerminalScreen {
             return;
         }
 
-        // Read current state before borrowing the buffer
         let (max_cols, max_rows) = {
             let buf = self.active_buf();
             (buf.cols, buf.rows)
         };
         let scroll_bottom = self.scroll_bottom;
 
-        // Wrap to next line if character doesn't fit
-        if self.cursor.col + w > max_cols {
+        // If wrap is pending from a previous character, perform the wrap now
+        if self.cursor.wrap_pending {
+            self.cursor.wrap_pending = false;
             self.cursor.col = 0;
             if self.cursor.row == scroll_bottom {
                 self.scroll_up(1);
@@ -826,40 +897,56 @@ impl TerminalScreen {
             }
         }
 
+        // If character doesn't fit on current line and autowrap is on, wrap first
+        if self.cursor.col + w > max_cols {
+            if self.autowrap {
+                self.cursor.col = 0;
+                if self.cursor.row == scroll_bottom {
+                    self.scroll_up(1);
+                } else if self.cursor.row < max_rows - 1 {
+                    self.cursor.row += 1;
+                }
+            }
+        }
+
+        // Clamp write position if still past end (autowrap off or wide char)
+        let write_col = if self.cursor.col + w > max_cols {
+            max_cols.saturating_sub(w)
+        } else {
+            self.cursor.col
+        };
+
         let row = self.cursor.row;
-        let col = self.cursor.col;
         let attrs = self.attrs;
 
         // Clear any existing wide-character cells overlapped by this write.
         {
             let buf = self.active_buf_mut();
-            let idx = row * max_cols + col;
+            let idx = row * max_cols + write_col;
 
-            if buf.cells[idx].wide && col > 0 {
-                let prev_idx = row * max_cols + (col - 1);
+            if buf.cells[idx].wide && write_col > 0 {
+                let prev_idx = row * max_cols + (write_col - 1);
                 buf.cells[prev_idx] = Cell::default();
                 buf.cells[idx] = Cell::default();
-            } else if col + 1 < max_cols && buf.cells[idx + 1].wide {
-                buf.cells[idx + 1] = Cell::default();
+            } else if write_col + 1 < max_cols && buf.cells[write_col + 1].wide {
+                buf.cells[write_col + 1] = Cell::default();
             }
 
-            // For wide chars (CJK), also clear the continuation cell if it
-            // was the leading half of another wide char.
-            if w == 2 && col + 1 < max_cols {
-                buf.cells[idx + 1] = Cell::default();
+            if w == 2 && write_col + 1 < max_cols {
+                buf.cells[write_col + 1] = Cell::default();
             }
         }
 
         // Write the character and continuation
         {
             let buf = self.active_buf_mut();
-            let idx = row * max_cols + col;
+            let idx = row * max_cols + write_col;
             buf.cells[idx].char = c;
             buf.cells[idx].wide = false;
             buf.cells[idx].attrs = attrs;
 
-            if w == 2 && col + 1 < max_cols {
-                let cont_idx = row * max_cols + col + 1;
+            if w == 2 && write_col + 1 < max_cols {
+                let cont_idx = row * max_cols + write_col + 1;
                 buf.cells[cont_idx].char = ' ';
                 buf.cells[cont_idx].wide = true;
                 buf.cells[cont_idx].attrs = attrs;
@@ -867,11 +954,20 @@ impl TerminalScreen {
         }
 
         // Advance cursor
-        self.cursor.col += w;
+        self.cursor.col = write_col + w;
+
+        // Set wrap_pending if cursor reached or passed end of line
+        if self.cursor.col >= max_cols {
+            if self.autowrap {
+                self.cursor.wrap_pending = true;
+            }
+            self.cursor.col = max_cols.saturating_sub(1);
+        }
+
+        self.last_printed_char = c;
     }
 
     fn linefeed(&mut self) {
-        self.cursor.col = 0;
         if self.cursor.row == self.scroll_bottom {
             self.scroll_up(1);
         } else if self.cursor.row < self.active_buf().rows - 1 {
@@ -1146,11 +1242,14 @@ mod tests {
     fn test_linefeed_scroll() {
         let mut s = TerminalScreen::new(10, 3);
         s.process_op(&TerminalOp::Print("AAA".to_string()));
+        s.process_op(&TerminalOp::CarriageReturn);
         s.process_op(&TerminalOp::Linefeed);
         s.process_op(&TerminalOp::Print("BBB".to_string()));
+        s.process_op(&TerminalOp::CarriageReturn);
         s.process_op(&TerminalOp::Linefeed);
         s.process_op(&TerminalOp::Print("CCC".to_string()));
         // Cursor is at bottom row; next linefeed scrolls
+        s.process_op(&TerminalOp::CarriageReturn);
         s.process_op(&TerminalOp::Linefeed);
         s.process_op(&TerminalOp::Print("DDD".to_string()));
         let snap = s.snapshot();
@@ -1172,12 +1271,42 @@ mod tests {
         assert_eq!(snap.lines[1], "World");
     }
 
+    #[test]
+    fn test_linefeed_preserves_column() {
+        let mut s = TerminalScreen::new(10, 3);
+        s.process_op(&TerminalOp::Print("ABC".to_string()));
+        // cursor at col 3
+        s.process_op(&TerminalOp::Linefeed);
+        // LF should move to row 1 but keep col at 3
+        assert_eq!(s.cursor.row, 1);
+        assert_eq!(s.cursor.col, 3);
+        s.process_op(&TerminalOp::Print("DEF".to_string()));
+        let snap = s.snapshot();
+        assert_eq!(snap.lines[0], "ABC");
+        assert_eq!(snap.lines[1], "   DEF");
+    }
+
+    #[test]
+    fn test_cr_lf_resets_column() {
+        let mut s = TerminalScreen::new(10, 3);
+        s.process_op(&TerminalOp::Print("ABC".to_string()));
+        s.process_op(&TerminalOp::CarriageReturn);
+        s.process_op(&TerminalOp::Linefeed);
+        assert_eq!(s.cursor.row, 1);
+        assert_eq!(s.cursor.col, 0);
+        s.process_op(&TerminalOp::Print("DEF".to_string()));
+        let snap = s.snapshot();
+        assert_eq!(snap.lines[0], "ABC");
+        assert_eq!(snap.lines[1], "DEF");
+    }
+
     // ─── Erase tests ────────────────────────────────────────────
 
     #[test]
     fn test_erase_in_display_to_end() {
         let mut s = new_screen();
         s.process_op(&TerminalOp::Print("Hello World".to_string()));
+        s.process_op(&TerminalOp::CarriageReturn);
         s.process_op(&TerminalOp::Linefeed);
         s.process_op(&TerminalOp::Print("Second line".to_string()));
         // Move cursor to row 0, col 5
@@ -1192,6 +1321,7 @@ mod tests {
     fn test_erase_in_display_to_start() {
         let mut s = new_screen();
         s.process_op(&TerminalOp::Print("Hello".to_string()));
+        s.process_op(&TerminalOp::CarriageReturn);
         s.process_op(&TerminalOp::Linefeed);
         s.process_op(&TerminalOp::Print("World".to_string()));
         s.process_op(&TerminalOp::CursorPosition { row: 2, col: 3 });
@@ -1351,8 +1481,10 @@ mod tests {
     fn test_scroll_up() {
         let mut s = TerminalScreen::new(10, 3);
         s.process_op(&TerminalOp::Print("AAA".to_string()));
+        s.process_op(&TerminalOp::CarriageReturn);
         s.process_op(&TerminalOp::Linefeed);
         s.process_op(&TerminalOp::Print("BBB".to_string()));
+        s.process_op(&TerminalOp::CarriageReturn);
         s.process_op(&TerminalOp::Linefeed);
         s.process_op(&TerminalOp::Print("CCC".to_string()));
         // At bottom, explicit scroll
@@ -1367,6 +1499,7 @@ mod tests {
     fn test_scroll_down() {
         let mut s = TerminalScreen::new(10, 3);
         s.process_op(&TerminalOp::Print("AAA".to_string()));
+        s.process_op(&TerminalOp::CarriageReturn);
         s.process_op(&TerminalOp::Linefeed);
         s.process_op(&TerminalOp::Print("BBB".to_string()));
         s.process_op(&TerminalOp::ScrollDown(1));
@@ -1383,6 +1516,7 @@ mod tests {
         for i in 0..5 {
             s.process_op(&TerminalOp::Print(format!("Row{}", i)));
             if i < 4 {
+                s.process_op(&TerminalOp::CarriageReturn);
                 s.process_op(&TerminalOp::Linefeed);
             }
         }
@@ -1390,6 +1524,7 @@ mod tests {
         s.process_op(&TerminalOp::SetScrollingRegion { top: 2, bottom: 4 });
         // Move cursor to bottom of region and trigger scroll
         s.process_op(&TerminalOp::CursorPosition { row: 4, col: 1 });
+        s.process_op(&TerminalOp::CarriageReturn);
         s.process_op(&TerminalOp::Linefeed);
         s.process_op(&TerminalOp::Print("New".to_string()));
         let snap = s.snapshot();
@@ -1466,14 +1601,17 @@ mod tests {
     fn test_scrollback_primary() {
         let mut s = TerminalScreen::new(10, 2);
         s.process_op(&TerminalOp::Print("AAA".to_string()));
+        s.process_op(&TerminalOp::CarriageReturn);
         s.process_op(&TerminalOp::Linefeed);
         s.process_op(&TerminalOp::Print("BBB".to_string()));
         // At bottom row; next linefeed scrolls
+        s.process_op(&TerminalOp::CarriageReturn);
         s.process_op(&TerminalOp::Linefeed);
         assert_eq!(s.scrollback.len(), 1);
         let first: String = s.scrollback[0].iter().map(|c| c.char).collect();
         assert_eq!(first, "AAA");
         s.process_op(&TerminalOp::Print("CCC".to_string()));
+        s.process_op(&TerminalOp::CarriageReturn);
         s.process_op(&TerminalOp::Linefeed);
         assert_eq!(s.scrollback.len(), 2);
     }
@@ -1551,9 +1689,11 @@ mod tests {
     fn test_scrollback_lines_basic() {
         let mut s = TerminalScreen::new(10, 2);
         s.process_op(&TerminalOp::Print("AAA".to_string()));
+        s.process_op(&TerminalOp::CarriageReturn);
         s.process_op(&TerminalOp::Linefeed);
         s.process_op(&TerminalOp::Print("BBB".to_string()));
         // Trigger scroll to push "AAA" into scrollback
+        s.process_op(&TerminalOp::CarriageReturn);
         s.process_op(&TerminalOp::Linefeed);
         assert_eq!(s.scrollback_len(), 1);
         let lines = s.scrollback_lines(10);
@@ -1567,6 +1707,7 @@ mod tests {
         // Fill many lines to generate scrollback
         for i in 0..10 {
             s.process_op(&TerminalOp::Print(format!("L{}", i)));
+            s.process_op(&TerminalOp::CarriageReturn);
             s.process_op(&TerminalOp::Linefeed);
         }
         assert!(s.scrollback_len() > 1);
@@ -1853,6 +1994,7 @@ mod tests {
     fn test_fixture_alternate_screen_restore() {
         let mut screen = TerminalScreen::new(20, 5);
         screen.process_op(&TerminalOp::Print("Line1".to_string()));
+        screen.process_op(&TerminalOp::CarriageReturn);
         screen.process_op(&TerminalOp::Linefeed);
         screen.process_op(&TerminalOp::Print("Line2".to_string()));
 
@@ -1887,8 +2029,10 @@ mod tests {
 
         // Draw initial content
         screen.process_op(&TerminalOp::Print("AAA".to_string()));
+        screen.process_op(&TerminalOp::CarriageReturn);
         screen.process_op(&TerminalOp::Linefeed);
         screen.process_op(&TerminalOp::Print("BBB".to_string()));
+        screen.process_op(&TerminalOp::CarriageReturn);
         screen.process_op(&TerminalOp::Linefeed);
         screen.process_op(&TerminalOp::Print("CCC".to_string()));
 
@@ -1896,6 +2040,7 @@ mod tests {
         screen.process_op(&TerminalOp::EraseInDisplay(EraseMode::All));
         screen.process_op(&TerminalOp::CursorPosition { row: 1, col: 1 });
         screen.process_op(&TerminalOp::Print("XXX".to_string()));
+        screen.process_op(&TerminalOp::CarriageReturn);
         screen.process_op(&TerminalOp::Linefeed);
         screen.process_op(&TerminalOp::Print("YYY".to_string()));
 
@@ -1938,8 +2083,10 @@ mod tests {
 
         // Simulate a simple menu with highlighted item
         screen.process_op(&TerminalOp::Print("Option 1".to_string()));
+        screen.process_op(&TerminalOp::CarriageReturn);
         screen.process_op(&TerminalOp::Linefeed);
         screen.process_op(&TerminalOp::Print("> Option 2".to_string()));
+        screen.process_op(&TerminalOp::CarriageReturn);
         screen.process_op(&TerminalOp::Linefeed);
         screen.process_op(&TerminalOp::Print("Option 3".to_string()));
 
@@ -1951,8 +2098,10 @@ mod tests {
         screen.process_op(&TerminalOp::EraseInDisplay(EraseMode::All));
 
         screen.process_op(&TerminalOp::Print("Option 1".to_string()));
+        screen.process_op(&TerminalOp::CarriageReturn);
         screen.process_op(&TerminalOp::Linefeed);
         screen.process_op(&TerminalOp::Print("Option 2".to_string()));
+        screen.process_op(&TerminalOp::CarriageReturn);
         screen.process_op(&TerminalOp::Linefeed);
         screen.process_op(&TerminalOp::Print("> Option 3".to_string()));
 
@@ -1964,5 +2113,104 @@ mod tests {
         let d = snap1.diff(&snap2);
         assert!(d.changed_lines.iter().any(|c| c.row == 1));
         assert!(d.changed_lines.iter().any(|c| c.row == 2));
+    }
+
+    // ─── Deferred wrap tests ────────────────────────────────────
+
+    #[test]
+    fn test_deferred_wrap_pending() {
+        let mut s = TerminalScreen::new(5, 2);
+        // Print exactly 5 chars — fills the line
+        s.process_op(&TerminalOp::Print("ABCDE".to_string()));
+        // cursor should be at col 4 (clamped) with wrap_pending = true
+        assert_eq!(s.cursor.col, 4);
+        assert!(s.cursor.wrap_pending);
+        // Print one more — should wrap to next line first
+        s.process_op(&TerminalOp::Print("F".to_string()));
+        assert_eq!(s.cursor.row, 1);
+        assert!(!s.cursor.wrap_pending);
+        let snap = s.snapshot();
+        assert_eq!(snap.lines[0], "ABCDE");
+        assert_eq!(snap.lines[1], "F");
+    }
+
+    #[test]
+    fn test_deferred_wrap_cleared_by_cursor_move() {
+        let mut s = TerminalScreen::new(5, 2);
+        s.process_op(&TerminalOp::Print("ABCDE".to_string()));
+        assert!(s.cursor.wrap_pending);
+        s.process_op(&TerminalOp::CursorBack(1));
+        assert!(!s.cursor.wrap_pending);
+        assert_eq!(s.cursor.col, 3);
+        // Print should go at col 3, not wrap
+        s.process_op(&TerminalOp::Print("X".to_string()));
+        let snap = s.snapshot();
+        assert_eq!(snap.lines[0], "ABCXE");
+    }
+
+    // ─── DECAWM tests ───────────────────────────────────────────
+
+    #[test]
+    fn test_autowrap_on_by_default() {
+        let s = TerminalScreen::new(5, 2);
+        assert!(s.autowrap);
+    }
+
+    #[test]
+    fn test_autowrap_off_no_wrap() {
+        let mut s = TerminalScreen::new(5, 2);
+        s.process_op(&TerminalOp::DecPrivateModeReset(7)); // DECAWM off
+        assert!(!s.autowrap);
+        // Print 6 chars into a 5-col terminal — last char overwrites col 4
+        s.process_op(&TerminalOp::Print("ABCDEF".to_string()));
+        let snap = s.snapshot();
+        assert_eq!(snap.lines[0], "ABCDF"); // E overwritten by F
+        assert!(!s.cursor.wrap_pending);
+    }
+
+    // ─── DECOM tests ────────────────────────────────────────────
+
+    #[test]
+    fn test_origin_mode_cup_relative() {
+        let mut s = TerminalScreen::new(80, 24);
+        s.process_op(&TerminalOp::SetScrollingRegion { top: 5, bottom: 20 });
+        s.process_op(&TerminalOp::DecPrivateModeSet(6)); // DECOM on
+                                                         // Cursor should be at scroll_top (row 4, 0-indexed)
+        assert_eq!(s.cursor.row, 4);
+        assert_eq!(s.cursor.col, 0);
+        // CUP (1,1) with origin mode = row 4, col 0 (0-indexed)
+        s.process_op(&TerminalOp::CursorPosition { row: 1, col: 1 });
+        assert_eq!(s.cursor.row, 4);
+        assert_eq!(s.cursor.col, 0);
+        // CUP (3,5) with origin mode = row 4+2=6, col 4 (0-indexed)
+        s.process_op(&TerminalOp::CursorPosition { row: 3, col: 5 });
+        assert_eq!(s.cursor.row, 6);
+        assert_eq!(s.cursor.col, 4);
+        // Disable origin mode
+        s.process_op(&TerminalOp::DecPrivateModeReset(6));
+        assert_eq!(s.cursor.row, 0);
+        assert_eq!(s.cursor.col, 0);
+        assert!(!s.origin_mode);
+    }
+
+    // ─── REP tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_repeat_character() {
+        let mut s = TerminalScreen::new(20, 5);
+        s.process_op(&TerminalOp::Print("-".to_string()));
+        s.process_op(&TerminalOp::Repeat(9)); // 9 more dashes = 10 total
+        let snap = s.snapshot();
+        assert_eq!(snap.lines[0], "----------");
+    }
+
+    #[test]
+    fn test_repeat_with_wrap() {
+        let mut s = TerminalScreen::new(5, 3);
+        s.process_op(&TerminalOp::Print("X".to_string()));
+        s.process_op(&TerminalOp::Repeat(7)); // 1 + 7 = 8 X's across a 5-col terminal
+        let snap = s.snapshot();
+        assert_eq!(snap.lines[0], "XXXXX");
+        assert_eq!(snap.lines[1], "XXX");
     }
 }

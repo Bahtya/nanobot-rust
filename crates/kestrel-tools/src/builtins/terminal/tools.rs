@@ -1069,7 +1069,7 @@ impl Tool for TerminalWaitForScreenChangeTool {
 
         let sid = session_id.to_string();
         let pattern_owned = match_pattern.map(String::from);
-        let snapshot = tokio::task::spawn_blocking(move || {
+        let (snapshot, changed) = tokio::task::spawn_blocking(move || {
             mgr.wait_for_screen_change(&sid, timeout_ms, pattern_owned.as_deref())
         })
         .await
@@ -1077,6 +1077,9 @@ impl Tool for TerminalWaitForScreenChangeTool {
         .map_err(|e| ToolError::Execution(e.to_string()))?;
 
         let mut output = String::new();
+        if !changed {
+            output.push_str(&format!("Screen unchanged after {}ms.\n\n", timeout_ms));
+        }
         for (i, line) in snapshot.lines.iter().enumerate() {
             if i == snapshot.cursor_row {
                 output.push_str(&format!(
@@ -1537,7 +1540,7 @@ mod tests {
             .await
             .unwrap();
 
-        // Wait with very short timeout — no output sent, should time out
+        // Wait with very short timeout — no output sent, should return screen unchanged
         let result = wait
             .execute(json!({
                 "session_id": session_id,
@@ -1545,11 +1548,20 @@ mod tests {
             }))
             .await;
 
-        assert!(result.is_err());
-        let error = result.unwrap_err().to_string();
         assert!(
-            error.contains("Timeout") || error.contains("timeout"),
-            "Expected timeout error"
+            result.is_ok(),
+            "Expected Ok with screen content, got: {:?}",
+            result
+        );
+        let output = result.unwrap();
+        assert!(
+            output.contains("Screen unchanged"),
+            "Expected 'Screen unchanged' prefix, got: {:?}",
+            output
+        );
+        assert!(
+            output.contains("cursor:") || output.contains("dims:"),
+            "Expected screen metadata in output"
         );
 
         kill.execute(json!({"session_id": session_id}))

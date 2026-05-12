@@ -242,12 +242,15 @@ impl TerminalManager {
     }
 
     /// Wait for the screen state of a session to change.
+    ///
+    /// Returns `(ScreenSnapshot, bool)` — the bool is `true` when a change
+    /// was detected, `false` on timeout (screen snapshot still populated).
     pub fn wait_for_screen_change(
         &self,
         session_id: &str,
         timeout_ms: u64,
         match_pattern: Option<&str>,
-    ) -> Result<ScreenSnapshot> {
+    ) -> Result<(ScreenSnapshot, bool)> {
         let session = {
             let sessions = self.sessions.read();
             sessions

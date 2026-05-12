@@ -434,12 +434,13 @@ impl TerminalSession {
     /// - (if `match_pattern` is provided) the screen text matches the pattern
     /// - The timeout elapses
     ///
-    /// Returns the final snapshot on success, or an error on timeout.
+    /// Returns `(ScreenSnapshot, bool)` — the snapshot is always populated.
+    /// The bool is `true` when a change was detected, `false` on timeout.
     pub fn wait_for_screen_change(
         &self,
         timeout_ms: u64,
         match_pattern: Option<&str>,
-    ) -> Result<ScreenSnapshot> {
+    ) -> Result<(ScreenSnapshot, bool)> {
         let current_input_seq = self.input_sequence.load(Ordering::Relaxed);
         let observed_input_seq = self.observed_input_sequence.load(Ordering::Relaxed);
         let screen_observed = self.screen_observed.load(Ordering::Relaxed);
@@ -507,10 +508,12 @@ impl TerminalSession {
                             current_hash,
                             "wait_for_screen_change: timeout, hash unchanged"
                         );
-                        anyhow::bail!(
-                            "Timeout waiting for screen change ({}ms elapsed)",
-                            timeout_ms
-                        );
+                        self.last_observed_screen_hash
+                            .store(current_hash, Ordering::Relaxed);
+                        self.observed_input_sequence
+                            .store(current_input_seq, Ordering::Relaxed);
+                        self.screen_observed.store(true, Ordering::Relaxed);
+                        return Ok((emulator.screen().snapshot(), false));
                     }
                     continue;
                 }
@@ -525,10 +528,7 @@ impl TerminalSession {
                     self.observed_input_sequence.store(0, Ordering::Relaxed);
                     self.screen_observed.store(true, Ordering::Relaxed);
                     if std::time::Instant::now() >= deadline {
-                        anyhow::bail!(
-                            "Timeout waiting for screen change ({}ms elapsed)",
-                            timeout_ms
-                        );
+                        return Ok((emulator.screen().snapshot(), false));
                     }
                     continue;
                 }
@@ -552,17 +552,13 @@ impl TerminalSession {
                 let screen_text = snapshot.lines.join("\n");
                 if !re.is_match(&screen_text) {
                     if std::time::Instant::now() >= deadline {
-                        anyhow::bail!(
-                            "Screen changed but pattern '{}' not found within timeout ({}ms)",
-                            match_pattern.unwrap_or(""),
-                            timeout_ms
-                        );
+                        return Ok((snapshot, false));
                     }
                     continue;
                 }
             }
 
-            return Ok(snapshot);
+            return Ok((snapshot, true));
         }
     }
 

@@ -1668,7 +1668,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel"
-version = "0.10.3"
+version = "0.10.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1712,7 +1712,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-agent"
-version = "0.10.3"
+version = "0.10.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1748,7 +1748,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-api"
-version = "0.10.3"
+version = "0.10.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1780,7 +1780,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-bus"
-version = "0.10.3"
+version = "0.10.4"
 dependencies = [
  "chrono",
  "kestrel-core",
@@ -1792,7 +1792,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-channels"
-version = "0.10.3"
+version = "0.10.4"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -1829,7 +1829,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-config"
-version = "0.10.3"
+version = "0.10.4"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -1849,7 +1849,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-core"
-version = "0.10.3"
+version = "0.10.4"
 dependencies = [
  "chrono",
  "hickory-resolver",
@@ -1863,7 +1863,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-cron"
-version = "0.10.3"
+version = "0.10.4"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1882,7 +1882,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-daemon"
-version = "0.10.3"
+version = "0.10.4"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1903,7 +1903,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-heartbeat"
-version = "0.10.3"
+version = "0.10.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1927,7 +1927,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-learning"
-version = "0.10.3"
+version = "0.10.4"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1948,7 +1948,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-memory"
-version = "0.10.3"
+version = "0.10.4"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1970,7 +1970,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-providers"
-version = "0.10.3"
+version = "0.10.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1991,7 +1991,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-security"
-version = "0.10.3"
+version = "0.10.4"
 dependencies = [
  "anyhow",
  "ipnet",
@@ -2004,7 +2004,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-session"
-version = "0.10.3"
+version = "0.10.4"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2022,7 +2022,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-skill"
-version = "0.10.3"
+version = "0.10.4"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2041,7 +2041,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-test-utils"
-version = "0.10.3"
+version = "0.10.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2057,7 +2057,7 @@ dependencies = [
 
 [[package]]
 name = "kestrel-tools"
-version = "0.10.3"
+version = "0.10.4"
 dependencies = [
  "anyhow",
  "async-trait",

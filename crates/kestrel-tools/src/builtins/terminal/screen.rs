@@ -1476,6 +1476,12 @@ mod tests {
             snap_after_b.lines[0], "AB",
             "After AB, line 0 should be 'AB'"
         );
+        // Check cells directly before printing 你
+        let buf_before = s2.active_buf();
+        assert_eq!(buf_before.cell(0, 0).char, 'A', "Cell (0,0) before 你");
+        assert_eq!(buf_before.cell(0, 1).char, 'B', "Cell (0,1) before 你");
+        drop(buf_before);
+
         s2.process_op(&TerminalOp::Print("你".to_string()));
         let snap2 = s2.snapshot();
         assert_eq!(snap2.lines[0], "AB", "Final line 0 should be 'AB'");

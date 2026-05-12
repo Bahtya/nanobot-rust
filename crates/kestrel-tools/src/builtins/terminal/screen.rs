@@ -898,14 +898,12 @@ impl TerminalScreen {
         }
 
         // If character doesn't fit on current line and autowrap is on, wrap first
-        if self.cursor.col + w > max_cols {
-            if self.autowrap {
-                self.cursor.col = 0;
-                if self.cursor.row == scroll_bottom {
-                    self.scroll_up(1);
-                } else if self.cursor.row < max_rows - 1 {
-                    self.cursor.row += 1;
-                }
+        if self.cursor.col + w > max_cols && self.autowrap {
+            self.cursor.col = 0;
+            if self.cursor.row == scroll_bottom {
+                self.scroll_up(1);
+            } else if self.cursor.row < max_rows - 1 {
+                self.cursor.row += 1;
             }
         }
 
@@ -1860,8 +1858,10 @@ mod tests {
     fn test_diff_detects_multiple_line_changes() {
         let mut s = TerminalScreen::new(10, 3);
         s.process_op(&TerminalOp::Print("AAA".to_string()));
+        s.process_op(&TerminalOp::CarriageReturn);
         s.process_op(&TerminalOp::Linefeed);
         s.process_op(&TerminalOp::Print("BBB".to_string()));
+        s.process_op(&TerminalOp::CarriageReturn);
         s.process_op(&TerminalOp::Linefeed);
         s.process_op(&TerminalOp::Print("CCC".to_string()));
         let snap1 = s.snapshot();

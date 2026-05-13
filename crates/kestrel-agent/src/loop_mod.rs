@@ -569,6 +569,27 @@ impl AgentLoop {
                         }
                     }));
 
+                // Attach progress callback for IM status messages during long waits
+                let progress_sender = bus_for_stream.outbound_sender();
+                let progress_channel = msg.channel.clone();
+                let progress_chat_id = msg.chat_id.clone();
+                let progress_reply_to = msg.reply_to.clone().or(msg.message_id.clone());
+                let progress_trace_id = msg.trace_id.clone();
+                let runner_with_events = runner_with_events.with_progress_callback(
+                    std::sync::Arc::new(move |content: String, _is_warning: bool| {
+                        let outbound = OutboundMessage {
+                            channel: progress_channel.clone(),
+                            chat_id: progress_chat_id.clone(),
+                            content,
+                            reply_to: progress_reply_to.clone(),
+                            trace_id: progress_trace_id.clone(),
+                            media: vec![],
+                            metadata: Default::default(),
+                        };
+                        let _ = progress_sender.try_send(outbound);
+                    }),
+                );
+
                 match runner_with_events.run(system_prompt.clone(), messages.clone()).await {
                     Ok(run_result) => {
                         break 'retry Ok(run_result);

@@ -3,6 +3,7 @@
 //! Agent loop, runner, context building, skills, subagents, and hooks.
 //! Memory operations are provided by the [`kestrel_memory`] crate.
 
+pub mod adaptive_timeout;
 pub mod cancel_registry;
 pub mod compaction;
 pub mod context;
@@ -13,6 +14,8 @@ pub mod loop_mod;
 pub mod notes;
 pub mod runner;
 pub mod skills;
+pub mod stream_health;
+pub mod stream_progress;
 pub mod subagent;
 
 pub use cancel_registry::CancelRegistry;

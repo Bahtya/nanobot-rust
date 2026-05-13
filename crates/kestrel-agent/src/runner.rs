@@ -99,6 +99,8 @@ pub struct AgentRunner {
     cancel_token: Option<tokio_util::sync::CancellationToken>,
     /// Per-tool execution timeout in seconds (from config.agent.tool_timeout).
     tool_timeout_secs: u64,
+    /// Callback for sending IM progress messages during long waits.
+    progress_callback: Option<Arc<dyn Fn(String, bool) + Send + Sync>>,
 }
 
 impl AgentRunner {
@@ -119,6 +121,7 @@ impl AgentRunner {
             trace_id: None,
             cancel_token: None,
             tool_timeout_secs,
+            progress_callback: None,
         }
     }
 
@@ -152,9 +155,21 @@ impl AgentRunner {
         self
     }
 
+    /// Set a callback for sending IM progress messages during long waits.
+    pub fn with_progress_callback(mut self, cb: Arc<dyn Fn(String, bool) + Send + Sync>) -> Self {
+        self.progress_callback = Some(cb);
+        self
+    }
+
     fn emit_event(&self, event: AgentEvent) {
         if let Some(cb) = &self.event_callback {
             cb(event);
+        }
+    }
+
+    fn emit_progress(&self, msg: &crate::stream_progress::ProgressMessage) {
+        if let Some(ref cb) = self.progress_callback {
+            cb(msg.content.clone(), msg.is_warning);
         }
     }
 
@@ -246,9 +261,19 @@ impl AgentRunner {
                 reasoning_effort: self.config.agent.reasoning_effort.clone(),
             };
 
+            // Compute adaptive timeouts based on context size, model, and provider
+            let timeouts = crate::adaptive_timeout::resolve_timeouts(
+                &self.config,
+                &conversation,
+                model,
+                provider_name,
+            );
+
             // Use streaming or non-streaming based on configuration
             let response: kestrel_providers::CompletionResponse = if use_streaming {
-                let sr = self.complete_streaming(&provider, request).await?;
+                let sr = self
+                    .complete_streaming(&provider, request, &timeouts)
+                    .await?;
                 reasoning_content = sr.reasoning_content.clone();
                 sr.into()
             } else {
@@ -377,6 +402,7 @@ impl AgentRunner {
         &self,
         provider: &Arc<dyn kestrel_providers::LlmProvider>,
         request: CompletionRequest,
+        timeouts: &crate::adaptive_timeout::ResolvedTimeouts,
     ) -> Result<crate::StreamingResult> {
         use futures::StreamExt;
         use kestrel_core::{FunctionCall, ToolCall as CoreToolCall};
@@ -407,19 +433,55 @@ impl AgentRunner {
             let mut tool_calls_map: std::collections::HashMap<usize, (String, String, String)> =
                 std::collections::HashMap::new();
 
-            let first_chunk_timeout =
-                std::time::Duration::from_secs(self.config.agent.first_byte_timeout);
-            let idle_timeout = std::time::Duration::from_secs(self.config.agent.idle_timeout);
             let mut is_first = true;
             let mut last_chunk_at = std::time::Instant::now();
 
+            // Stream health monitor — tracks token flow for adaptive timeouts
+            let mut health = crate::stream_health::StreamHealthMonitor::new(
+                timeouts.idle_timeout,
+                timeouts.absolute_max,
+            );
+
+            // Progress tracker — decides when to send IM status messages
+            let mut progress =
+                crate::stream_progress::StreamProgressTracker::new(timeouts.message_timeout);
+            progress.transition(crate::stream_progress::StreamPhase::WaitingFirstByte);
+
+            // Progress check interval: ensure we poll at least every 5s even
+            // when idle_timeout is long, so the 10s first-byte warning fires.
+            let progress_interval = std::time::Duration::from_secs(5);
+
             loop {
-                let timeout = if is_first {
-                    first_chunk_timeout
-                } else {
-                    idle_timeout
+                let poll_timeout = {
+                    let health_state = health.check_health();
+                    match health_state {
+                        crate::stream_health::HealthState::Dead => {
+                            break 'stream_retry Err(anyhow::anyhow!(
+                                "Stream dead: no content for {}s ({} chunks received)",
+                                health.time_since_any().as_secs(),
+                                health.content_chunks(),
+                            ));
+                        }
+                        crate::stream_health::HealthState::Stale => {
+                            std::time::Duration::from_secs(5)
+                        }
+                        crate::stream_health::HealthState::Healthy => {
+                            if is_first {
+                                timeouts.first_byte_timeout
+                            } else {
+                                timeouts.idle_timeout.min(progress_interval)
+                            }
+                        }
+                    }
                 };
-                let chunk_result = tokio::time::timeout(timeout, stream.next()).await;
+
+                let chunk_result = tokio::time::timeout(poll_timeout, stream.next()).await;
+
+                // Poll for progress messages regardless of chunk result
+                if let Some(msg) = progress.poll() {
+                    self.emit_progress(&msg);
+                }
+
                 is_first = false;
 
                 let now = std::time::Instant::now();
@@ -436,6 +498,7 @@ impl AgentRunner {
                 let chunk_result = match chunk_result {
                     Ok(Some(r)) => r,
                     Ok(None) => {
+                        progress.transition(crate::stream_progress::StreamPhase::Done);
                         break 'stream_retry Ok((
                             full_content,
                             full_reasoning,
@@ -445,10 +508,23 @@ impl AgentRunner {
                         ));
                     }
                     Err(_) => {
-                        let err = anyhow::anyhow!(
-                            "SSE stream timed out: no data received within {}s",
-                            timeout.as_secs()
-                        );
+                        let health_state = health.check_health();
+                        if let Some(msg) = progress.on_reconnect() {
+                            self.emit_progress(&msg);
+                        }
+                        let err = match health_state {
+                            crate::stream_health::HealthState::Dead => anyhow::anyhow!(
+                                "Stream health dead after {}s ({} chunks, {} tokens)",
+                                health.time_since_any().as_secs(),
+                                health.content_chunks(),
+                                health.total_tokens(),
+                            ),
+                            _ => anyhow::anyhow!(
+                                "SSE stream timed out: no data within {}s (stale: {}s)",
+                                poll_timeout.as_secs(),
+                                health.time_since_content().as_secs()
+                            ),
+                        };
                         if stream_attempt < max_stream_retries {
                             stream_attempt += 1;
                             let backoff = std::time::Duration::from_millis(500 << stream_attempt);
@@ -476,6 +552,9 @@ impl AgentRunner {
                         if is_stream_err && stream_attempt < max_stream_retries {
                             stream_attempt += 1;
                             let backoff = std::time::Duration::from_millis(500 << stream_attempt);
+                            if let Some(msg) = progress.on_reconnect() {
+                                self.emit_progress(&msg);
+                            }
                             warn!(
                                 trace_id = %self.trace_id.as_deref().unwrap_or("-"),
                                 attempt = stream_attempt,
@@ -498,8 +577,21 @@ impl AgentRunner {
                         "SSE first-byte received"
                     );
                     first_byte_logged = true;
+                    progress.transition(crate::stream_progress::StreamPhase::Streaming);
                 }
                 last_chunk_at = std::time::Instant::now();
+
+                // Determine if this chunk carries content and update health
+                let has_content = chunk.delta.is_some() || chunk.reasoning_content.is_some();
+                let token_count = chunk.delta.as_ref().map(|d| d.len() / 4).unwrap_or(0);
+                health.record_chunk(has_content, token_count);
+
+                // Track thinking blocks for lenient stale thresholds
+                if chunk.reasoning_content.is_some() {
+                    health.set_thinking(true);
+                } else if chunk.delta.is_some() {
+                    health.set_thinking(false);
+                }
 
                 // Accumulate text content
                 if let Some(delta) = &chunk.delta {
@@ -544,6 +636,7 @@ impl AgentRunner {
                 }
 
                 if chunk.done {
+                    progress.transition(crate::stream_progress::StreamPhase::Done);
                     break 'stream_retry Ok((
                         full_content,
                         full_reasoning,

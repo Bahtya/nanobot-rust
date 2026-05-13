@@ -743,14 +743,24 @@ impl AgentLoop {
 
                         // Send outbound message
                         let user_msg = msg.content.clone();
-                        let result_content = result.content.clone();
+                        // When channel streaming is disabled, the StreamConsumer
+                        // (which strips think tags) never ran. Strip them here so
+                        // the outbound message isn't empty when the model wraps its
+                        // entire response in <think()> blocks.
+                        let result_content = if !channel_streaming {
+                            kestrel_channels::stream_consumer::strip_think_blocks(
+                                &result.content,
+                            )
+                        } else {
+                            result.content.clone()
+                        };
                         let tool_calls = result.tool_calls_made;
                         let iterations = result.iterations_used;
                         let success = !result.hit_limit;
                         let outbound = OutboundMessage {
                             channel: msg.channel.clone(),
                             chat_id: msg.chat_id.clone(),
-                            content: result.content.clone(),
+                            content: result_content.clone(),
                             reply_to: msg.reply_to.clone().or(msg.message_id.clone()),
                             trace_id: msg.trace_id.clone(),
                             media: vec![],

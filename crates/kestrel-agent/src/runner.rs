@@ -463,7 +463,7 @@ impl AgentRunner {
                             ));
                         }
                         crate::stream_health::HealthState::Stale => {
-                            std::time::Duration::from_secs(5)
+                            std::time::Duration::from_secs(self.config.agent.stale_poll_timeout)
                         }
                         crate::stream_health::HealthState::Healthy => {
                             if is_first {

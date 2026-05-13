@@ -433,6 +433,40 @@ fn find_partial_tag_suffix(text: &str, tags: &[&str]) -> usize {
     held
 }
 
+/// Strip thinking/reasoning blocks from a complete (non-streaming) text.
+///
+/// Removes content between any matching open/close think tag pairs, keeping
+/// everything outside them. Used when channel streaming is disabled so the
+/// outbound message doesn't contain raw thinking tags.
+pub fn strip_think_blocks(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut in_think = false;
+    let mut remaining = text;
+
+    while !remaining.is_empty() {
+        if in_think {
+            let (idx, len) = find_earliest_tag(remaining, CLOSE_THINK_TAGS);
+            if len > 0 {
+                in_think = false;
+                remaining = &remaining[idx + len..];
+            } else {
+                break; // unclosed tag — discard rest
+            }
+        } else {
+            let (idx, len) = find_earliest_tag(remaining, OPEN_THINK_TAGS);
+            if len > 0 {
+                result.push_str(&remaining[..idx]);
+                in_think = true;
+                remaining = &remaining[idx + len..];
+            } else {
+                result.push_str(remaining);
+                break;
+            }
+        }
+    }
+    result
+}
+
 /// Split text into chunks that fit within `limit` characters, respecting
 /// newline boundaries.
 pub fn split_message(text: &str, limit: usize) -> Vec<String> {

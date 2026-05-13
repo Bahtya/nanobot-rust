@@ -715,6 +715,11 @@ pub struct AgentDefaults {
     #[serde(default = "default_idle_timeout")]
     pub idle_timeout: u64,
 
+    /// Poll interval in seconds when the SSE stream is classified as Stale.
+    /// Controls how often we re-check for incoming chunks during idle periods.
+    #[serde(default = "default_stale_poll_timeout")]
+    pub stale_poll_timeout: u64,
+
     /// Message processing timeout in seconds.
     ///
     /// When a single message exceeds this duration, the agent loop sends a
@@ -743,6 +748,7 @@ impl Default for AgentDefaults {
             connect_timeout: default_connect_timeout(),
             first_byte_timeout: default_first_byte_timeout(),
             idle_timeout: default_idle_timeout(),
+            stale_poll_timeout: default_stale_poll_timeout(),
             message_timeout: default_message_timeout(),
             reasoning_effort: None,
         }
@@ -1210,7 +1216,11 @@ const fn default_first_byte_timeout() -> u64 {
 }
 
 const fn default_idle_timeout() -> u64 {
-    60
+    120
+}
+
+const fn default_stale_poll_timeout() -> u64 {
+    30
 }
 
 fn default_dream_interval() -> u64 {

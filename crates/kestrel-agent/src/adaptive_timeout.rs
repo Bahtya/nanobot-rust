@@ -228,11 +228,11 @@ mod tests {
         let t = resolve_timeouts(&config, &msgs, "gpt-4o", "openai");
 
         assert_eq!(t.first_byte_timeout, Duration::from_secs(15));
-        assert_eq!(t.idle_timeout, Duration::from_secs(60));
+        assert_eq!(t.idle_timeout, Duration::from_secs(120));
         assert_eq!(t.message_timeout, Duration::from_secs(300));
         assert_eq!(t.connect_timeout, Duration::from_secs(10));
-        // absolute_max = max(idle*10, 600) = max(600, 600) = 600
-        assert_eq!(t.absolute_max, Duration::from_secs(600));
+        // absolute_max = max(idle*10, 600) = max(1200, 600) = 1200
+        assert_eq!(t.absolute_max, Duration::from_secs(1200));
     }
 
     #[test]
@@ -275,8 +275,8 @@ mod tests {
         let config = default_config();
         let msgs = vec![];
         let t = resolve_timeouts(&config, &msgs, "gpt-4o", "openai");
-        // idle=60, max(60*10, 600) = 600
-        assert_eq!(t.absolute_max, Duration::from_secs(600));
+        // idle=120, max(120*10, 600) = 1200
+        assert_eq!(t.absolute_max, Duration::from_secs(1200));
     }
 
     #[test]

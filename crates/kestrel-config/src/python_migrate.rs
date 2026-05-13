@@ -413,6 +413,7 @@ fn convert_provider_entry(py: &PythonProviderEntry) -> ProviderEntry {
         base_url: py.api_base.clone(), // apiBase → base_url
         model: py.model.clone(),
         no_proxy: None,
+        model_timeouts: Default::default(),
     }
 }
 

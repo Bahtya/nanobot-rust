@@ -1262,6 +1262,7 @@ mod tests {
             base_url: None,
             model: Some("gpt-4o".to_string()),
             no_proxy: None,
+            model_timeouts: Default::default(),
         });
         config.channels.telegram = Some(TelegramConfig {
             token: "123456:ABC-DEF".to_string(),
@@ -1370,6 +1371,7 @@ mod tests {
             base_url: None,
             model: None,
             no_proxy: None,
+            model_timeouts: Default::default(),
         });
         let report = validate(&config);
         assert!(report
@@ -1386,6 +1388,7 @@ mod tests {
             base_url: None,
             model: None,
             no_proxy: None,
+            model_timeouts: Default::default(),
         });
         let report = validate(&config);
         assert!(report
@@ -1402,6 +1405,7 @@ mod tests {
             base_url: None,
             model: None,
             no_proxy: None,
+            model_timeouts: Default::default(),
         });
         let report = validate(&config);
         assert!(report
@@ -1418,6 +1422,7 @@ mod tests {
             base_url: None,
             model: None,
             no_proxy: None,
+            model_timeouts: Default::default(),
         });
         let report = validate(&config);
         assert!(report.is_valid());
@@ -1478,6 +1483,7 @@ mod tests {
             base_url: Some(String::new()),
             model: Some("llama3".to_string()),
             no_proxy: None,
+            model_timeouts: Default::default(),
         });
         let report = validate(&config);
         assert!(report
@@ -2089,6 +2095,7 @@ mod tests {
             base_url: None,
             model: None,
             no_proxy: None,
+            model_timeouts: Default::default(),
         });
         config.agent.provider = Some("openai".to_string()); // not configured
         let report = validate(&config);
@@ -2106,6 +2113,7 @@ mod tests {
             base_url: None,
             model: None,
             no_proxy: None,
+            model_timeouts: Default::default(),
         });
         config.agent.model = "gpt-4o".to_string();
         let report = validate(&config);
@@ -2179,6 +2187,7 @@ mod tests {
             base_url: None,
             model: None,
             no_proxy: None,
+            model_timeouts: Default::default(),
         });
 
         let (report, filled) = validate_and_fill(&mut config);
@@ -2204,6 +2213,7 @@ mod tests {
             base_url: None,
             model: None,
             no_proxy: None,
+            model_timeouts: Default::default(),
         });
         let report = validate(&config);
         assert!(report
@@ -2224,6 +2234,7 @@ mod tests {
             base_url: None,
             model: None,
             no_proxy: None,
+            model_timeouts: Default::default(),
         });
         let report = validate(&config);
         assert!(report.is_valid());
@@ -2307,6 +2318,7 @@ mod tests {
             base_url: Some("ftp://bad.proto".to_string()),
             model: None,
             no_proxy: None,
+            model_timeouts: Default::default(),
         });
         let report = validate(&config);
         assert!(report

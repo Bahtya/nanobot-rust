@@ -175,6 +175,22 @@ pub struct ProvidersConfig {
     pub glm_coding_plan: Option<ProviderEntry>,
 }
 
+/// Per-model timeout overrides within a provider.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub struct ModelTimeoutOverrides {
+    /// Override first_byte_timeout (seconds) for this model.
+    #[serde(default)]
+    pub first_byte_timeout: Option<u64>,
+    /// Override idle_timeout (seconds) for this model.
+    #[serde(default)]
+    pub idle_timeout: Option<u64>,
+    /// Hard ceiling (seconds) beyond which the stream is declared dead
+    /// regardless of health.  Used by the stream-health monitor.
+    #[serde(default)]
+    pub absolute_max: Option<u64>,
+}
+
 /// A generic provider entry with API key and optional base URL.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -192,6 +208,10 @@ pub struct ProviderEntry {
     /// Set to true for domestic Chinese APIs (e.g. ZAI, Qwen) that don't need a proxy.
     #[serde(default)]
     pub no_proxy: Option<bool>,
+    /// Per-model timeout overrides.  Key is a model name or glob pattern
+    /// (e.g. `"claude-opus*"`).
+    #[serde(default)]
+    pub model_timeouts: HashMap<String, ModelTimeoutOverrides>,
 }
 
 /// Azure OpenAI provider entry with deployment-specific fields.
@@ -1331,6 +1351,7 @@ log_format: text
             base_url: None,
             model: None,
             no_proxy: None,
+            model_timeouts: Default::default(),
         };
         assert!(entry.api_key.is_none());
         assert!(entry.base_url.is_none());

@@ -60,8 +60,8 @@ fn is_local_provider(config: &kestrel_config::Config, provider_name: &str) -> bo
         }
     }
 
-    // Check standard provider entries for base_url overrides pointing to localhost
-    for entry in provider_entries(config) {
+    // Check the *named* standard provider's base_url — not all providers
+    if let Some(entry) = lookup_provider_entry(config, provider_name) {
         if let Some(ref url) = entry.base_url {
             if is_localhost_url(url) {
                 return true;
@@ -80,62 +80,12 @@ fn is_localhost_url(url: &str) -> bool {
         || lower.contains("0.0.0.0")
 }
 
-/// Collect all standard ProviderEntry refs for iteration.
-fn provider_entries(
-    config: &kestrel_config::Config,
-) -> Vec<&kestrel_config::schema::ProviderEntry> {
-    let p = &config.providers;
-    let mut v: Vec<&_> = Vec::new();
-    if let Some(e) = p.anthropic.as_ref() {
-        v.push(e);
-    }
-    if let Some(e) = p.openai.as_ref() {
-        v.push(e);
-    }
-    if let Some(e) = p.openrouter.as_ref() {
-        v.push(e);
-    }
-    if let Some(e) = p.ollama.as_ref() {
-        v.push(e);
-    }
-    if let Some(e) = p.deepseek.as_ref() {
-        v.push(e);
-    }
-    if let Some(e) = p.gemini.as_ref() {
-        v.push(e);
-    }
-    if let Some(e) = p.groq.as_ref() {
-        v.push(e);
-    }
-    if let Some(e) = p.moonshot.as_ref() {
-        v.push(e);
-    }
-    if let Some(e) = p.minimax.as_ref() {
-        v.push(e);
-    }
-    if let Some(e) = p.github_copilot.as_ref() {
-        v.push(e);
-    }
-    if let Some(e) = p.openai_codex.as_ref() {
-        v.push(e);
-    }
-    if let Some(e) = p.opencode_go.as_ref() {
-        v.push(e);
-    }
-    if let Some(e) = p.glm_coding_plan.as_ref() {
-        v.push(e);
-    }
-    v
-}
-
-// ── Model override lookup ──────────────────────────────────────
-
-fn lookup_model_overrides<'a>(
+/// Look up a standard provider entry by name.
+fn lookup_provider_entry<'a>(
     config: &'a kestrel_config::Config,
     provider_name: &str,
-    model: &str,
-) -> Option<&'a kestrel_config::schema::ModelTimeoutOverrides> {
-    let entry = match provider_name {
+) -> Option<&'a kestrel_config::schema::ProviderEntry> {
+    match provider_name {
         "anthropic" => config.providers.anthropic.as_ref(),
         "openai" => config.providers.openai.as_ref(),
         "openrouter" => config.providers.openrouter.as_ref(),
@@ -150,7 +100,17 @@ fn lookup_model_overrides<'a>(
         "opencode_go" => config.providers.opencode_go.as_ref(),
         "glm_coding_plan" => config.providers.glm_coding_plan.as_ref(),
         _ => None,
-    };
+    }
+}
+
+// ── Model override lookup ──────────────────────────────────────
+
+fn lookup_model_overrides<'a>(
+    config: &'a kestrel_config::Config,
+    provider_name: &str,
+    model: &str,
+) -> Option<&'a kestrel_config::schema::ModelTimeoutOverrides> {
+    let entry = lookup_provider_entry(config, provider_name);
 
     if let Some(e) = entry {
         // Exact match first
@@ -197,8 +157,9 @@ pub fn resolve_timeouts(
         idle = idle.max(180);
     }
 
-    // Per-model overrides from config
-    if let Some(ov) = lookup_model_overrides(config, provider_name, model) {
+    // Per-model overrides from config (single lookup, reused for absolute_max)
+    let model_overrides = lookup_model_overrides(config, provider_name, model);
+    if let Some(ov) = model_overrides {
         if let Some(v) = ov.first_byte_timeout {
             first_byte = v;
         }
@@ -209,7 +170,7 @@ pub fn resolve_timeouts(
 
     // absolute_max defaults to the larger of idle*10 or 600s,
     // can be overridden per-model
-    let absolute_max = lookup_model_overrides(config, provider_name, model)
+    let absolute_max = model_overrides
         .and_then(|ov| ov.absolute_max)
         .unwrap_or_else(|| (idle * 10).max(600));
 

@@ -17,8 +17,6 @@ pub enum StreamPhase {
     WaitingFirstByte,
     /// Content is being streamed to the user.
     Streaming,
-    /// Tool execution in progress (between LLM iterations).
-    ToolExecution,
     /// Interaction complete.
     Done,
 }
@@ -119,7 +117,7 @@ impl StreamProgressTracker {
                     });
                 }
             }
-            StreamPhase::Streaming | StreamPhase::ToolExecution
+            StreamPhase::Streaming
                 if !self.sent_timeout_warning
                     && total_elapsed.as_secs_f64() / self.message_timeout.as_secs_f64()
                         >= self.message_timeout_warning_ratio =>
@@ -134,7 +132,7 @@ impl StreamProgressTracker {
                     is_warning: true,
                 });
             }
-            StreamPhase::Streaming | StreamPhase::ToolExecution => {}
+            StreamPhase::Streaming => {}
             _ => {}
         }
         None

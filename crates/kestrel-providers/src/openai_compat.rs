@@ -136,7 +136,12 @@ impl OpenAiCompatProvider {
         });
 
         if let Some(max_tokens) = request.max_tokens {
-            body["max_tokens"] = json!(max_tokens);
+            let effective = if is_reasoning_model(&request.model) {
+                max_tokens.max(16384)
+            } else {
+                max_tokens
+            };
+            body["max_tokens"] = json!(effective);
         }
         if let Some(temp) = request.temperature {
             body["temperature"] = json!(temp);
@@ -379,6 +384,19 @@ fn build_openai_tool_call_deltas(
         .collect();
     deltas.sort_by_key(|d| d.index);
     Some(deltas)
+}
+
+/// Check if a model is a known reasoning model that uses thinking tokens.
+///
+/// Reasoning models consume `max_tokens` budget with thinking/reasoning tokens.
+/// We auto-inflate the budget so thinking doesn't crowd out actual content.
+fn is_reasoning_model(model: &str) -> bool {
+    let m = model.to_lowercase();
+    m.contains("glm-5")
+        || m.starts_with("deepseek-r")
+        || m.starts_with("o1")
+        || m.starts_with("o3")
+        || m.starts_with("o4")
 }
 
 #[derive(Debug, Deserialize)]

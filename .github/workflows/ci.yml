@@ -44,7 +44,9 @@ jobs:
       - name: Disable Windows Defender real-time scanning
         run: Set-MpPreference -DisableRealtimeMonitoring $true
       - name: Install protobuf compiler
-        run: choco install protoc
+        run: choco install protoc --yes
+      - name: Add protoc to PATH
+        run: echo "C:\ProgramData\chocolatey\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace -- -D warnings
 
@@ -60,7 +62,9 @@ jobs:
       - name: Disable Windows Defender real-time scanning
         run: Set-MpPreference -DisableRealtimeMonitoring $true
       - name: Install protobuf compiler
-        run: choco install protoc
+        run: choco install protoc --yes
+      - name: Add protoc to PATH
+        run: echo "C:\ProgramData\chocolatey\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:

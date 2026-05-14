@@ -49,7 +49,8 @@ pub(crate) fn build_client(no_proxy: bool) -> anyhow::Result<reqwest::Client> {
 pub(crate) fn build_streaming_client(no_proxy: bool) -> anyhow::Result<reqwest::Client> {
     let mut builder = reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(10))
-        .dns_resolver(kestrel_core::dns::build_dns_resolver());
+        .dns_resolver(kestrel_core::dns::build_dns_resolver())
+        .http1_only();
     if no_proxy {
         builder = builder.no_proxy();
     }
